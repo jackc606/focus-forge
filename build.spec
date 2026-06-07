@@ -1,5 +1,7 @@
-# PyInstaller spec for Focus Forge — single-file Windows .exe
-# Build with: pyinstaller build.spec
+# PyInstaller spec for Focus Forge — one-folder Windows build (fast launch).
+# Build with:  python -m PyInstaller build.spec --clean --noconfirm
+# Output:      dist/FocusForge/FocusForge.exe  (+ _internal/ deps)
+# The Inno Setup installer (installer.iss) packages that folder.
 
 a = Analysis(
     ['main.py'],
@@ -36,20 +38,28 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='FocusForge',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='FocusForge',
 )

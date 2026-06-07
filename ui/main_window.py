@@ -35,6 +35,7 @@ from . import theme as T
 from .country_editor import CountryEditorDialog
 from .country_export import export_country_assets
 from .export_panel import ExportPanel
+from .help_panel import HelpPanel
 from .icon_provider import provider
 from .import_tree_dialog import ImportTreeDialog
 from .new_submod_dialog import NewSubmodDialog
@@ -93,11 +94,13 @@ class MainWindow(QMainWindow):
         self._export_panel = ExportPanel(self._model)
         self._llm = LlmPanel(self._model)
         self._settings = SettingsPanel(self._model)
+        self._help = HelpPanel()
         self._tabs.addTab(self._inspector, "Inspector")
         self._tabs.addTab(self._validation, "Validation")
         self._tabs.addTab(self._export_panel, "Export")
         self._tabs.addTab(self._llm, "LLM")
         self._tabs.addTab(self._settings, "Settings")
+        self._tabs.addTab(self._help, "Help")
         splitter.addWidget(self._tabs)
 
         splitter.setStretchFactor(0, 0)
@@ -407,11 +410,16 @@ class MainWindow(QMainWindow):
 
     def _do_export(self, directory: Path) -> bool:
         from core.validation import get_blocking_issues
-        if get_blocking_issues(self._model.project):
+        blocking = get_blocking_issues(self._model.project)
+        if blocking:
+            shown = "\n".join(f"  • {i.message}" for i in blocking[:8])
+            more = f"\n  …and {len(blocking) - 8} more" if len(blocking) > 8 else ""
+            n = len(blocking)
             ans = QMessageBox.question(
                 self,
                 "Validation errors",
-                "Project has validation errors. Export anyway?",
+                f"This project has {n} error{'s' if n != 1 else ''} that may produce a "
+                f"broken mod:\n\n{shown}{more}\n\nExport anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )

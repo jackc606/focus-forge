@@ -241,6 +241,11 @@ QLabel#sectionHeader {{
 }}
 QLabel#hint {{ color: {T.TEXT_MUTED}; font-size: {T.TEXT_BODY}px; }}
 QLabel#muted {{ color: {T.TEXT_MUTED}; }}
+
+/* ----- Help tab cards ----- */
+QFrame#helpCard {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_CARD}px; }}
+QLabel#helpTitle {{ color: {T.TEXT_PRIMARY}; font-weight: {T.WEIGHT_SEMIBOLD}; font-size: {T.TEXT_LABEL}px; }}
+QLabel#helpBody {{ color: {T.TEXT_SECONDARY}; font-size: {T.TEXT_BODY}px; }}
 QLabel#iconPreview {{ background-color: {T.BG_INSET}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_INPUT}px; }}
 
 QFrame#divider {{ background-color: {T.BORDER_SUBTLE}; max-height: 1px; min-height: 1px; border: 0; }}

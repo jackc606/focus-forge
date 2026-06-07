@@ -103,6 +103,27 @@ def test_ideas_and_events_export_consistency():
     assert "event.id.duplicate" in _errors(ev)
 
 
+def test_event_namespace_must_match_loc_prefix():
+    es = ExportSettings(focusFileName="lba", localisationPrefix="LBA", includeEvents=True)
+    p = _valid_base(events=[EventData(id="LBA.1", title="ok"),     # correct namespace
+                            EventData(id="USA.1", title="x"),       # wrong namespace
+                            EventData(id="noprefix", title="x")],   # no namespace
+                    exportSettings=es)
+    msgs = [i.message for i in validate_project(p) if i.code == "event.namespace"]
+    assert any("USA.1" in m for m in msgs)
+    assert any("noprefix" in m for m in msgs)
+    assert not any("LBA.1" in m for m in msgs)   # the correct one is fine
+
+
+def test_event_namespace_not_enforced_when_prefix_invalid():
+    # if the loc prefix is itself invalid (its own error), don't pile on namespace errors
+    es = ExportSettings(focusFileName="lba", localisationPrefix="", includeEvents=True)
+    p = _valid_base(events=[EventData(id="anything", title="t")], exportSettings=es)
+    codes = _codes(p)
+    assert "export.locPrefix.empty" in codes
+    assert "event.namespace" not in codes
+
+
 def test_ideas_not_validated_when_not_included():
     # includeIdeas off -> a dup idea id does NOT raise (it won't be exported)
     p = _valid_base(ideas=[IdeaData(id="d"), IdeaData(id="d")])

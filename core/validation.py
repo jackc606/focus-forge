@@ -115,8 +115,13 @@ def _validate_metadata(project: FocusForgeProject, issues: list) -> None:
         _validate_collection(project.ideas, issues, "idea", "Idea", check_invalid_id=True,
                              empty_code="ideas.empty", empty_msg="“Include ideas” is on but the project has no ideas.")
     if settings.includeEvents:
+        # event ids must be <namespace>.<n>, where the namespace = add_namespace
+        # = localisationPrefix. Only enforce it when that prefix is itself valid
+        # (an empty/invalid prefix is already its own error above).
+        event_ns = loc_prefix if (loc_prefix and _TOKEN_PATTERN.match(loc_prefix)) else ""
         _validate_collection(project.events, issues, "event", "Event", check_invalid_id=False,
-                             empty_code="events.empty", empty_msg="“Include events” is on but the project has no events.")
+                             empty_code="events.empty", empty_msg="“Include events” is on but the project has no events.",
+                             namespace=event_ns)
 
 
 def _validate_country(country, issues: list) -> None:
@@ -147,7 +152,8 @@ def _validate_country(country, issues: list) -> None:
 
 
 def _validate_collection(items, issues: list, code: str, label: str, *,
-                         check_invalid_id: bool, empty_code: str, empty_msg: str) -> None:
+                         check_invalid_id: bool, empty_code: str, empty_msg: str,
+                         namespace: str = "") -> None:
     if not items:
         _warn(issues, empty_code, empty_msg)
         return
@@ -159,6 +165,10 @@ def _validate_collection(items, issues: list, code: str, label: str, *,
             continue
         if check_invalid_id and not ID_PATTERN.match(iid):
             _err(issues, f"{code}.id.invalid", f"{label} id '{iid}' is not a valid HOI4 id.")
+        if namespace and not iid.startswith(namespace + "."):
+            _err(issues, f"{code}.namespace",
+                 f"{label} id '{iid}' is not in the '{namespace}' namespace "
+                 f"(must be {namespace}.<n> to match add_namespace).")
         if iid in seen:
             _err(issues, f"{code}.id.duplicate", f"{label} id '{iid}' is duplicated.")
         seen.add(iid)
