@@ -1,0 +1,159 @@
+"""QGraphicsScene that reconciles itself against the project model."""
+from __future__ import annotations
+
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsScene
+
+from . import theme as T
+from .edge_item import EdgeItem
+from .focus_node_item import FocusNodeItem
+from .graph_background import draw_strategic_background
+
+
+class GraphScene(QGraphicsScene):
+    node_clicked = Signal(str)
+    node_moved = Signal(str, int, int)
+    link_requested = Signal(str, str)          # source_id (prerequisite), target_id (dependent)
+    create_child_requested = Signal(str, QPointF)  # source_id, drop scene pos (empty space)
+
+    def __init__(self, parent: QObject = None) -> None:
+        super().__init__(parent)
+        self.setBackgroundBrush(QColor(T.BG_BASE))
+        self._nodes: dict = {}  # focus_id -> FocusNodeItem
+        self._edges: dict = {}  # (src_id, dst_id) -> EdgeItem
+        self._temp_line = None
+        self._connect_anchor = None
+
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802 — Qt API
+        # Always paint over the union of every view's visible scene rect so
+        # corner stamps stay anchored to the camera, not the dirty patch.
+        full_rect = QRectF(rect)
+        for view in self.views():
+            visible = view.mapToScene(view.viewport().rect()).boundingRect()
+            full_rect = full_rect.united(visible)
+        draw_strategic_background(painter, full_rect)
+
+    def reconcile(self, project, selected_id: str = "") -> None:
+        # Track desired state
+        desired_node_keys = {f.id for f in project.focuses}
+        focuses_by_id = {f.id: f for f in project.focuses}
+
+        # Remove stale nodes
+        for stale_id in list(self._nodes.keys()):
+            if stale_id not in desired_node_keys:
+                self.removeItem(self._nodes[stale_id])
+                del self._nodes[stale_id]
+
+        # Add or update nodes
+        for f in project.focuses:
+            prereq_count = len(f.prerequisites)
+            existing = self._nodes.get(f.id)
+            if existing:
+                existing.update_data(f.title, f.icon, int(f.position.x), int(f.position.y),
+                                     cost=f.cost, prereq_count=prereq_count)
+            else:
+                node = FocusNodeItem(f.id, f.title, f.icon, int(f.position.x), int(f.position.y),
+                                     cost=f.cost, prereq_count=prereq_count)
+                node.position_committed.connect(self.node_moved.emit)
+                node.clicked.connect(self.node_clicked.emit)
+                node.connect_started.connect(self._on_connect_started)
+                node.connect_moved.connect(self._on_connect_moved)
+                node.connect_ended.connect(self._on_connect_ended)
+                self.addItem(node)
+                self._nodes[f.id] = node
+            self._nodes[f.id].setSelected(f.id == selected_id)
+
+        # Reconcile edges — prerequisite (top-down) + mutually-exclusive (red).
+        # Keys: ("prereq", src, dst) and ("mutex", a, b) with a<b deduped.
+        desired_edges: dict = {}
+        for f in project.focuses:
+            for prereq in f.prerequisites:
+                if prereq in desired_node_keys:
+                    desired_edges[("prereq", prereq, f.id)] = (prereq, f.id)
+            for mx in f.mutuallyExclusive:
+                if mx in desired_node_keys:
+                    a, b = sorted((f.id, mx))
+                    desired_edges[("mutex", a, b)] = (a, b)
+
+        for stale_key in list(self._edges.keys()):
+            if stale_key not in desired_edges:
+                self.removeItem(self._edges[stale_key])
+                del self._edges[stale_key]
+
+        for key, (src_id, dst_id) in desired_edges.items():
+            if key in self._edges:
+                self._edges[key].refresh()
+                continue
+            edge = EdgeItem(self._nodes[src_id], self._nodes[dst_id], kind=key[0])
+            self.addItem(edge)
+            self._edges[key] = edge
+
+        # Refresh edge endpoints if their nodes moved
+        for edge in self._edges.values():
+            edge.refresh()
+
+        if project.focuses:
+            xs = [n.scenePos().x() for n in self._nodes.values()]
+            ys = [n.scenePos().y() for n in self._nodes.values()]
+            margin = 200
+            self.setSceneRect(min(xs) - margin, min(ys) - margin,
+                              max(xs) - min(xs) + margin * 2 + 240,
+                              max(ys) - min(ys) + margin * 2 + 100)
+
+    def select_node(self, focus_id: str) -> None:
+        for fid, item in self._nodes.items():
+            item.setSelected(fid == focus_id)
+
+    def set_search_matches(self, match_ids) -> None:
+        """Highlight matching focuses (amber ring) and dim the rest. Pass None to
+        clear the search highlight."""
+        for fid, item in self._nodes.items():
+            if match_ids is None:
+                item.set_search_match(None)
+                item.setOpacity(1.0)
+            else:
+                matched = fid in match_ids
+                item.set_search_match(matched)
+                item.setOpacity(1.0 if matched else 0.3)
+
+    # ----- drag-to-connect -----
+    def _on_connect_started(self, source_id: str, anchor: QPointF) -> None:
+        self._connect_anchor = anchor
+        if self._temp_line is None:
+            self._temp_line = QGraphicsPathItem()
+            pen = QPen(QColor(T.ACCENT), 2)
+            pen.setStyle(Qt.DashLine)
+            pen.setCosmetic(True)
+            self._temp_line.setPen(pen)
+            self._temp_line.setZValue(5)
+            self.addItem(self._temp_line)
+        self._temp_line.setVisible(True)
+
+    def _on_connect_moved(self, scene_pos: QPointF) -> None:
+        if self._temp_line is None or self._connect_anchor is None:
+            return
+        a = self._connect_anchor
+        mid_y = (a.y() + scene_pos.y()) / 2
+        path = QPainterPath()
+        path.moveTo(a)
+        path.lineTo(QPointF(a.x(), mid_y))
+        path.lineTo(QPointF(scene_pos.x(), mid_y))
+        path.lineTo(scene_pos)
+        self._temp_line.setPath(path)
+
+    def _on_connect_ended(self, source_id: str, target_id: str, drop_pos: QPointF) -> None:
+        anchor = self._connect_anchor
+        if self._temp_line is not None:
+            self._temp_line.setVisible(False)
+            self._temp_line.setPath(QPainterPath())
+        self._connect_anchor = None
+        if target_id and target_id != source_id:
+            self.link_requested.emit(source_id, target_id)
+        elif not target_id and anchor is not None:
+            # Released on empty canvas → spawn a connected child, but only on a
+            # real drag (ignore a stray click on the port).
+            dx = drop_pos.x() - anchor.x()
+            dy = drop_pos.y() - anchor.y()
+            if (dx * dx + dy * dy) >= 30 * 30:
+                self.create_child_requested.emit(source_id, drop_pos)

@@ -1,0 +1,561 @@
+"""Country editor: politics/parties, custom leaders, and flags (preset + import)."""
+from __future__ import annotations
+
+import base64
+
+from PySide6.QtCore import QBuffer, QByteArray, Qt
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .dds_image import load_dds_qimage
+from .no_scroll import NoScrollComboBox as QComboBox
+from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
+from .no_scroll import NoScrollSpinBox as QSpinBox
+
+from core.ideologies import TOP_IDEOLOGIES, sub_ideology_groups
+from core.types import CountryData, LeaderData, PartyData
+
+from . import theme as T
+from .chip_selector import ChipSelector
+from .country_export import _qimage_from_b64
+from .country_provider import country_provider
+from .flag_files import default_flag, flag_files
+from .icon_picker import IconPickerDialog
+from .icon_provider import provider
+from .trait_provider import trait_provider
+from .widgets import hint, panel_header, pill, section_header
+
+_IMG_FILTER = "Images (*.png *.tga *.jpg *.jpeg *.bmp *.dds);;All files (*)"
+
+
+def _to_b64_png(img: QImage) -> str:
+    img = img.convertToFormat(QImage.Format_ARGB32)
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QBuffer.WriteOnly)
+    img.save(buf, "PNG")
+    return base64.b64encode(bytes(ba)).decode("ascii")
+
+
+def _ideology_combo(current: str) -> QComboBox:
+    cb = QComboBox()
+    for top, subs in sub_ideology_groups():
+        cb.addItem(f"— {top} —", None)
+        cb.model().item(cb.count() - 1).setEnabled(False)
+        for s in subs:
+            cb.addItem(f"  {s}", s)
+    idx = cb.findData(current)
+    if idx >= 0:
+        cb.setCurrentIndex(idx)
+    return cb
+
+
+# ---------------------------------------------------------------------------
+class _PartyRow(QFrame):
+    def __init__(self, party: PartyData, on_delete) -> None:
+        super().__init__()
+        self.setFrameShape(QFrame.StyledPanel)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(8, 6, 8, 6)
+        h.setSpacing(6)
+        self.ideo = QComboBox()
+        self.ideo.addItems(TOP_IDEOLOGIES)
+        if party.ideology:
+            self.ideo.setCurrentText(party.ideology)
+        self.name = QLineEdit(party.name)
+        self.name.setPlaceholderText("name")
+        self.long = QLineEdit(party.longName)
+        self.long.setPlaceholderText("long name")
+        x = QPushButton("×")
+        x.setObjectName("deleteButton")
+        x.setToolTip("Remove")
+        x.setFixedWidth(28)
+        x.clicked.connect(lambda: on_delete(self))
+        h.addWidget(self.ideo)
+        h.addWidget(self.name, 1)
+        h.addWidget(self.long, 1)
+        h.addWidget(x)
+
+    def value(self) -> PartyData:
+        return PartyData(ideology=self.ideo.currentText(),
+                         name=self.name.text().strip(),
+                         longName=self.long.text().strip())
+
+
+def _is_portrait_path(ref: str) -> bool:
+    return "gfx/leaders" in (ref or "").replace("\\", "/").lower()
+
+
+class _LeaderRow(QFrame):
+    def __init__(self, leader: LeaderData, on_delete, tag: str = "") -> None:
+        super().__init__()
+        self.setFrameShape(QFrame.StyledPanel)
+        self._tag = (tag or "").strip().upper()
+        self._pictureRef = leader.pictureRef
+        self._pictureData = leader.pictureData
+        v = QVBoxLayout(self)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(6)
+
+        top = QHBoxLayout()
+        self.name = QLineEdit(leader.name)
+        self.name.setPlaceholderText("Leader name")
+        top.addWidget(self.name, 1)
+        x = QPushButton("×")
+        x.setObjectName("deleteButton")
+        x.setToolTip("Remove")
+        x.setFixedWidth(28)
+        x.clicked.connect(lambda: on_delete(self))
+        top.addWidget(x)
+        v.addLayout(top)
+
+        form = QFormLayout()
+        form.setSpacing(6)
+        self.ideo = _ideology_combo(leader.ideology)
+        form.addRow("Ideology", self.ideo)
+        self.traits = ChipSelector(placeholder="search traits…")
+        self.traits.set_grouped_suggestions(trait_provider().trait_groups(self._tag),
+                                            trait_provider().trait_tooltips())
+        self.traits.set_tokens(leader.traits)
+        form.addRow("Traits", self.traits)
+        v.addLayout(form)
+
+        prow = QHBoxLayout()
+        prow.setSpacing(6)
+        self._preview = QLabel()
+        self._preview.setObjectName("iconPreview")
+        self._preview.setFixedSize(34, 40)
+        self._preview.setAlignment(Qt.AlignCenter)
+        prow.addWidget(self._preview)
+        self._pic_label = QLabel()
+        self._pic_label.setObjectName("muted")
+        prow.addWidget(self._pic_label, 1)
+        pick = QPushButton("Choose…")
+        pick.clicked.connect(self._choose_portrait)
+        imp = QPushButton("Import…")
+        imp.setToolTip("Import a custom portrait. MD leader portraits are 156×210 px "
+                       "(.dds or .png).")
+        imp.clicked.connect(self._import_portrait)
+        prow.addWidget(pick)
+        prow.addWidget(imp)
+        v.addWidget(QLabel("Portrait"))
+        pw = QWidget()
+        pw.setLayout(prow)
+        v.addWidget(pw)
+        self._refresh_portrait()
+
+    def _refresh_portrait(self) -> None:
+        if self._pictureData:
+            self._pic_label.setText("(custom portrait)")
+            img = _qimage_from_b64(self._pictureData)
+            pm = QPixmap.fromImage(img) if img else None
+        elif _is_portrait_path(self._pictureRef):
+            self._pic_label.setText(self._pictureRef.rsplit("/", 1)[-1])
+            pm = provider().portrait_pixmap(self._pictureRef)
+        else:
+            self._pic_label.setText(self._pictureRef or "(no portrait)")
+            pm = provider().pixmap(self._pictureRef) if self._pictureRef else None
+        if pm is not None and not pm.isNull():
+            self._preview.setPixmap(pm.scaled(34, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self._preview.clear()
+
+    def _choose_portrait(self) -> None:
+        ports = provider().leader_portraits(self._tag)
+        if not ports:
+            QMessageBox.information(
+                self, "No portraits",
+                f"No Millennium Dawn leader portraits found for {self._tag or 'this country'}.\n"
+                "Use Import… to add a custom portrait, or add the MD folder as an icon "
+                "source in Settings.")
+            return
+        dlg = IconPickerDialog(current=self._pictureRef, parent=self, sprites=ports,
+                               title=f"Choose Portrait — {self._tag}",
+                               loader=load_dds_qimage)
+        if dlg.exec() and dlg.selected_name():
+            self._pictureRef = dlg.selected_name()  # gfx/leaders/<TAG>/<file>.dds
+            self._pictureData = ""
+            self._refresh_portrait()
+
+    def _import_portrait(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import portrait", "", _IMG_FILTER)
+        if not path:
+            return
+        img = QImage(path)
+        if img.isNull():
+            return
+        self._pictureData = _to_b64_png(img)
+        self._pictureRef = ""
+        self._refresh_portrait()
+
+    def value(self) -> LeaderData:
+        return LeaderData(
+            name=self.name.text().strip(),
+            ideology=self.ideo.currentData() or "",
+            traits=self.traits.tokens(),
+            pictureRef=self._pictureRef,
+            pictureData=self._pictureData,
+        )
+
+
+# ---------------------------------------------------------------------------
+class CountryEditorDialog(QDialog):
+    def __init__(self, model, parent=None) -> None:
+        super().__init__(parent)
+        self._model = model
+        self.setWindowTitle(f"Country — {model.project.countryTag or '?'}")
+        self.resize(720, 680)
+        self._country = model.project.country or CountryData()
+        self._flag_main = self._country.flagMain
+        self._flag_variants = dict(self._country.flagVariants or {})
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)
+        v.setSpacing(T.SPACE_MD)
+        v.addWidget(panel_header(f"Country setup — {model.project.countryTag or '?'}"))
+
+        tabs = QTabWidget()
+        tabs.addTab(self._politics_tab(), "Politics")
+        tabs.addTab(self._leaders_tab(), "Leaders")
+        tabs.addTab(self._flags_tab(), "Flags")
+        v.addWidget(tabs, 1)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("Save Country")
+        bb.button(QDialogButtonBox.Ok).setObjectName("primary")
+        bb.accepted.connect(self._accept)
+        bb.rejected.connect(self.reject)
+        v.addWidget(bb)
+
+    # ----- Politics -----
+    def _politics_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(T.SPACE_MD)
+
+        # MD starting politics for this country — used to seed empty fields and
+        # for the "Load MD starting values" button.
+        tag = self._model.project.countryTag
+        self._md_politics = country_provider().starting_politics(tag)
+        # Existing project data wins; only a fresh/blank country auto-fills from MD.
+        if not self._country.popularities and self._md_politics:
+            seed = self._md_politics
+            seed_pops = seed["popularities"]
+            seed_ruling = seed["rulingParty"] or "neutrality"
+            seed_last, seed_freq, seed_elec = (seed["lastElection"],
+                                               seed["electionFrequency"],
+                                               seed["electionsAllowed"])
+        else:
+            seed_pops = self._country.popularities
+            seed_ruling = self._country.rulingParty or "neutrality"
+            seed_last, seed_freq, seed_elec = (self._country.lastElection,
+                                               self._country.electionFrequency,
+                                               self._country.electionsAllowed)
+
+        head = QHBoxLayout()
+        head.addWidget(section_header("Popularities (%)"))
+        head.addStretch(1)
+        self._total_label = QLabel()
+        self._total_label.setObjectName("muted")
+        head.addWidget(self._total_label)
+        v.addLayout(head)
+        if self._md_politics:
+            v.addWidget(hint(f"Pre-filled with {tag}'s Millennium Dawn starting "
+                             "popularities — adjust as you like."))
+        else:
+            v.addWidget(hint(f"No Millennium Dawn starting politics found for {tag} "
+                             "(add its mod folder as an icon source, or set values manually)."))
+
+        form = QFormLayout()
+        self._pop = {}
+        self._pop_pill = {}
+        for ideo in TOP_IDEOLOGIES:
+            sb = QDoubleSpinBox()
+            sb.setRange(0, 100)
+            sb.setDecimals(1)
+            sb.setSingleStep(1.0)
+            sb.setValue(float(seed_pops.get(ideo, 0)))
+            sb.valueChanged.connect(lambda *_: self._update_total())
+            self._pop[ideo] = sb
+            badge = pill("in power", "ok")
+            badge.setVisible(False)
+            self._pop_pill[ideo] = badge
+            field = QWidget()
+            fl = QHBoxLayout(field)
+            fl.setContentsMargins(0, 0, 0, 0)
+            fl.setSpacing(6)
+            fl.addWidget(sb, 1)
+            fl.addWidget(badge)
+            form.addRow(ideo, field)
+        v.addLayout(form)
+
+        reset = QPushButton("Load MD starting values")
+        reset.clicked.connect(self._load_md_values)
+        reset.setEnabled(bool(self._md_politics))
+        v.addWidget(reset)
+
+        v.addWidget(section_header("Politics"))
+        form2 = QFormLayout()
+        self._ruling = QComboBox()
+        self._ruling.addItems(TOP_IDEOLOGIES)
+        self._ruling.setCurrentText(seed_ruling)
+        self._ruling.currentTextChanged.connect(lambda *_: self._update_in_power())
+        form2.addRow("Ruling party", self._ruling)
+        self._last_election = QLineEdit(seed_last)
+        self._last_election.setPlaceholderText("2000.1.1")
+        form2.addRow("Last election", self._last_election)
+        self._freq = QSpinBox()
+        self._freq.setRange(0, 600)
+        self._freq.setValue(seed_freq)
+        form2.addRow("Election frequency (months)", self._freq)
+        self._elections = QCheckBox("Elections allowed")
+        self._elections.setChecked(seed_elec)
+        form2.addRow(self._elections)
+        v.addLayout(form2)
+
+        self._update_in_power()
+        self._update_total()
+
+        v.addWidget(section_header("Named parties"))
+        self._parties_box = QVBoxLayout()
+        self._parties_box.setSpacing(4)
+        v.addLayout(self._parties_box)
+        add = QPushButton("+ Add party")
+        add.clicked.connect(lambda: self._add_party(PartyData(ideology="democratic")))
+        v.addWidget(add)
+        v.addStretch(1)
+        for p in self._country.parties:
+            self._add_party(p)
+        return self._scroll(w)
+
+    def _update_in_power(self) -> None:
+        """Badge the popularity row of the ruling party as 'in power'."""
+        ruling = self._ruling.currentText()
+        for ideo, badge in self._pop_pill.items():
+            badge.setVisible(ideo == ruling)
+
+    def _update_total(self) -> None:
+        total = sum(sb.value() for sb in self._pop.values())
+        self._total_label.setText(f"Total: {total:g}%")
+
+    def _load_md_values(self) -> None:
+        """Reset the Politics fields to this country's MD starting values."""
+        md = self._md_politics
+        if not md:
+            self._model.status_message.emit(
+                f"No MD starting politics for {self._model.project.countryTag}.")
+            return
+        for ideo, sb in self._pop.items():
+            sb.setValue(float(md["popularities"].get(ideo, 0)))
+        self._ruling.setCurrentText(md["rulingParty"] or "neutrality")
+        self._last_election.setText(md["lastElection"])
+        self._freq.setValue(md["electionFrequency"])
+        self._elections.setChecked(md["electionsAllowed"])
+        self._update_in_power()
+        self._update_total()
+
+    def _add_party(self, party: PartyData) -> None:
+        self._parties_box.addWidget(_PartyRow(party, self._del_row))
+
+    # ----- Leaders -----
+    def _leaders_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(T.SPACE_MD)
+        v.addWidget(hint("Custom country leaders → create_country_leader in the history file. "
+                         "Choose… picks an MD portrait; Import… adds your own (156×210 px .dds/.png)."))
+        self._leaders_box = QVBoxLayout()
+        self._leaders_box.setSpacing(T.SPACE_SM)
+        v.addLayout(self._leaders_box)
+        add = QPushButton("+ Add leader")
+        add.clicked.connect(lambda: self._add_leader(LeaderData(ideology="Neutral_conservatism")))
+        v.addWidget(add)
+        v.addStretch(1)
+        for le in self._country.leaders:
+            self._add_leader(le)
+        return self._scroll(w)
+
+    def _add_leader(self, leader: LeaderData) -> None:
+        self._leaders_box.addWidget(
+            _LeaderRow(leader, self._del_row, self._model.project.countryTag))
+
+    # ----- Flags -----
+    def _flags_tab(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(T.SPACE_MD)
+        # MD's current flag for this country (shown until a custom flag is set).
+        tag = self._model.project.countryTag
+        md_pol = country_provider().starting_politics(tag)
+        ruling = ((md_pol or {}).get("rulingParty")
+                  or self._country.rulingParty or "neutrality")
+        dfp = default_flag(provider().roots(), tag, ruling)
+        self._default_flag_img = QImage(dfp) if dfp else None
+
+        v.addWidget(section_header("Main flag"))
+        v.addWidget(hint("Custom flags must be 82×52 px .tga in-game; import a "
+                         ".png/.tga/.dds and it's auto-scaled + converted to .tga "
+                         "(large/medium/small) on export. Leave unset to keep MD's flag."))
+        self._flag_preview = QLabel()
+        self._flag_preview.setFixedSize(123, 78)  # 82x52 ×1.5
+        self._flag_preview.setObjectName("iconPreview")
+        self._flag_preview.setAlignment(Qt.AlignCenter)
+        v.addWidget(self._flag_preview)
+        self._flag_status = QLabel()
+        self._flag_status.setObjectName("muted")
+        v.addWidget(self._flag_status)
+        row = QHBoxLayout()
+        bp = QPushButton("Choose preset flag…")
+        bp.clicked.connect(lambda: self._set_main(self._pick_preset_flag()))
+        bi = QPushButton("Import custom…")
+        bi.setToolTip("Import your own flag — 82×52 px (.tga/.png/.dds). It's "
+                      "auto-scaled and exported as .tga.")
+        bi.clicked.connect(lambda: self._set_main(self._import_image()))
+        bc = QPushButton("Clear")
+        bc.clicked.connect(lambda: self._set_main(""))
+        row.addWidget(bp)
+        row.addWidget(bi)
+        row.addWidget(bc)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        v.addWidget(section_header("Government variants (optional)"))
+        self._variant_previews = {}
+        for ideo in TOP_IDEOLOGIES:
+            vr = QHBoxLayout()
+            lbl = QLabel(ideo)
+            lbl.setFixedWidth(90)
+            prev = QLabel()
+            prev.setObjectName("iconPreview")
+            prev.setFixedSize(62, 40)
+            self._variant_previews[ideo] = prev
+            choose = QPushButton("Choose…")
+            choose.clicked.connect(lambda _c=False, i=ideo: self._set_variant(i, self._pick_preset_flag()))
+            imp = QPushButton("Import…")
+            imp.clicked.connect(lambda _c=False, i=ideo: self._set_variant(i, self._import_image()))
+            clr = QPushButton("Clear")
+            clr.clicked.connect(lambda _c=False, i=ideo: self._set_variant(i, ""))
+            vr.addWidget(lbl)
+            vr.addWidget(prev)
+            vr.addWidget(choose)
+            vr.addWidget(imp)
+            vr.addWidget(clr)
+            vr.addStretch(1)
+            v.addLayout(vr)
+        v.addStretch(1)
+        self._refresh_flags()
+        return self._scroll(w)
+
+    def _pick_preset_flag(self):
+        files = flag_files(provider().roots())
+        by_name = dict(files)
+        dlg = IconPickerDialog(parent=self, sprites=files, title="Choose Flag",
+                               loader=lambda p: QImage(p))
+        if dlg.exec() and dlg.selected_name():
+            path = by_name.get(dlg.selected_name())
+            if path:
+                img = QImage(path)
+                if not img.isNull():
+                    return _to_b64_png(img.scaled(82, 52, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        return None
+
+    def _import_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import flag", "", _IMG_FILTER)
+        if not path:
+            return None
+        img = QImage(path)
+        if img.isNull():
+            return None
+        return _to_b64_png(img.scaled(82, 52, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+
+    def _set_main(self, b64) -> None:
+        if b64 is None:
+            return
+        self._flag_main = b64
+        self._refresh_flags()
+
+    def _set_variant(self, ideo, b64) -> None:
+        if b64 is None:
+            return
+        if b64:
+            self._flag_variants[ideo] = b64
+        else:
+            self._flag_variants.pop(ideo, None)
+        self._refresh_flags()
+
+    def _refresh_flags(self) -> None:
+        tag = self._model.project.countryTag or "this country"
+        if self._flag_main:
+            self._set_preview(self._flag_preview, self._flag_main)
+            self._flag_status.setText("Custom flag — will be exported.")
+        elif self._default_flag_img is not None and not self._default_flag_img.isNull():
+            self._flag_preview.setPixmap(QPixmap.fromImage(self._default_flag_img).scaled(
+                self._flag_preview.width(), self._flag_preview.height(),
+                Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self._flag_status.setText(f"MD default flag for {tag} (not exported — the "
+                                      "game keeps it). Choose/Import to override.")
+        else:
+            self._flag_preview.clear()
+            self._flag_status.setText("No MD flag found for this tag.")
+        for ideo, prev in self._variant_previews.items():
+            self._set_preview(prev, self._flag_variants.get(ideo, ""))
+
+    @staticmethod
+    def _set_preview(label: QLabel, b64: str) -> None:
+        img = _qimage_from_b64(b64) if b64 else None
+        if img is not None and not img.isNull():
+            label.setPixmap(QPixmap.fromImage(img).scaled(
+                label.width(), label.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            label.clear()
+
+    # ----- shared -----
+    def _scroll(self, w: QWidget) -> QScrollArea:
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setWidget(w)
+        return sc
+
+    def _del_row(self, row) -> None:
+        row.setParent(None)
+        row.deleteLater()
+
+    def _rows(self, box):
+        for i in range(box.count()):
+            item = box.itemAt(i)
+            w = item.widget() if item else None
+            if w is not None:
+                yield w
+
+    def _accept(self) -> None:
+        c = CountryData()
+        c.popularities = {ideo: sb.value() for ideo, sb in self._pop.items() if sb.value()}
+        c.rulingParty = self._ruling.currentText()
+        c.lastElection = self._last_election.text().strip()
+        c.electionFrequency = self._freq.value()
+        c.electionsAllowed = self._elections.isChecked()
+        c.parties = [r.value() for r in self._rows(self._parties_box) if isinstance(r, _PartyRow)]
+        c.leaders = [r.value() for r in self._rows(self._leaders_box) if isinstance(r, _LeaderRow)]
+        c.flagMain = self._flag_main
+        c.flagVariants = dict(self._flag_variants)
+        self._model.project.country = c
+        self._model.project.exportSettings.includeCountry = True
+        self._model.notify_changed()
+        self._model.status_message.emit("Country data saved.")
+        self.accept()

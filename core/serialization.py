@@ -1,0 +1,216 @@
+"""JSON round-trip — strips None and empty optional fields to match TS JSON.stringify."""
+from __future__ import annotations
+
+from dataclasses import fields, is_dataclass
+from typing import Any
+
+from .types import (
+    AvailabilityRule,
+    CompletionReward,
+    CountryData,
+    EventData,
+    EventOption,
+    EventReward,
+    ExportSettings,
+    FocusForgeProject,
+    FocusNodeData,
+    FocusPosition,
+    IdeaData,
+    LeaderData,
+    PartyData,
+    RewardItem,
+    TechBonusReward,
+)
+
+# ----- Serialize ---------------------------------------------------------------
+
+# Optional fields that should be omitted from JSON when None.
+_OPTIONAL_FIELDS = {
+    FocusNodeData: {"available", "notes"},
+    CompletionReward: {
+        "politicalPower", "stability", "warSupport", "commandPower",
+        "armyExperience", "airExperience", "navyExperience",
+        "addIdeas", "removeIdeas", "events", "techBonuses", "items", "rawLines",
+    },
+    AvailabilityRule: {"completedFocuses", "flagsRequired", "flagsBlocked", "items", "rawLines"},
+    EventReward: {"days"},
+    TechBonusReward: {"name"},
+    RewardItem: {"enabled"},
+    FocusForgeProject: {"country"},
+}
+
+
+def _to_plain(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [_to_plain(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_plain(v) for k, v in value.items()}
+    if is_dataclass(value):
+        out: dict = {}
+        optional = _OPTIONAL_FIELDS.get(type(value), set())
+        for f in fields(value):
+            v = getattr(value, f.name)
+            if v is None and f.name in optional:
+                continue
+            out[f.name] = _to_plain(v)
+        return out
+    return value
+
+
+def project_to_dict(project: FocusForgeProject) -> dict:
+    return _to_plain(project)
+
+
+# ----- Deserialize -------------------------------------------------------------
+
+def _idea_from_dict(d: dict) -> IdeaData:
+    return IdeaData(
+        id=d.get("id", ""),
+        title=d.get("title", ""),
+        description=d.get("description", ""),
+        picture=d.get("picture", ""),
+        modifierRawLines=list(d.get("modifierRawLines") or []),
+    )
+
+
+def _event_option_from_dict(d: dict) -> EventOption:
+    return EventOption(
+        key=d.get("key", ""),
+        text=d.get("text", ""),
+        effectRawLines=list(d.get("effectRawLines") or []),
+    )
+
+
+def _event_from_dict(d: dict) -> EventData:
+    return EventData(
+        id=d.get("id", ""),
+        title=d.get("title", ""),
+        description=d.get("description", ""),
+        options=[_event_option_from_dict(o) for o in (d.get("options") or [])],
+    )
+
+
+def _availability_from_dict(d: dict) -> AvailabilityRule:
+    return AvailabilityRule(
+        completedFocuses=list(d["completedFocuses"]) if "completedFocuses" in d else None,
+        flagsRequired=list(d["flagsRequired"]) if "flagsRequired" in d else None,
+        flagsBlocked=list(d["flagsBlocked"]) if "flagsBlocked" in d else None,
+        items=[_reward_item_from_dict(i) for i in d["items"]] if "items" in d else None,
+        rawLines=list(d["rawLines"]) if "rawLines" in d else None,
+    )
+
+
+def _reward_item_from_dict(d: dict) -> RewardItem:
+    return RewardItem(
+        kind=d.get("kind", ""),
+        params=dict(d.get("params") or {}),
+        enabled=d.get("enabled"),
+    )
+
+
+def _event_reward_from_dict(d: dict) -> EventReward:
+    return EventReward(id=d.get("id", ""), days=d.get("days"))
+
+
+def _tech_bonus_from_dict(d: dict) -> TechBonusReward:
+    return TechBonusReward(
+        category=d.get("category", ""),
+        bonus=float(d.get("bonus") or 0),
+        uses=int(d.get("uses") or 0),
+        name=d.get("name"),
+    )
+
+
+def _completion_reward_from_dict(d: dict) -> CompletionReward:
+    return CompletionReward(
+        politicalPower=d.get("politicalPower"),
+        stability=d.get("stability"),
+        warSupport=d.get("warSupport"),
+        commandPower=d.get("commandPower"),
+        armyExperience=d.get("armyExperience"),
+        airExperience=d.get("airExperience"),
+        navyExperience=d.get("navyExperience"),
+        addIdeas=list(d["addIdeas"]) if "addIdeas" in d else None,
+        removeIdeas=list(d["removeIdeas"]) if "removeIdeas" in d else None,
+        events=[_event_reward_from_dict(e) for e in d["events"]] if "events" in d else None,
+        techBonuses=[_tech_bonus_from_dict(b) for b in d["techBonuses"]] if "techBonuses" in d else None,
+        items=[_reward_item_from_dict(i) for i in d["items"]] if "items" in d else None,
+        rawLines=list(d["rawLines"]) if "rawLines" in d else None,
+    )
+
+
+def _focus_from_dict(d: dict) -> FocusNodeData:
+    pos = d.get("position") or {}
+    return FocusNodeData(
+        id=d.get("id", ""),
+        title=d.get("title", ""),
+        description=d.get("description", ""),
+        icon=d.get("icon", ""),
+        position=FocusPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
+        cost=d.get("cost", 5),
+        filters=list(d.get("filters") or []),
+        prerequisites=list(d.get("prerequisites") or []),
+        mutuallyExclusive=list(d.get("mutuallyExclusive") or []),
+        completionReward=_completion_reward_from_dict(d.get("completionReward") or {}),
+        available=_availability_from_dict(d["available"]) if d.get("available") else None,
+        notes=d.get("notes"),
+    )
+
+
+def _export_settings_from_dict(d: dict) -> ExportSettings:
+    return ExportSettings(
+        modPrefix=d.get("modPrefix", ""),
+        focusFileName=d.get("focusFileName", ""),
+        localisationPrefix=d.get("localisationPrefix", ""),
+        includeIdeas=bool(d.get("includeIdeas", False)),
+        includeEvents=bool(d.get("includeEvents", False)),
+        includeCountry=bool(d.get("includeCountry", False)),
+    )
+
+
+def _party_from_dict(d: dict) -> PartyData:
+    return PartyData(ideology=d.get("ideology", ""), name=d.get("name", ""),
+                     longName=d.get("longName", ""))
+
+
+def _leader_from_dict(d: dict) -> LeaderData:
+    return LeaderData(
+        name=d.get("name", ""), ideology=d.get("ideology", ""),
+        traits=list(d.get("traits") or []),
+        pictureRef=d.get("pictureRef", ""), pictureData=d.get("pictureData", ""))
+
+
+def _country_from_dict(d: dict) -> CountryData:
+    return CountryData(
+        popularities=dict(d.get("popularities") or {}),
+        rulingParty=d.get("rulingParty", "neutrality"),
+        lastElection=d.get("lastElection", ""),
+        electionFrequency=int(d.get("electionFrequency", 48)),
+        electionsAllowed=bool(d.get("electionsAllowed", True)),
+        parties=[_party_from_dict(p) for p in (d.get("parties") or [])],
+        leaders=[_leader_from_dict(le) for le in (d.get("leaders") or [])],
+        flagMain=d.get("flagMain", ""),
+        flagVariants=dict(d.get("flagVariants") or {}),
+    )
+
+
+def project_from_dict(d: dict) -> FocusForgeProject:
+    cfp = d.get("continuousFocusPosition") or {}
+    return FocusForgeProject(
+        projectName=d.get("projectName", ""),
+        countryTag=d.get("countryTag", ""),
+        treeId=d.get("treeId", ""),
+        continuousFocusPosition=FocusPosition(x=cfp.get("x", 0), y=cfp.get("y", 0)),
+        focuses=[_focus_from_dict(f) for f in (d.get("focuses") or [])],
+        ideas=[_idea_from_dict(i) for i in (d.get("ideas") or [])],
+        events=[_event_from_dict(e) for e in (d.get("events") or [])],
+        exportSettings=_export_settings_from_dict(d.get("exportSettings") or {}),
+        country=_country_from_dict(d["country"]) if d.get("country") else None,
+        exportDir=d.get("exportDir", ""),
+        modMeta=dict(d.get("modMeta") or {}),
+        schemaVersion=int(d.get("schemaVersion", 1)),
+        app=str(d.get("app", "Focus Forge")),
+        mode=str(d.get("mode", "millennium-dawn")),
+    )

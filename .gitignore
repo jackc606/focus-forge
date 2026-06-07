@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+
+# User workspace — personal / WIP submods live here (default workspace dir)
+projects/
+
+# Scratch renders & outputs (not source)
+/_*.png
+/_*.txt
+/_*.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
