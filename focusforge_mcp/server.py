@@ -20,6 +20,52 @@ mcp = FastMCP("focusforge")
 _EDITOR_OFF = ("Focus Forge isn't running, or its AI Bridge is off. Open Focus Forge and "
                "click 'AI Bridge' in the toolbar, then retry.")
 
+# Empirically-grounded conventions (measured from a real 227-focus MD submod). Load
+# this before authoring focuses so output matches Millennium Dawn idioms instead of
+# generic defaults. Exposed as both a prompt (author_md_focuses) and a tool
+# (md_focus_guide); reference_data carries the machine-readable cost/filter data.
+MD_FOCUS_GUIDE = """\
+# Authoring Millennium Dawn focuses via the Focus Forge bridge
+
+Real MD trees follow tight conventions. Match them — generic defaults read as AI slop.
+
+## Cost (never uniform)
+- `10` is the MD default (~70 days) — use for spine / branch-head / capstone focuses.
+- `5` for granular leaf or follow-up focuses.
+- `1`–`3` for trivial, near-free picks.
+Roughly: early backbone trends to 10, deep sub-branches to 5. Don't inflate capstones above 10.
+
+## Icons (distinct & thematic)
+One specific icon PER focus — real trees are ~1:1 unique. Reuse ONLY inside a tight
+thematic cluster (e.g. several nuclear focuses sharing a nuclear icon is fine). Prefer
+specific, evocative names over generic ones. Check `reference_data.iconPresets` and
+existing focus icons via `get_focus` before picking.
+
+## Search filters (almost always present)
+~80% of focuses carry 1–2 `FOCUS_FILTER_*` tags matching their theme. Pick from:
+POLITICAL, INDUSTRY, INFLUENCE, RESEARCH, INTERNAL_FACTION, STABILITY, ANNEXATION,
+MANPOWER, RESOURCE, FOREIGN_POLICY, WAR_SUPPORT, ECONOMY, EXPENDITURE. (Pass via the
+focus `filters` list.)
+
+## Structure (lean into choice)
+- ~⅔ of focuses have an `available` gate; ~⅓ are part of a `mutually_exclusive` fork.
+- Use 2-prerequisite convergences (they're AND) to merge branches.
+- Pay off a `set_country_flag` with a downstream `available = { has_country_flag = X }`.
+
+## Rewards
+Use structured presets for common bonuses (political power, stability, flags, ideas,
+tech bonus — see `list_reward_presets`). For MD-specific effects use the focus
+`completionReward.rawLines`, e.g.:
+- treasury: `set_temp_variable = { treasury_change = N }` + `modify_treasury_effect = yes`
+- party shifts: `add_popularity = { ... }`, ruling-party / coalition arrays
+- construction: `add_building_construction = { type = X level = N instant_build = yes }`
+- add a `custom_effect_tooltip = KEY` to scripted / `hidden_effect` blocks.
+
+## Namespaces & tone
+Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
+Write terse, dry, flavorful prose — a sentence or two of description per focus.
+"""
+
 
 class BridgeError(Exception):
     pass
@@ -32,8 +78,8 @@ def _call(op: str, args: "dict | None" = None):
         raise BridgeError(_EDITOR_OFF)
     port = int(info["port"])
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
-            s.settimeout(5)
+        with socket.create_connection(("127.0.0.1", port), timeout=15) as s:
+            s.settimeout(15)
             s.sendall((json.dumps({"op": op, "args": args or {}}) + "\n").encode("utf-8"))
             buf = b""
             while b"\n" not in buf:
@@ -271,6 +317,22 @@ def export_mod(directory: str | None = None) -> dict:
     """Export the HOI4 mod files. Returns the list of relative paths; if `directory` is given,
     also writes them there."""
     return _call("export", _compact(dir=directory))
+
+
+# ======================= authoring guidance =======================
+
+@mcp.tool()
+def md_focus_guide() -> str:
+    """Return the Millennium Dawn focus-authoring conventions (cost tiers, icon/filter
+    rules, structure, MD reward idioms). Read this before adding or editing focuses so
+    output matches real MD trees. Works even if the editor bridge is off."""
+    return MD_FOCUS_GUIDE
+
+
+@mcp.prompt()
+def author_md_focuses() -> str:
+    """Conventions for authoring Millennium Dawn focuses through the Focus Forge bridge."""
+    return MD_FOCUS_GUIDE
 
 
 def main() -> None:

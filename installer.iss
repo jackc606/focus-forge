@@ -1,10 +1,10 @@
 ; Inno Setup script for Focus Forge.
 ; Build the app first:  python -m PyInstaller build.spec --clean --noconfirm
 ; Then compile:         ISCC.exe installer.iss
-; Output:               dist\FocusForge-0.1.1-setup.exe  (per-user install, no admin)
+; Output:               dist\FocusForge-0.1.2-setup.exe  (per-user install, no admin)
 
 #define MyAppName "Focus Forge"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "Focus Forge"
 #define MyAppExeName "FocusForge.exe"
 

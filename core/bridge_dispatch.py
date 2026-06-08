@@ -164,6 +164,12 @@ def _op_reference_data(model, args):
         "equipmentTypes": list(EQUIPMENT_TYPES),
         "wargoalTypes": list(WARGOAL_TYPES),
         "buildingTypes": list(BUILDING_TYPES),
+        # MD focus-cost convention (measured from real submods) — don't use a uniform cost.
+        "costConvention": {
+            "default": 10, "leaf": 5, "trivial": 1,
+            "note": "10 = standard spine/branch-head/capstone (~70 days); 5 = granular "
+                    "leaf/follow-up; 1-3 = trivial. Vary cost by a focus's role.",
+        },
     }
 
 
