@@ -119,21 +119,34 @@ HELP_TOPICS = [
          "The title bar shows a * when you have unsaved changes, and closing the app "
          "prompts you to save."),
     ]),
-    ("AI agents (MCP)", [
-        ("What it does",
-         "The AI Bridge lets a local AI agent (Claude Code / Desktop, via MCP) edit the project "
-         "you have open — focuses, ideas, and events appear on the canvas live as it works."),
-        ("Enable it",
-         "Click 'AI Bridge' in the toolbar. The status pill shows 'AI Bridge: on :<port>'. It's "
-         "off by default, loopback-only (127.0.0.1), and your choice is remembered. An agent "
-         "can't touch the project unless you turn it on."),
-        ("Connect an agent",
-         "Install the proxy once with  pip install -e \".[agent]\"  then register the MCP server. "
-         "Claude Code: the repo ships .mcp.json. Claude Desktop: add focusforge to "
-         "claude_desktop_config.json with cwd set to the repo root. See docs/MCP.md."),
-        ("Safety",
-         "Agent edits mark the project dirty, so closing still prompts to save. Turn the bridge "
-         "off and the agent's tools fail cleanly."),
+    ("Using AI to build your tree", [
+        ("What is the AI Bridge?",
+         "It lets an AI assistant (like Claude) build and edit your focus tree FOR you. You ask "
+         "in plain English — 'add a 4-focus economy branch under my political opening' — and the "
+         "focuses, ideas, and events appear on the canvas as the AI works. You stay in control "
+         "and can undo or tweak anything afterward."),
+        ("Step 1 — Turn the bridge ON",
+         "Click the 'AI Bridge' button on the right of the toolbar. The label at the bottom-right "
+         "turns green and reads 'AI Bridge: on' with a number after it. That's it — Focus Forge is "
+         "now ready to listen. It starts OFF every time you'd expect, and only listens on your own "
+         "PC, so nothing happens until you click it."),
+        ("Step 2 — Connect your AI (one-time setup)",
+         "You only do this once. (1) Install the helper: open a terminal in the Focus Forge folder "
+         "and run  pip install -e \".[agent]\"  — this adds the small 'mcp' connector. (2) Tell "
+         "your AI tool about Focus Forge: in Claude Code, just open the Focus Forge folder (it "
+         "already includes the .mcp.json file and will offer to connect 'focusforge'). For Claude "
+         "Desktop, follow the copy-paste config in docs/MCP.md. If you get stuck, that file has the "
+         "full walkthrough."),
+        ("Step 3 — Just ask",
+         "With the bridge ON and your AI connected, talk to it normally: 'list my focuses', 'add a "
+         "war-economy branch with 3 focuses and a mutually-exclusive choice', 'check the tree for "
+         "errors'. Watch the canvas update live. Tip: ask the AI to 'read the MD focus guide first' "
+         "so it follows Millennium Dawn conventions (costs, icons, filters)."),
+        ("Turning it off & staying safe",
+         "Click 'AI Bridge' again to stop listening. The bridge is off by default, only works on "
+         "your own computer (it never goes online), and an AI can't touch your project unless the "
+         "bridge is on. Anything the AI changes counts as unsaved, so closing Focus Forge still "
+         "asks you to save first — your work is protected."),
     ]),
 ]
 
