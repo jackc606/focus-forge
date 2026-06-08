@@ -115,11 +115,21 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "reverse_opinion_modifier.modifier": "Named opinion modifier the target adds toward ROOT; the dropdown shows each one's value.",
     "create_wargoal.target": "Country tag that the wargoal is created against.",
     "create_wargoal.type": "Wargoal type used by HOI4 or Millennium Dawn, such as puppet_wargoal_focus.",
-    "productivity_growth.amount": "Flat productivity change via the MD helper. 0.025 is roughly +2.5%; use a negative value to cut productivity (e.g. an economic crisis).",
+    "productivity_growth.amount": "Flat productivity change added to every state (MD), in percentage points on a 100 base. ~25 is a solid boost, 50 is large; negative cuts it (e.g. a crisis).",
+    "state_productivity.state": "Numeric HOI4 state id whose productivity is changed.",
+    "state_productivity.amount": "Productivity points added to that one state (MD, base 100). ~25 solid, 50 large; negative reduces.",
     "economic_growth.times": "How many times to trigger Millennium Dawn's one-shot GDP growth boost.",
     "agriculture_district.count": "How many random agriculture districts to build, raising farming output (MD).",
     "corporate_tax.amount": "Percentage-point change to the corporate tax rate. Positive raises taxes, negative cuts them (e.g. -5).",
     "radicalization.amount": "Change to national radicalization. Negative values reduce unrest (e.g. -5).",
+    "hydroelectric_dam.state": "Numeric HOI4 state id where the dam sits (the state containing the reservoir).",
+    "hydroelectric_dam.production": "Hydroelectric power added to that state's grid, in gigawatts (MD energy system). Tabqa Dam is about 0.8.",
+    "hydroelectric_dam.tooltip": "Optional localization key for a readable tooltip; when set, the raw variable changes are hidden behind it (the MD convention).",
+    "income_tax.amount": "Change to the personal/population income tax rate (MD). Positive raises taxes (more revenue, less consumer spending); negative cuts them.",
+    "national_debt.amount": "Change to national debt (MD). Negative pays debt down; positive takes on debt.",
+    "international_investment.amount": "Change to international investment inflow (MD). Positive attracts more foreign investment.",
+    "government_expenses.amount": "Change to recurring government expenses (MD budget). Positive raises spending.",
+    "urban_development_fund.amount": "Amount added to the urban development fund (MD).",
 }
 
 SHARED_PARAM_HELP: dict = {
@@ -235,6 +245,11 @@ def _b_productivity_growth(p):
     ]
 
 
+def _b_state_productivity(p):
+    return [f"set_temp_variable = {{ temp_productivity_change = {_number_value(p, 'amount')} }}",
+            f"{_number_value(p, 'state')} = {{ state_flat_productivity_change_effect = yes }}"]
+
+
 def _b_economic_growth(p):
     return ["increase_economic_growth = yes"] * _repeat_count(p, "times")
 
@@ -255,6 +270,46 @@ def _b_radicalization(p):
         f"set_temp_variable = {{ rad_change = {_number_value(p, 'amount')} }}",
         "modify_radicalization_effect = yes",
     ]
+
+
+def _b_income_tax(p):
+    return [f"set_temp_variable = {{ pop_change = {_number_value(p, 'amount')} }}",
+            "modify_population_tax_rate_effect = yes"]
+
+
+def _b_national_debt(p):
+    return [f"set_temp_variable = {{ debt_change = {_number_value(p, 'amount')} }}",
+            "modify_debt_effect = yes"]
+
+
+def _b_intl_investment(p):
+    return [f"set_temp_variable = {{ int_investment_change = {_number_value(p, 'amount')} }}",
+            "modify_international_investment_effect = yes"]
+
+
+def _b_govt_expenses(p):
+    return [f"set_temp_variable = {{ additional_expenses_change = {_number_value(p, 'amount')} }}",
+            "modify_additional_expenses_effect = yes"]
+
+
+def _b_urban_dev_fund(p):
+    return [f"set_temp_variable = {{ temp_change = {_number_value(p, 'amount')} }}",
+            "modify_urban_development_fund_effect = yes"]
+
+
+def _b_hydroelectric_dam(p):
+    inner = [
+        f"{_number_value(p, 'state')} = {{",
+        f"\tset_variable = {{ hydroelectric_energy_production_var = {_number_value(p, 'production')} }}",
+        "\tset_variable = { hydroelectric_energy_storage_var = 0 }",
+        "\tadd_dynamic_modifier = { modifier = hydroelectric_infrastructure_in_state }",
+        "}",
+    ]
+    tt = _value(p, "tooltip")
+    if tt:
+        return [f"custom_effect_tooltip = {tt}", "hidden_effect = {",
+                *[f"\t{ln}" for ln in inner], "}"]
+    return inner
 
 
 def _b_domestic_influence(p):
@@ -400,8 +455,12 @@ _RAW_PRESETS = [
     RewardPreset("treasury_change", "Millennium Dawn Economy", "Treasury Change", "Uses the common MD treasury helper pattern.",
                  [RewardParamDef("amount", "Treasury Change", "number", 1, required=True, step=0.1)], _b_treasury_change),
     RewardPreset("productivity_growth", "Millennium Dawn Economy", "Productivity Growth",
-                 "Flat change to national productivity (MD). 0.025 is about +2.5%; negative cuts it.",
-                 [RewardParamDef("amount", "Productivity Change", "number", 0.025, required=True, step=0.005)], _b_productivity_growth),
+                 "Flat productivity change across all your states (MD), in points on a 100 base. ~25 solid, 50 large; negative cuts it.",
+                 [RewardParamDef("amount", "Productivity Change", "number", 25, required=True, step=5)], _b_productivity_growth),
+    RewardPreset("state_productivity", "Millennium Dawn Economy", "State Productivity",
+                 "Flat productivity change for ONE state (MD), in points on a 100 base. ~25 solid, 50 large.",
+                 [RewardParamDef("state", "State", "state", 0, required=True),
+                  RewardParamDef("amount", "Productivity Change", "number", 25, required=True, step=5)], _b_state_productivity),
     RewardPreset("economic_growth", "Millennium Dawn Economy", "Economic Growth (GDP)",
                  "Triggers MD's one-shot GDP growth boost, once or several times.",
                  [RewardParamDef("times", "Times", "number", 1, required=True)], _b_economic_growth),
@@ -414,6 +473,27 @@ _RAW_PRESETS = [
     RewardPreset("radicalization", "Millennium Dawn Economy", "Radicalization Change",
                  "Changes national radicalization (MD). Negative reduces unrest.",
                  [RewardParamDef("amount", "Radicalization Change", "number", -5, required=True)], _b_radicalization),
+    RewardPreset("income_tax", "Millennium Dawn Economy", "Personal Income Tax",
+                 "Changes the personal/population income tax rate (MD). Positive raises taxes, negative cuts them.",
+                 [RewardParamDef("amount", "Tax Change", "number", -4, required=True)], _b_income_tax),
+    RewardPreset("national_debt", "Millennium Dawn Economy", "National Debt",
+                 "Changes national debt (MD). Negative pays it down; positive takes on debt.",
+                 [RewardParamDef("amount", "Debt Change", "number", -5, required=True)], _b_national_debt),
+    RewardPreset("international_investment", "Millennium Dawn Economy", "International Investment",
+                 "Changes international investment inflow (MD). Positive attracts foreign investment.",
+                 [RewardParamDef("amount", "Investment Change", "number", 3.5, required=True, step=0.5)], _b_intl_investment),
+    RewardPreset("government_expenses", "Millennium Dawn Economy", "Government Expenses",
+                 "Changes recurring government expenses (MD budget). Positive raises spending.",
+                 [RewardParamDef("amount", "Expense Change", "number", 0.2, required=True, step=0.1)], _b_govt_expenses),
+    RewardPreset("urban_development_fund", "Millennium Dawn Economy", "Urban Development Fund",
+                 "Adds to the urban development fund (MD).",
+                 [RewardParamDef("amount", "Amount", "number", 10, required=True)], _b_urban_dev_fund),
+    RewardPreset("hydroelectric_dam", "Millennium Dawn Economy", "Hydroelectric Dam",
+                 "Adds MD hydroelectric power to a state (production var + the hydroelectric infrastructure modifier). Production is in GW (0.8 is about 800 MW).",
+                 [RewardParamDef("state", "State", "state", 0, required=True),
+                  RewardParamDef("production", "Production (GW)", "number", 0.8, required=True, step=0.1),
+                  RewardParamDef("tooltip", "Tooltip Key", "string", "", placeholder="TT_SYR_TABQA_DAM_HYDRO")],
+                 _b_hydroelectric_dam),
     RewardPreset("domestic_influence", "Millennium Dawn Politics", "Domestic Influence", "Changes domestic influence percentage through the MD helper.",
                  [RewardParamDef("percent", "Percent Change", "number", 5, required=True)], _b_domestic_influence),
     RewardPreset("foreign_influence", "Millennium Dawn Politics", "Foreign Influence", "Changes a tag influence percentage over a target country.",

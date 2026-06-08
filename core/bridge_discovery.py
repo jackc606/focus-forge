@@ -48,6 +48,14 @@ def read_bridge_info() -> "dict | None":
 
 
 def clear_bridge_info() -> None:
+    """Remove the discovery file — but only if it still points at THIS process.
+
+    Two editor instances share one ``bridge.json``; whichever started last owns it
+    (its pid is recorded). A different, older instance shutting down must not wipe the
+    live instance's discovery file, or the bridge silently 'disappears'."""
+    info = read_bridge_info()
+    if info is not None and info.get("pid") not in (None, os.getpid()):
+        return  # the file now belongs to another (live) instance — leave it alone
     try:
         bridge_info_path().unlink()
     except OSError:

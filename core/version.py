@@ -1,7 +1,7 @@
 """Single source of truth for the app version (shown in the UI, used for builds)."""
 from __future__ import annotations
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 APP_STAGE = "pre-alpha"
 APP_VERSION = __version__
 
