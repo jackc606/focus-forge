@@ -122,6 +122,28 @@ def _validate_metadata(project: FocusForgeProject, issues: list) -> None:
         _validate_collection(project.events, issues, "event", "Event", check_invalid_id=False,
                              empty_code="events.empty", empty_msg="“Include events” is on but the project has no events.",
                              namespace=event_ns)
+        _validate_events(project.events, issues)
+
+
+def _validate_events(events, issues: list) -> None:
+    for event in (events or []):
+        eid = (event.id or "").strip() or "?"
+        if not (event.picture or "").strip():
+            _warn(issues, "event.picture.empty", f"Event '{eid}' has no picture.")
+        options = event.options or []
+        # A non-hidden event needs at least one option (the button the player clicks).
+        if not options and not getattr(event, "hidden", False):
+            _warn(issues, "event.options.empty", f"Event '{eid}' has no options (players can't dismiss it).")
+        seen_keys: set = set()
+        for i, opt in enumerate(options):
+            key = (opt.key or "").strip()
+            if not key:
+                _err(issues, "event.option.key.empty", f"Event '{eid}' option {i + 1} has no key.")
+                continue
+            if key in seen_keys:
+                _err(issues, "event.option.key.duplicate",
+                     f"Event '{eid}' has duplicate option key '{key}'.")
+            seen_keys.add(key)
 
 
 def _validate_country(country, issues: list) -> None:

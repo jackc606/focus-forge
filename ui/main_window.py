@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -43,6 +43,7 @@ from .workspace import workspace_dir
 from .focuses_list_panel import FocusesListPanel
 from .graph_scene import GraphScene
 from .graph_view import GraphView
+from .agent_bridge import AgentBridge
 from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
 from .project_model import ProjectModel
@@ -120,6 +121,18 @@ class MainWindow(QMainWindow):
         self._pill_warn = pill("0 warnings", "warn")
         self._status_bar.addPermanentWidget(self._pill_error)
         self._status_bar.addPermanentWidget(self._pill_warn)
+        self._bridge_pill = QLabel("AI Bridge: off")
+        self._bridge_pill.setObjectName("bridgePill")
+        self._bridge_pill.setAlignment(Qt.AlignCenter)
+        self._status_bar.addPermanentWidget(self._bridge_pill)
+
+        # In-process AI bridge (opt-in, loopback-only) that lets an MCP agent edit
+        # the live project. Mutations run on this (main) thread → canvas repaints.
+        self._settings = QSettings("FocusForge", "FocusForge")
+        self._bridge = AgentBridge(self._model, self)
+        self._bridge.state_changed.connect(self._on_bridge_state)
+        self._bridge.client_changed.connect(self._on_bridge_client)
+        self._bridge.op_applied.connect(self._status_label.setText)
 
         # Wire signals
         self._model.project_changed.connect(self._on_project_changed)
@@ -140,6 +153,10 @@ class MainWindow(QMainWindow):
         self._update_title("")
         # Fit to content after the layout settles
         self._view.fit_to_content()
+
+        # Restore the AI-bridge toggle (opt-in; persisted across sessions).
+        if self._settings.value("ai_bridge_enabled", False, type=bool):
+            self._bridge_action.setChecked(True)  # triggers _toggle_bridge → start
 
     # ----- toolbar -----
     def _build_toolbar(self) -> None:
@@ -162,6 +179,10 @@ class MainWindow(QMainWindow):
         ideas_act = QAction("Ideas", self)
         ideas_act.triggered.connect(self._manage_ideas)
         tb.addAction(ideas_act)
+
+        events_act = QAction("Events", self)
+        events_act.triggered.connect(self._manage_events)
+        tb.addAction(events_act)
         tb.addSeparator()
 
         open_act = QAction("Open", self)
@@ -205,6 +226,15 @@ class MainWindow(QMainWindow):
         export_as_act = QAction("Export As…", self)
         export_as_act.triggered.connect(self._export_as)
         tb.addAction(export_as_act)
+
+        tb.addSeparator()
+        self._bridge_action = QAction("AI Bridge", self)
+        self._bridge_action.setCheckable(True)
+        self._bridge_action.setToolTip(
+            "Let a local AI agent (via MCP) edit this project live. Loopback-only; "
+            "off by default.")
+        self._bridge_action.toggled.connect(self._toggle_bridge)
+        tb.addAction(self._bridge_action)
 
     # ----- handlers -----
     def _open(self) -> None:
@@ -336,6 +366,42 @@ class MainWindow(QMainWindow):
     def _manage_ideas(self) -> None:
         from .ideas_dialog import IdeasManagerDialog
         IdeasManagerDialog(self._model, self).exec()
+
+    def _manage_events(self) -> None:
+        from .events_dialog import EventsManagerDialog
+        EventsManagerDialog(self._model, self).exec()
+
+    # ----- AI bridge -----
+    def _toggle_bridge(self, on: bool) -> None:
+        if on and not self._bridge.start():
+            self._bridge_action.setChecked(False)
+            QMessageBox.warning(self, "AI Bridge",
+                                "Couldn't start the AI bridge (loopback port unavailable).")
+            return
+        if not on:
+            self._bridge.stop()
+        self._settings.setValue("ai_bridge_enabled", on)
+
+    def _on_bridge_state(self, listening: bool, port: int) -> None:
+        if listening:
+            self._set_bridge_pill(f"AI Bridge: on :{port}", active=True)
+            self._status_label.setText(f"AI Bridge listening on 127.0.0.1:{port}")
+        else:
+            self._set_bridge_pill("AI Bridge: off", active=False)
+
+    def _on_bridge_client(self, connected: bool) -> None:
+        if not self._bridge.is_listening():
+            return
+        if connected:
+            self._set_bridge_pill("AI Bridge: agent connected", active=True)
+        else:
+            self._set_bridge_pill(f"AI Bridge: on :{self._bridge.port()}", active=True)
+
+    def _set_bridge_pill(self, text: str, *, active: bool) -> None:
+        self._bridge_pill.setText(text)
+        self._bridge_pill.setProperty("active", "true" if active else "false")
+        self._bridge_pill.style().unpolish(self._bridge_pill)
+        self._bridge_pill.style().polish(self._bridge_pill)
 
     def _import_tree(self) -> None:
         project = self._choose_and_import_tree()
@@ -554,7 +620,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if not self._model.is_dirty():
-            event.accept()
+            self._finish_close(event)
             return
         resp = QMessageBox.question(
             self, "Unsaved changes",
@@ -562,8 +628,12 @@ class MainWindow(QMainWindow):
             QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
             QMessageBox.Save)
         if resp == QMessageBox.Save:
-            event.accept() if self._save() else event.ignore()
+            self._finish_close(event) if self._save() else event.ignore()
         elif resp == QMessageBox.Discard:
-            event.accept()
+            self._finish_close(event)
         else:
             event.ignore()
+
+    def _finish_close(self, event) -> None:
+        self._bridge.stop()  # release the port + remove the discovery file
+        event.accept()

@@ -119,6 +119,22 @@ HELP_TOPICS = [
          "The title bar shows a * when you have unsaved changes, and closing the app "
          "prompts you to save."),
     ]),
+    ("AI agents (MCP)", [
+        ("What it does",
+         "The AI Bridge lets a local AI agent (Claude Code / Desktop, via MCP) edit the project "
+         "you have open — focuses, ideas, and events appear on the canvas live as it works."),
+        ("Enable it",
+         "Click 'AI Bridge' in the toolbar. The status pill shows 'AI Bridge: on :<port>'. It's "
+         "off by default, loopback-only (127.0.0.1), and your choice is remembered. An agent "
+         "can't touch the project unless you turn it on."),
+        ("Connect an agent",
+         "Install the proxy once with  pip install -e \".[agent]\"  then register the MCP server. "
+         "Claude Code: the repo ships .mcp.json. Claude Desktop: add focusforge to "
+         "claude_desktop_config.json with cwd set to the repo root. See docs/MCP.md."),
+        ("Safety",
+         "Agent edits mark the project dirty, so closing still prompts to save. Turn the bridge "
+         "off and the agent's tools fail cleanly."),
+    ]),
 ]
 
 

@@ -248,6 +248,10 @@ QLabel#helpTitle {{ color: {T.TEXT_PRIMARY}; font-weight: {T.WEIGHT_SEMIBOLD}; f
 QLabel#helpBody {{ color: {T.TEXT_SECONDARY}; font-size: {T.TEXT_BODY}px; }}
 QLabel#iconPreview {{ background-color: {T.BG_INSET}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_INPUT}px; }}
 
+/* ----- Event editor ----- */
+QFrame#optionCard {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_CARD}px; }}
+QPlainTextEdit#scriptPreview {{ font-family: {T.FONT_MONO}; color: {T.TEXT_SECONDARY}; background-color: {T.BG_INSET}; }}
+
 QFrame#divider {{ background-color: {T.BORDER_SUBTLE}; max-height: 1px; min-height: 1px; border: 0; }}
 
 /* ----- Chips (multi-select selector) ----- */
@@ -271,6 +275,15 @@ QLabel#pillNeutral {{ background-color: {T.BG_ELEVATED}; color: {T.TEXT_SECONDAR
 QLabel#pillOk {{ background-color: {T.ACCENT_SOFT}; color: {T.STATUS_OK}; }}
 QLabel#pillError {{ background-color: {T.STATUS_ERROR_BG}; color: {T.STATUS_ERROR}; }}
 QLabel#pillWarn {{ background-color: {T.STATUS_WARN_BG}; color: {T.STATUS_WARN}; }}
+QLabel#bridgePill {{
+    border-radius: 9px;
+    padding: 2px 10px;
+    font-size: {T.TEXT_MICRO}px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+    background-color: {T.BG_ELEVATED};
+    color: {T.TEXT_MUTED};
+}}
+QLabel#bridgePill[active="true"] {{ background-color: {T.ACCENT_SOFT}; color: {T.STATUS_OK}; }}
 
 /* ----- Issue cards ----- */
 QFrame#issueCardError {{ background-color: {T.STATUS_ERROR_BG}; border: 1px solid {T.STATUS_ERROR_BORDER}; border-radius: {T.RADIUS_CARD}px; }}

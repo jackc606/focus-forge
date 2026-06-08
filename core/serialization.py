@@ -34,6 +34,8 @@ _OPTIONAL_FIELDS = {
     },
     AvailabilityRule: {"completedFocuses", "flagsRequired", "flagsBlocked", "items", "rawLines"},
     EventReward: {"days"},
+    EventOption: {"items", "trigger", "aiChance"},
+    EventData: {"meanTimeToHappen", "trigger"},
     TechBonusReward: {"name"},
     RewardItem: {"enabled"},
     FocusForgeProject: {"country"},
@@ -79,6 +81,9 @@ def _event_option_from_dict(d: dict) -> EventOption:
     return EventOption(
         key=d.get("key", ""),
         text=d.get("text", ""),
+        items=[_reward_item_from_dict(i) for i in d["items"]] if d.get("items") else None,
+        trigger=_availability_from_dict(d["trigger"]) if d.get("trigger") else None,
+        aiChance=d.get("aiChance"),
         effectRawLines=list(d.get("effectRawLines") or []),
     )
 
@@ -88,6 +93,14 @@ def _event_from_dict(d: dict) -> EventData:
         id=d.get("id", ""),
         title=d.get("title", ""),
         description=d.get("description", ""),
+        picture=d.get("picture", "GFX_report_event_generic_parliament"),
+        eventType=d.get("eventType", "country_event"),
+        isTriggeredOnly=bool(d.get("isTriggeredOnly", True)),
+        hidden=bool(d.get("hidden", False)),
+        major=bool(d.get("major", False)),
+        fireOnlyOnce=bool(d.get("fireOnlyOnce", False)),
+        meanTimeToHappen=d.get("meanTimeToHappen"),
+        trigger=_availability_from_dict(d["trigger"]) if d.get("trigger") else None,
         options=[_event_option_from_dict(o) for o in (d.get("options") or [])],
     )
 

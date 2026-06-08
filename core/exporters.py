@@ -324,19 +324,65 @@ def export_idea_localisation(project: FocusForgeProject) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _availability_inner_lines(rule: AvailabilityRule) -> list:
+    """Flat HOI4 trigger lines for an AvailabilityRule (no wrapper, no indent).
+    Reused for event-level and per-option ``trigger = { }`` blocks."""
+    lines: list = []
+    if rule is None:
+        return lines
+    for c in (rule.completedFocuses or []):
+        lines.append(f"has_completed_focus = {c}")
+    for flag in (rule.flagsRequired or []):
+        lines.append(f"has_country_flag = {flag}")
+    for flag in (rule.flagsBlocked or []):
+        lines.append(f"NOT = {{ has_country_flag = {flag} }}")
+    for item in (rule.items or []):
+        lines.extend(build_availability_item_lines(item))
+    for raw in (rule.rawLines or []):
+        lines.append(raw)
+    return lines
+
+
 def export_events(project: FocusForgeProject) -> str:
     lines = [f"add_namespace = {project.exportSettings.localisationPrefix}"]
     for event in project.events:
         lines.append("")
-        lines.append("country_event = {")
+        lines.append(f"{event.eventType or 'country_event'} = {{")
         lines.append(f"{TAB}id = {event.id}")
         lines.append(f"{TAB}title = {event.id}.t")
         lines.append(f"{TAB}desc = {event.id}.d")
-        lines.append(f"{TAB}picture = GFX_report_event_generic_parliament")
+        lines.append(f"{TAB}picture = {event.picture or 'GFX_report_event_generic_parliament'}")
+        if event.isTriggeredOnly:
+            lines.append(f"{TAB}is_triggered_only = yes")
+        if event.hidden:
+            lines.append(f"{TAB}hidden = yes")
+        if event.major:
+            lines.append(f"{TAB}major = yes")
+        if event.fireOnlyOnce:
+            lines.append(f"{TAB}fire_only_once = yes")
+        if (not event.isTriggeredOnly) and event.meanTimeToHappen:
+            lines.append(f"{TAB}mean_time_to_happen = {{ days = {int(event.meanTimeToHappen)} }}")
+        event_trigger = _availability_inner_lines(event.trigger)
+        if event_trigger:
+            lines.append(f"{TAB}trigger = {{")
+            for ln in event_trigger:
+                lines.append(f"{TAB}{TAB}{ln}")
+            lines.append(f"{TAB}}}")
         for option in event.options:
             lines.append("")
             lines.append(f"{TAB}option = {{")
             lines.append(f"{TAB}{TAB}name = {event.id}.{option.key}")
+            option_trigger = _availability_inner_lines(getattr(option, "trigger", None))
+            if option_trigger:
+                lines.append(f"{TAB}{TAB}trigger = {{")
+                for ln in option_trigger:
+                    lines.append(f"{TAB}{TAB}{TAB}{ln}")
+                lines.append(f"{TAB}{TAB}}}")
+            if getattr(option, "aiChance", None) is not None:
+                lines.append(f"{TAB}{TAB}ai_chance = {{ base = {_format_number(option.aiChance)} }}")
+            for item in (getattr(option, "items", None) or []):
+                for ln in build_reward_item_lines(item):
+                    lines.append(f"{TAB}{TAB}{ln}")
             for raw in option.effectRawLines:
                 lines.append(f"{TAB}{TAB}{raw}")
             lines.append(f"{TAB}}}")

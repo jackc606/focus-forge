@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "focusforge": {
+      "command": "python",
+      "args": ["-m", "focusforge_mcp"]
+    }
+  }
+}

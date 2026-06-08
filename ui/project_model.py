@@ -213,6 +213,45 @@ class ProjectModel(QObject):
             self.selection_changed.emit(self._selected_id)
         self._emit_all()
 
+    def rename_focus(self, old_id: str, new_id: str) -> str:
+        """Rename a focus (de-duping the new id) and rewrite every reference —
+        prerequisites, mutual exclusions, and availability completed-focus checks.
+        Returns the final id. Shared by the inspector and the AI bridge."""
+        focus = self.find_focus(old_id)
+        new_id = (new_id or "").strip()
+        if not focus or not new_id or new_id == old_id:
+            return old_id
+        new_id = self._unique_id(new_id)
+        focus.id = new_id
+        for other in self._project.focuses:
+            other.prerequisites = [new_id if p == old_id else p for p in other.prerequisites]
+            other.mutuallyExclusive = [new_id if m == old_id else m for m in other.mutuallyExclusive]
+            if other.available and other.available.completedFocuses:
+                other.available.completedFocuses = [new_id if c == old_id else c
+                                                    for c in other.available.completedFocuses]
+        if self._selected_id == old_id:
+            self.set_selection(new_id)
+        self._emit_all()
+        return new_id
+
+    def set_mutually_exclusive(self, a_id: str, b_id: str) -> str:
+        """Make two focuses mutually exclusive (symmetric). Returns a status message."""
+        a = self.find_focus(a_id)
+        b = self.find_focus(b_id)
+        if not a or not b or a_id == b_id:
+            return ""
+        changed = False
+        if b_id not in a.mutuallyExclusive:
+            a.mutuallyExclusive = list(a.mutuallyExclusive) + [b_id]
+            changed = True
+        if a_id not in b.mutuallyExclusive:
+            b.mutuallyExclusive = list(b.mutuallyExclusive) + [a_id]
+            changed = True
+        if changed:
+            self._emit_all()
+            return f"Linked {a_id} ↔ {b_id}"
+        return ""
+
     # ----- ideas (national spirits) -----
     def _unique_idea_id(self, base: str, ignore: str = "") -> str:
         existing = {i.id for i in self._project.ideas if i.id != ignore}
@@ -279,6 +318,92 @@ class ProjectModel(QObject):
                     continue
                 for p in preset.params:
                     if p.type == "idea_ref" and item.params.get(p.key) == old_id:
+                        item.params[p.key] = new_id
+
+    # ----- events -----
+    def _unique_event_id(self, base: str, ignore: str = "") -> str:
+        existing = {e.id for e in self._project.events if e.id != ignore}
+        if base and base not in existing:
+            return base
+        # event ids look like NS.<n>; bump the trailing number, else append _<n>.
+        m = re.match(r"^(.*?)(\d+)$", base or "")
+        if m:
+            stem, n = m.group(1), int(m.group(2)) + 1
+            while f"{stem}{n}" in existing:
+                n += 1
+            return f"{stem}{n}"
+        n = 2
+        while f"{base}_{n}" in existing:
+            n += 1
+        return f"{base}_{n}"
+
+    def add_event(self, event) -> str:
+        """Append a new event (de-duping its id) and return the final id."""
+        event.id = self._unique_event_id(event.id)
+        self._project.events.append(event)
+        self._project.exportSettings.includeEvents = True
+        self._emit_all()
+        return event.id
+
+    def update_event(self, old_id: str, new_event) -> str:
+        """Replace the event identified by old_id. If the id changed, de-dupe it
+        and rewrite every focus reward that referenced the old id."""
+        idx = next((i for i, ev in enumerate(self._project.events) if ev.id == old_id), -1)
+        if idx < 0:
+            return self.add_event(new_event)
+        if new_event.id != old_id:
+            new_event.id = self._unique_event_id(new_event.id, ignore=old_id)
+            self._rename_event_references(old_id, new_event.id)
+        self._project.events[idx] = new_event
+        self._project.exportSettings.includeEvents = True
+        self._emit_all()
+        return new_event.id
+
+    def delete_event(self, event_id: str) -> None:
+        before = len(self._project.events)
+        self._project.events = [e for e in self._project.events if e.id != event_id]
+        if len(self._project.events) == before:
+            return
+        self._emit_all()
+
+    def event_reference_count(self, event_id: str) -> int:
+        """How many focus reward references point at this event (delete warnings)."""
+        return sum(1 for val in self._iter_event_refs() if val == event_id)
+
+    def _iter_event_refs(self):
+        """Yield every focus-reward value that references an event id — both
+        ``country_event`` reward-item params (type ``event_ref``) and the
+        structured ``EventReward`` entries in ``reward.events``."""
+        from core.reward_presets import get_reward_preset
+        for f in self._project.focuses:
+            reward = f.completionReward
+            if not reward:
+                continue
+            for ev in (reward.events or []):
+                yield ev.id
+            for item in (reward.items or []):
+                preset = get_reward_preset(item.kind)
+                if not preset:
+                    continue
+                for p in preset.params:
+                    if p.type == "event_ref":
+                        yield item.params.get(p.key)
+
+    def _rename_event_references(self, old_id: str, new_id: str) -> None:
+        from core.reward_presets import get_reward_preset
+        for f in self._project.focuses:
+            reward = f.completionReward
+            if not reward:
+                continue
+            for ev in (reward.events or []):
+                if ev.id == old_id:
+                    ev.id = new_id
+            for item in (reward.items or []):
+                preset = get_reward_preset(item.kind)
+                if not preset:
+                    continue
+                for p in preset.params:
+                    if p.type == "event_ref" and item.params.get(p.key) == old_id:
                         item.params[p.key] = new_id
 
     def _unique_id(self, base: str) -> str:

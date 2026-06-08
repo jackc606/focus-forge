@@ -29,7 +29,7 @@ def _fmt_opinion(val) -> str:
 
 
 def make_param_widget(param, current, set_value, *, country_tag: str = "",
-                      focus_ids=(), idea_refs=()):
+                      focus_ids=(), idea_refs=(), event_refs=()):
     if param.type == "select":
         cb = QComboBox()
         cb.addItems(param.options or [])
@@ -72,6 +72,9 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
     if param.type == "idea_ref":
         return _id_combo(list(idea_refs or []), current, set_value, numeric=False,
                          completer=True, empty_tip="Type an idea id")
+    if param.type == "event_ref":
+        return _id_combo(list(event_refs or []), current, set_value, numeric=False,
+                         completer=True, empty_tip="Type an event id (e.g. MEX_forge.1)")
     if param.type == "number":
         sb = QDoubleSpinBox()
         sb.setRange(-1e9, 1e9)

@@ -88,7 +88,10 @@ class IdeaData:
 class EventOption:
     key: str = ""
     text: str = ""
-    effectRawLines: list = field(default_factory=list)
+    items: Optional[list] = None                  # list[RewardItem] — structured effects (reward presets)
+    trigger: Optional[AvailabilityRule] = None    # per-option visibility trigger (availability presets)
+    aiChance: Optional[float] = None              # → ai_chance = { base = N }
+    effectRawLines: list = field(default_factory=list)  # raw effect escape hatch (back-compat)
 
 
 @dataclass
@@ -96,6 +99,14 @@ class EventData:
     id: str = ""
     title: str = ""
     description: str = ""
+    picture: str = "GFX_report_event_generic_parliament"
+    eventType: str = "country_event"              # 'country_event' | 'news_event'
+    isTriggeredOnly: bool = True
+    hidden: bool = False
+    major: bool = False
+    fireOnlyOnce: bool = False
+    meanTimeToHappen: Optional[int] = None        # days; only meaningful when not triggered-only
+    trigger: Optional[AvailabilityRule] = None    # event-level fire trigger
     options: list = field(default_factory=list)
 
 

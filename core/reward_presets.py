@@ -342,7 +342,7 @@ _RAW_PRESETS = [
                  [RewardParamDef("removeIdea", "Remove Idea", "idea_ref", "", required=True),
                   RewardParamDef("addIdea", "Add Idea", "idea_ref", "", required=True)], _b_swap_idea),
     RewardPreset("country_event", "Events and Flags", "Country Event", "Fires a country event immediately or after a delay.",
-                 [RewardParamDef("eventId", "Event ID", "string", "", required=True, placeholder="MEX_forge.1"),
+                 [RewardParamDef("eventId", "Event ID", "event_ref", "", required=True, placeholder="MEX_forge.1"),
                   RewardParamDef("days", "Delay Days", "number", 0)], _b_country_event),
     RewardPreset("custom_tooltip", "Events and Flags", "Custom Tooltip", "Shows a custom effect tooltip.",
                  [RewardParamDef("tooltipId", "Tooltip Loc Key", "string", "", required=True)], _b_custom_tooltip),

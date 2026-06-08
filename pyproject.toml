@@ -1,6 +1,6 @@
 [project]
 name = "hoi4-focus-forge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Native Windows focus tree editor for HOI4 / Millennium Dawn"
 requires-python = ">=3.10"
 dependencies = [
@@ -11,6 +11,11 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pyinstaller>=6.0",
+]
+# The AI-agent MCP proxy (focusforge_mcp). The in-editor bridge itself needs no extra
+# deps — QTcpServer ships with PySide6.
+agent = [
+    "mcp>=1.2",
 ]
 
 [tool.pytest.ini_options]

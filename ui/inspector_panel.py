@@ -1,6 +1,8 @@
 """Right-tab: per-focus inspector. v1 covers id/title/desc/icon/position/cost/filters/prereqs/mutex/raw rewards."""
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -41,6 +43,9 @@ class InspectorPanel(QWidget):
         super().__init__(parent)
         self._model = model
         self._suspend = False
+        # When True, the focus id tracks the title (auto tag_slug). Flips off the
+        # moment the user hand-edits the id, or when an id no longer looks auto.
+        self._id_auto = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -149,7 +154,11 @@ class InspectorPanel(QWidget):
 
         # Wire signals
         self._id_edit.editingFinished.connect(self._commit_id)
-        self._title_edit.editingFinished.connect(lambda: self._commit("title", self._title_edit.text()))
+        # A manual id edit detaches the id from the title (textEdited fires only on
+        # user input, not on our programmatic setText).
+        self._id_edit.textEdited.connect(lambda *_: setattr(self, "_id_auto", False))
+        self._title_edit.textChanged.connect(self._on_title_text)
+        self._title_edit.editingFinished.connect(self._commit_title)
         self._desc_edit.textChanged.connect(self._commit_description)
         self._icon_edit.currentTextChanged.connect(self._on_icon_text)
         self._pos_x.valueChanged.connect(self._commit_position)
@@ -209,6 +218,9 @@ class InspectorPanel(QWidget):
         self._avail_divider.setVisible(True)
 
         self._suspend = True
+        # A freshly-added focus (still "…new_focus_NNN") has its id follow the title
+        # until the user names it or hand-edits the id.
+        self._id_auto = self._is_auto_focus_id(focus.id)
         self._id_edit.setText(focus.id)
         self._title_edit.setText(focus.title)
         if self._desc_edit.toPlainText() != focus.description:
@@ -264,21 +276,60 @@ class InspectorPanel(QWidget):
             return
         self._model.update_focus(sel, position=FocusPosition(x=self._pos_x.value(), y=self._pos_y.value()))
 
+    # ----- title → auto id -----
+    def _on_title_text(self, text: str) -> None:
+        """Live-preview the auto id while the title is typed. The model commit
+        happens on editingFinished (``_commit_title``)."""
+        if self._suspend or not self._id_auto:
+            return
+        base = self._auto_id_from_title(text)
+        if base:
+            self._id_edit.setText(self._unique_focus_id(base, ignore=self._model.selected_id))
+
+    def _commit_title(self) -> None:
+        if self._suspend:
+            return
+        sel = self._model.selected_id
+        focus = self._model.find_focus(sel)
+        if not focus:
+            return
+        new_title = self._title_edit.text()
+        title_changed = new_title != focus.title
+        self._model.update_focus(sel, title=new_title)
+        if self._id_auto and title_changed:
+            base = self._auto_id_from_title(new_title)
+            if base:
+                self._rename_focus_id(sel, self._unique_focus_id(base, ignore=sel))
+
+    def _auto_id_from_title(self, title: str) -> str:
+        """``<TAG>_<slug>`` from a title (HOI4 convention), e.g. 'Industrial Plan'
+        → 'MEX_industrial_plan'. Empty when there's nothing to slug."""
+        tag = re.sub(r"[^A-Za-z0-9]", "", self._model.project.countryTag or "").upper()
+        slug = re.sub(r"[^a-z0-9]+", "_", (title or "").lower()).strip("_")
+        if tag and slug:
+            return f"{tag}_{slug}"
+        return slug
+
+    @staticmethod
+    def _is_auto_focus_id(focus_id: str) -> bool:
+        """True for the placeholder ids new focuses get (``…new_focus_NNN``)."""
+        return bool(re.match(r"^(?:[A-Za-z0-9]+_)?new_focus_\d+$", focus_id or ""))
+
+    def _unique_focus_id(self, base: str, ignore: str = "") -> str:
+        existing = {f.id for f in self._model.project.focuses if f.id != ignore}
+        if base and base not in existing:
+            return base
+        n = 2
+        while f"{base}_{n}" in existing:
+            n += 1
+        return f"{base}_{n}"
+
     def _commit_id(self) -> None:
         if self._suspend:
             return
-        new_id = self._id_edit.text().strip()
-        sel = self._model.selected_id
-        focus = self._model.find_focus(sel)
-        if not focus or new_id == sel or not new_id:
-            return
-        # Update the id and rewrite all references in the project
-        old_id = sel
-        focus.id = new_id
-        for other in self._model.project.focuses:
-            other.prerequisites = [new_id if p == old_id else p for p in other.prerequisites]
-            other.mutuallyExclusive = [new_id if m == old_id else m for m in other.mutuallyExclusive]
-            if other.available and other.available.completedFocuses:
-                other.available.completedFocuses = [new_id if c == old_id else c for c in other.available.completedFocuses]
-        self._model.set_selection(new_id)
-        self._model.notify_changed()
+        self._rename_focus_id(self._model.selected_id, self._id_edit.text().strip())
+
+    def _rename_focus_id(self, old_id: str, new_id: str) -> None:
+        """Rename a focus + rewrite references. Delegates to the model so the GUI
+        and the AI bridge share one implementation."""
+        self._model.rename_focus(old_id, new_id)
