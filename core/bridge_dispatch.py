@@ -311,6 +311,13 @@ def _op_delete_event(model, args):
 
 # ----- IO ----------------------------------------------------------------------
 
+def _op_load_project(model, args):
+    _require(args, "path")
+    model.load_from_file(Path(args["path"]))
+    return {"loaded": str(args["path"]), "focuses": len(model.project.focuses),
+            "name": model.project.projectName}
+
+
 def _op_save(model, args):
     path = args.get("path") or (str(model.path) if model.path else "")
     if not path:
@@ -358,6 +365,7 @@ _OPS = {
     "add_event": _op_add_event,
     "update_event": _op_update_event,
     "delete_event": _op_delete_event,
+    "load_project": _op_load_project,
     "save": _op_save,
     "export": _op_export,
 }

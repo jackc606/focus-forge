@@ -136,6 +136,20 @@ def get_selection() -> dict:
 
 
 @mcp.tool()
+def canvas_screenshot(focus_id: str | None = None, focus_ids: list | None = None,
+                      whole_tree: bool = False, margin: int = 3) -> dict:
+    """Render the focus-tree canvas to a PNG and return its file path so you can SEE the
+    actual layout (placement, spacing, overlaps, prerequisite lines). Pass focus_id to
+    center on one focus (+ margin cells), focus_ids to frame a set (e.g. a chunk you just
+    built), or whole_tree=True for the entire tree (labels get small). The result includes
+    `focuses_in_view` with each focus's [x, y]. Open the returned `path` to view it."""
+    args = _compact(focus_id=focus_id, focus_ids=focus_ids, margin=margin)
+    if whole_tree:
+        args["all"] = True
+    return _call("screenshot", args)
+
+
+@mcp.tool()
 def validate() -> dict:
     """Validate the project. Returns {errors, warnings, summary} — each issue has
     code/message/focusId. Call this after edits to confirm the tree is sound."""
@@ -305,6 +319,12 @@ def delete_event(event_id: str) -> dict:
 
 
 # ======================= IO =======================
+
+@mcp.tool()
+def open_project(path: str) -> dict:
+    """Open a .focusforge.json project file in the editor (replaces what's loaded)."""
+    return _call("load_project", {"path": path})
+
 
 @mcp.tool()
 def save_project(path: str | None = None) -> dict:

@@ -129,7 +129,7 @@ class MainWindow(QMainWindow):
         # In-process AI bridge (opt-in, loopback-only) that lets an MCP agent edit
         # the live project. Mutations run on this (main) thread → canvas repaints.
         self._settings = QSettings("FocusForge", "FocusForge")
-        self._bridge = AgentBridge(self._model, self)
+        self._bridge = AgentBridge(self._model, scene=self._scene, parent=self)
         self._bridge.state_changed.connect(self._on_bridge_state)
         self._bridge.client_changed.connect(self._on_bridge_client)
         self._bridge.op_applied.connect(self._status_label.setText)
