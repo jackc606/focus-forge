@@ -82,6 +82,24 @@ def test_relative_party_popularity_uses_party_picker() -> None:
     assert "set_temp_variable = { party_index = 1 }" in text
 
 
+def test_md_economy_presets_emit_expected_lines() -> None:
+    """Productivity / GDP / agriculture / tax / radicalization presets (MD idioms)."""
+    reward = CompletionReward(items=[
+        RewardItem(kind="productivity_growth", params={"amount": 0.025}),
+        RewardItem(kind="economic_growth", params={"times": 2}),
+        RewardItem(kind="agriculture_district", params={"count": 2}),
+        RewardItem(kind="corporate_tax", params={"amount": -5}),
+        RewardItem(kind="radicalization", params={"amount": -5}),
+    ])
+    text = "\n".join(export_completion_reward_lines(reward))
+    assert "set_temp_variable = { temp_productivity_change = 0.025 }" in text
+    assert "flat_productivity_change_effect = yes" in text
+    assert text.count("increase_economic_growth = yes") == 2
+    assert text.count("one_random_agriculture_district = yes") == 2
+    assert "modify_corporate_tax_rate_effect = yes" in text
+    assert "set_temp_variable = { rad_change = -5 }" in text
+
+
 def test_timed_resource_reward() -> None:
     reward = CompletionReward(items=[
         RewardItem(kind="timed_resource",

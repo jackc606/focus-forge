@@ -115,6 +115,11 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "reverse_opinion_modifier.modifier": "Named opinion modifier the target adds toward ROOT; the dropdown shows each one's value.",
     "create_wargoal.target": "Country tag that the wargoal is created against.",
     "create_wargoal.type": "Wargoal type used by HOI4 or Millennium Dawn, such as puppet_wargoal_focus.",
+    "productivity_growth.amount": "Flat productivity change via the MD helper. 0.025 is roughly +2.5%; use a negative value to cut productivity (e.g. an economic crisis).",
+    "economic_growth.times": "How many times to trigger Millennium Dawn's one-shot GDP growth boost.",
+    "agriculture_district.count": "How many random agriculture districts to build, raising farming output (MD).",
+    "corporate_tax.amount": "Percentage-point change to the corporate tax rate. Positive raises taxes, negative cuts them (e.g. -5).",
+    "radicalization.amount": "Change to national radicalization. Negative values reduce unrest (e.g. -5).",
 }
 
 SHARED_PARAM_HELP: dict = {
@@ -212,6 +217,43 @@ def _b_treasury_change(p):
     return [
         f"set_temp_variable = {{ treasury_change = {_number_value(p, 'amount')} }}",
         "modify_treasury_effect = yes",
+    ]
+
+
+def _repeat_count(p, key, default=1):
+    raw = p.get(key, default)
+    try:
+        return max(1, int(float(raw)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _b_productivity_growth(p):
+    return [
+        f"set_temp_variable = {{ temp_productivity_change = {_number_value(p, 'amount')} }}",
+        "flat_productivity_change_effect = yes",
+    ]
+
+
+def _b_economic_growth(p):
+    return ["increase_economic_growth = yes"] * _repeat_count(p, "times")
+
+
+def _b_agriculture_district(p):
+    return ["one_random_agriculture_district = yes"] * _repeat_count(p, "count")
+
+
+def _b_corporate_tax(p):
+    return [
+        f"set_temp_variable = {{ corp_change = {_number_value(p, 'amount')} }}",
+        "modify_corporate_tax_rate_effect = yes",
+    ]
+
+
+def _b_radicalization(p):
+    return [
+        f"set_temp_variable = {{ rad_change = {_number_value(p, 'amount')} }}",
+        "modify_radicalization_effect = yes",
     ]
 
 
@@ -357,6 +399,21 @@ _RAW_PRESETS = [
                   RewardParamDef("category", "Category", "tech_category", "CAT_industry", required=True)], _b_tech_bonus),
     RewardPreset("treasury_change", "Millennium Dawn Economy", "Treasury Change", "Uses the common MD treasury helper pattern.",
                  [RewardParamDef("amount", "Treasury Change", "number", 1, required=True, step=0.1)], _b_treasury_change),
+    RewardPreset("productivity_growth", "Millennium Dawn Economy", "Productivity Growth",
+                 "Flat change to national productivity (MD). 0.025 is about +2.5%; negative cuts it.",
+                 [RewardParamDef("amount", "Productivity Change", "number", 0.025, required=True, step=0.005)], _b_productivity_growth),
+    RewardPreset("economic_growth", "Millennium Dawn Economy", "Economic Growth (GDP)",
+                 "Triggers MD's one-shot GDP growth boost, once or several times.",
+                 [RewardParamDef("times", "Times", "number", 1, required=True)], _b_economic_growth),
+    RewardPreset("agriculture_district", "Millennium Dawn Economy", "Agriculture District",
+                 "Builds random agriculture districts, raising farming output (MD).",
+                 [RewardParamDef("count", "Count", "number", 1, required=True)], _b_agriculture_district),
+    RewardPreset("corporate_tax", "Millennium Dawn Economy", "Corporate Tax Change",
+                 "Changes the corporate tax rate (MD). Positive raises taxes, negative cuts them.",
+                 [RewardParamDef("amount", "Tax Change", "number", -5, required=True)], _b_corporate_tax),
+    RewardPreset("radicalization", "Millennium Dawn Economy", "Radicalization Change",
+                 "Changes national radicalization (MD). Negative reduces unrest.",
+                 [RewardParamDef("amount", "Radicalization Change", "number", -5, required=True)], _b_radicalization),
     RewardPreset("domestic_influence", "Millennium Dawn Politics", "Domestic Influence", "Changes domestic influence percentage through the MD helper.",
                  [RewardParamDef("percent", "Percent Change", "number", 5, required=True)], _b_domestic_influence),
     RewardPreset("foreign_influence", "Millennium Dawn Politics", "Foreign Influence", "Changes a tag influence percentage over a target country.",
