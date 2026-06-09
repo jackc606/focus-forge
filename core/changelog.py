@@ -32,6 +32,14 @@ CHANGELOG = [
             "Parties now have an editable politics-screen description, and warn when two "
             "share the same sub-ideology slot.",
             "Faster icon/picture pickers — thumbnails load only as you scroll.",
+            "New submods now import the country's existing MD focus tree by default "
+            "(toggle “Start blank” to opt out).",
+            "Red “Clear Focuses” toolbar button (with confirmation) wipes the tree.",
+            "Autosave: pick an interval in Settings to auto-save the open project.",
+            "New reward “Put Leader in Power” — installs a preset MD or custom leader "
+            "(create_country_leader) and makes their party rule.",
+            "Country flag preview now shows for every country (robust TGA decoder for "
+            "the flag formats Qt couldn't read).",
         ],
     },
     {

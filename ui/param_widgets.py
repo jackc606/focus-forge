@@ -29,7 +29,7 @@ def _fmt_opinion(val) -> str:
 
 
 def make_param_widget(param, current, set_value, *, country_tag: str = "",
-                      focus_ids=(), idea_refs=(), event_refs=()):
+                      focus_ids=(), idea_refs=(), event_refs=(), leader_refs=()):
     if param.type == "select":
         cb = QComboBox()
         cb.addItems(param.options or [])
@@ -75,6 +75,8 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
     if param.type == "event_ref":
         return _id_combo(list(event_refs or []), current, set_value, numeric=False,
                          completer=True, empty_tip="Type an event id (e.g. MEX_forge.1)")
+    if param.type == "leader_ref":
+        return _leader_combo(list(leader_refs or []), current, set_value)
     if param.type == "number":
         sb = QDoubleSpinBox()
         sb.setRange(-1e9, 1e9)
@@ -145,6 +147,36 @@ def _id_combo(items, current, set_value, *, numeric: bool, empty_tip: str,
 
     cb.currentIndexChanged.connect(lambda _i: commit())
     cb.lineEdit().editingFinished.connect(commit)
+    return cb
+
+
+def _leader_combo(groups, current, set_value):
+    """Non-editable combo of leaders grouped into 'Preset MD leaders' / 'Custom
+    leaders'. ``groups`` = [(group_label, [(encoded_value, display_name)])]; the
+    item data is the opaque encoded leader value the reward builder decodes."""
+    cb = QComboBox()
+    cb.addItem("(choose a leader)", "")
+    for label, items in groups:
+        if not items:
+            continue
+        cb.addItem(f"— {label} —", None)
+        cb.model().item(cb.count() - 1).setEnabled(False)
+        for value, name in items:
+            cb.addItem(f"  {name}", value)
+    cur = str(current or "")
+    idx = cb.findData(cur) if cur else 0
+    if cur and idx < 0:
+        # Stored leader isn't in the current lists (e.g. edited project) — keep it.
+        from core.reward_presets import decode_leader
+        data = decode_leader(cur)
+        name = (data or {}).get("name") or "current selection"
+        cb.insertItem(1, f"  {name}", cur)
+        idx = 1
+    cb.setCurrentIndex(idx if idx >= 0 else 0)
+    if not any(items for _l, items in groups):
+        cb.setToolTip("No leaders found — add custom leaders in the Country editor, "
+                      "or configure your MD folder in Settings.")
+    cb.currentIndexChanged.connect(lambda i: set_value(cb.itemData(i) or ""))
     return cb
 
 

@@ -102,8 +102,13 @@ class NewSubmodDialog(QDialog):
         self._make_project = QCheckBox("Create a focus-tree project and open it")
         self._make_project.setChecked(True)
         v.addWidget(self._make_project)
-        self._import_tree = QCheckBox("Start from an existing country's focus tree (pick after creating)")
-        v.addWidget(self._import_tree)
+        self._start_blank = QCheckBox(
+            "Start blank (don't import this country's Millennium Dawn focus tree)")
+        self._start_blank.setToolTip(
+            "By default a new submod imports the chosen country's existing MD focus "
+            "tree so you can build on what's already there. Tick this to start from an "
+            "empty placeholder tree instead.")
+        v.addWidget(self._start_blank)
         self._add_icons = QCheckBox("Add this mod folder as an icon source")
         self._add_icons.setChecked(True)
         v.addWidget(self._add_icons)
@@ -138,6 +143,6 @@ class NewSubmodDialog(QDialog):
             "tags": tags or list(DEFAULT_TAGS),
             "dependencies": deps,
             "make_project": self._make_project.isChecked(),
-            "import_tree": self._import_tree.isChecked(),
+            "start_blank": self._start_blank.isChecked(),
             "add_icons": self._add_icons.isChecked(),
         }

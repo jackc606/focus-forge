@@ -32,7 +32,7 @@ from .param_widgets import make_param_widget
 
 class _RewardItemCard(QFrame):
     def __init__(self, index: int, item: RewardItem, on_change, on_delete,
-                 country_tag: str = "", idea_refs=(), event_refs=()) -> None:
+                 country_tag: str = "", idea_refs=(), event_refs=(), leader_refs=()) -> None:
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
         self._index = index
@@ -42,6 +42,7 @@ class _RewardItemCard(QFrame):
         self._country_tag = country_tag
         self._idea_refs = list(idea_refs or [])
         self._event_refs = list(event_refs or [])
+        self._leader_refs = list(leader_refs or [])
         preset = get_reward_preset(item.kind)
 
         v = QVBoxLayout(self)
@@ -93,7 +94,7 @@ class _RewardItemCard(QFrame):
         return make_param_widget(
             param, current, lambda val: self._set_param(param.key, val),
             country_tag=self._country_tag, idea_refs=self._idea_refs,
-            event_refs=self._event_refs)
+            event_refs=self._event_refs, leader_refs=self._leader_refs)
 
     def _set_param(self, key: str, value) -> None:
         self._item.params[key] = value
@@ -226,10 +227,13 @@ class RewardEditor(QWidget):
         tag = self._model.project.countryTag
         idea_refs = [(i.id, f"{i.title or i.id} ({i.id})") for i in self._model.project.ideas]
         event_refs = [(e.id, f"{e.title or e.id} ({e.id})") for e in self._model.project.events]
+        from .leader_options import build_leader_refs
+        leader_refs = build_leader_refs(self._model.project)
         for index, item in enumerate(reward.items or []):
             card = _RewardItemCard(index, item, self._on_item_changed,
                                    self._on_item_deleted, country_tag=tag,
-                                   idea_refs=idea_refs, event_refs=event_refs)
+                                   idea_refs=idea_refs, event_refs=event_refs,
+                                   leader_refs=leader_refs)
             self._items_box.addWidget(card)
 
         self._raw.blockSignals(True)

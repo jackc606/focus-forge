@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
-from core.focus_import import import_focus_tree
+from core.focus_import import find_focus_trees, import_focus_tree
 from core.mod_scaffold import (
     DEFAULT_SUPPORTED_VERSION,
     DEFAULT_TAGS,
@@ -95,13 +95,13 @@ class MainWindow(QMainWindow):
         self._validation = ValidationPanel(self._model)
         self._export_panel = ExportPanel(self._model)
         self._llm = LlmPanel(self._model)
-        self._settings = SettingsPanel(self._model)
+        self._settings_panel = SettingsPanel(self._model)
         self._help = HelpPanel()
         self._tabs.addTab(self._inspector, "Inspector")
         self._tabs.addTab(self._validation, "Validation")
         self._tabs.addTab(self._export_panel, "Export")
         self._tabs.addTab(self._llm, "LLM")
-        self._tabs.addTab(self._settings, "Settings")
+        self._tabs.addTab(self._settings_panel, "Settings")
         self._tabs.addTab(self._help, "Help")
         splitter.addWidget(self._tabs)
 
@@ -136,6 +136,12 @@ class MainWindow(QMainWindow):
         self._bridge.state_changed.connect(self._on_bridge_state)
         self._bridge.client_changed.connect(self._on_bridge_client)
         self._bridge.op_applied.connect(self._status_label.setText)
+
+        # Autosave: a timer that writes the open project on the configured interval.
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.timeout.connect(self._autosave_tick)
+        self._settings_panel.autosave_changed.connect(self._apply_autosave)
+        self._apply_autosave(self._settings.value("autosave_minutes", 0))
 
         # Wire signals
         self._model.project_changed.connect(self._on_project_changed)
@@ -216,6 +222,14 @@ class MainWindow(QMainWindow):
         fit_act = QAction("Fit View", self)
         fit_act.triggered.connect(lambda: self._view.fit_to_content())
         tb.addAction(fit_act)
+
+        clear_act = QAction("Clear Focuses", self)
+        clear_act.setToolTip("Remove every focus from this project (asks first).")
+        clear_act.triggered.connect(self._on_clear_focuses)
+        tb.addAction(clear_act)
+        clear_btn = tb.widgetForAction(clear_act)
+        if clear_btn is not None:
+            clear_btn.setObjectName("danger")
 
         tb.addSeparator()
 
@@ -309,6 +323,29 @@ class MainWindow(QMainWindow):
         elif dlg.choice == "recent" and dlg.recent_path:
             self._open_path(Path(dlg.recent_path))
 
+    # ----- autosave -----
+    def _apply_autosave(self, minutes) -> None:
+        """(Re)configure the autosave timer; 0 minutes turns it off."""
+        try:
+            minutes = int(minutes)
+        except (TypeError, ValueError):
+            minutes = 0
+        self._autosave_timer.stop()
+        if minutes > 0:
+            self._autosave_timer.setInterval(minutes * 60_000)
+            self._autosave_timer.start()
+
+    def _autosave_tick(self) -> None:
+        # Only autosave a project that already has a file and unsaved changes.
+        if not self._model.path or not self._model.is_dirty():
+            return
+        try:
+            self._model.save_to_file(self._model.path)
+            self._push_recent(self._model.path)
+            self._status_label.setText("Autosaved.")
+        except Exception as exc:
+            self._status_label.setText(f"Autosave failed: {exc}")
+
     def _save(self) -> bool:
         """Save to the current path (or prompt). Returns True if saved."""
         if self._model.path:
@@ -366,13 +403,18 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "New Submod", f"Could not create project folder:\n{exc}")
             return
 
+        # By default, seed the new submod with the country's existing MD focus tree
+        # so the player can build on what's already there; "Start blank" opts out.
         project = None
-        if vals.get("import_tree"):
-            project = self._choose_and_import_tree()
+        imported = False
+        if not vals.get("start_blank"):
+            project = self._import_md_tree_for_tag(vals["country_tag"])
+            imported = project is not None
         if project is None:
             project = FocusForgeProject(countryTag=vals["country_tag"])
             apply_base_tree_to_project(project)  # placeholder tree + tag prefixes
-            project.projectName = vals["name"]   # restore the real mod name
+        project.projectName = vals["name"]       # the real mod name
+        project.countryTag = vals["country_tag"]
         # Remember where to publish and how to scaffold it on first export.
         project.exportDir = mod_target
         project.modMeta = {
@@ -393,12 +435,44 @@ class MainWindow(QMainWindow):
             if mod_target not in roots:
                 provider().set_roots(roots + [mod_target])
 
+        if imported:
+            tree_note = (f"Imported {vals['country_tag']}'s Millennium Dawn focus tree "
+                         f"({len(project.focuses)} focuses) — edit freely.")
+        elif not vals.get("start_blank"):
+            tree_note = (f"No dedicated Millennium Dawn tree was found for "
+                         f"{vals['country_tag']}, so the project starts from a blank "
+                         f"placeholder tree.")
+        else:
+            tree_note = "Started from a blank placeholder tree."
         QMessageBox.information(
             self, "Submod created",
             f"Project created in your Focus Forge workspace:\n{proj_dir}\n\n"
+            f"{tree_note}\n\n"
             f"When you're ready, \"Export to Mod\" will build it into the HOI4 "
             f"folder and make it appear in the launcher:\n{mod_target}")
         self._model.status_message.emit(f"Created submod project at {proj_dir}")
+
+    def _import_md_tree_for_tag(self, tag: str):
+        """Auto-import the chosen country's Millennium Dawn focus tree (no picker).
+        Returns a FocusForgeProject, or None if no dedicated MD tree exists for the
+        tag (the caller then falls back to a blank placeholder tree)."""
+        clean = "".join(ch for ch in (tag or "").upper() if ch.isalnum())[:3]
+        if not clean:
+            return None
+        roots = provider().roots()
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            refs = [r for r in find_focus_trees(roots) if r.tag == clean]
+            if not refs:
+                return None
+            ref = max(refs, key=lambda r: r.focus_count)  # the country's main tree
+            return import_focus_tree(ref, roots)
+        except Exception as exc:
+            QMessageBox.warning(self, "Import failed",
+                                f"Couldn't import the MD focus tree for {clean}:\n{exc}")
+            return None
+        finally:
+            QGuiApplication.restoreOverrideCursor()
 
     def _choose_and_import_tree(self):
         """Open the import picker and return a FocusForgeProject, or None."""
@@ -581,6 +655,22 @@ class MainWindow(QMainWindow):
         if not sel:
             return
         self._model.delete_focus(sel)
+
+    def _on_clear_focuses(self) -> None:
+        n = len(self._model.project.focuses)
+        if n == 0:
+            self._model.status_message.emit("No focuses to clear.")
+            return
+        ans = QMessageBox.warning(
+            self, "Clear all focuses",
+            f"This permanently removes all {n} focus{'es' if n != 1 else ''} from this "
+            f"project (ideas, events and country data are kept).\n\nThis can't be undone. "
+            f"Continue?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
+        self._model.delete_focuses([f.id for f in self._model.project.focuses])
+        self._model.status_message.emit(f"Cleared {n} focuses")
 
     def _on_delete_focuses(self, ids) -> None:
         ids = list(ids or [])

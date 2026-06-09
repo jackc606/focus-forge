@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .dds_image import load_dds_qimage
+from .dds_image import load_dds_qimage, load_flag_qimage
 from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
@@ -651,7 +651,7 @@ class CountryEditorDialog(QDialog):
         ruling = ((md_pol or {}).get("rulingParty")
                   or self._country.rulingParty or "neutrality")
         dfp = default_flag(provider().roots(), tag, ruling)
-        self._default_flag_img = QImage(dfp) if dfp else None
+        self._default_flag_img = load_flag_qimage(dfp) if dfp else None
 
         v.addWidget(section_header("Main flag"))
         v.addWidget(hint("Custom flags must be 82×52 px .tga in-game; import a "
@@ -711,11 +711,11 @@ class CountryEditorDialog(QDialog):
         files = flag_files(provider().roots())
         by_name = dict(files)
         dlg = IconPickerDialog(parent=self, sprites=files, title="Choose Flag",
-                               loader=lambda p: QImage(p))
+                               loader=load_flag_qimage)
         if dlg.exec() and dlg.selected_name():
             path = by_name.get(dlg.selected_name())
             if path:
-                img = QImage(path)
+                img = load_flag_qimage(path)
                 if not img.isNull():
                     return _to_b64_png(img.scaled(82, 52, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         return None
@@ -724,7 +724,7 @@ class CountryEditorDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Import flag", "", _IMG_FILTER)
         if not path:
             return None
-        img = QImage(path)
+        img = load_flag_qimage(path)
         if img.isNull():
             return None
         return _to_b64_png(img.scaled(82, 52, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))

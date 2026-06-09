@@ -55,6 +55,15 @@ QToolBar QToolButton:disabled, QToolBar QPushButton:disabled {{
     background-color: {T.BG_PANEL};
     border-color: {T.BORDER_SUBTLE};
 }}
+QToolBar QToolButton#danger {{
+    color: {T.STATUS_ERROR};
+    border-color: {T.STATUS_ERROR_BORDER};
+}}
+QToolBar QToolButton#danger:hover {{
+    background-color: {T.STATUS_ERROR_BG};
+    border-color: {T.STATUS_ERROR};
+    color: {T.STATUS_ERROR};
+}}
 QToolBar::separator {{
     background-color: {T.BORDER_SUBTLE};
     width: 1px;

@@ -1,10 +1,31 @@
 """Reward presets — ported from rewardPresets.ts. 30 reward kinds across groups."""
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .ideologies import IDEOLOGY_TREE
 from .presets import MD_TECH_CATEGORIES
+
+# sub-ideology -> top ideology, for putting a leader's party in power.
+_SUB_TOP = {sub: top for top, subs in IDEOLOGY_TREE.items() for sub in subs}
+
+
+def encode_leader(name: str, ideology: str = "", picture: str = "", traits=None) -> str:
+    """Pack a leader's data into one opaque param value (base64 JSON) so the pure
+    reward builder can emit a full create_country_leader block from params alone."""
+    payload = {"name": name or "", "ideology": ideology or "",
+               "picture": picture or "", "traits": list(traits or [])}
+    return base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
+
+
+def decode_leader(value) -> Optional[dict]:
+    try:
+        return json.loads(base64.b64decode(str(value or "")).decode("utf-8"))
+    except Exception:
+        return None
 
 # ----- helpers -----------------------------------------------------------------
 
@@ -86,6 +107,8 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "tech_bonus.bonus": "Research speed multiplier. 0.5 means a 50% research bonus, 1 means a 100% bonus.",
     "tech_bonus.uses": "How many technologies can consume this research bonus.",
     "tech_bonus.category": "Millennium Dawn technology category affected by the bonus.",
+    "promote_leader.leader": "The leader to install. The list is grouped into this country's preset Millennium Dawn leaders and your own custom leaders (from the Country editor).",
+    "promote_leader.setRuling": "When yes, also switches the ruling party to this leader's ideology so they actually take power. Set to no to just (re)define the leader without changing who governs.",
     "treasury_change.amount": "Money added to or removed from the Millennium Dawn treasury helper. Positive values add funds; negative values spend funds.",
     "domestic_influence.percent": "Percent change applied to domestic influence through Millennium Dawn scripted effects.",
     "foreign_influence.percent": "Percent influence gained or lost by the influencer country over the target country.",
@@ -181,6 +204,29 @@ def _b_command_power(p): return [f"add_command_power = {_number_value(p, 'amount
 def _b_army_xp(p): return [f"army_experience = {_number_value(p, 'amount')}"]
 def _b_air_xp(p): return [f"air_experience = {_number_value(p, 'amount')}"]
 def _b_navy_xp(p): return [f"navy_experience = {_number_value(p, 'amount')}"]
+def _b_promote_leader(p):
+    """Install a specific leader (create_country_leader) and optionally make their
+    ideology the ruling party — i.e. put them in power."""
+    data = decode_leader(p.get("leader", ""))
+    if not data or not (data.get("name") or "").strip():
+        return []
+    inner = [f'name = "{data["name"]}"']
+    if data.get("picture"):
+        inner.append(f'picture = "{data["picture"]}"')
+    ideo = (data.get("ideology") or "").strip()
+    if ideo:
+        inner.append(f"ideology = {ideo}")
+    traits = [t for t in (data.get("traits") or []) if t]
+    if traits:
+        inner.append("traits = { " + " ".join(traits) + " }")
+    lines = _block("create_country_leader", inner)
+    if str(p.get("setRuling", "yes")).strip().lower() in ("yes", "true", "1"):
+        top = _SUB_TOP.get(ideo)
+        if top:
+            lines += _block("set_politics", [f"ruling_party = {top}"])
+    return lines
+
+
 def _b_add_idea(p): return [f"add_ideas = {_value(p, 'idea')}"]
 def _b_remove_idea(p): return [f"remove_ideas = {_value(p, 'idea')}"]
 
@@ -422,6 +468,13 @@ _RAW_PRESETS = [
                  [RewardParamDef("amount", "Amount", "number", 0.05, required=True, step=0.01)], _b_war_support),
     RewardPreset("command_power", "Political", "Command Power", "Adds command power.",
                  [RewardParamDef("amount", "Amount", "number", 10, required=True)], _b_command_power),
+    RewardPreset("promote_leader", "Leaders", "Put Leader in Power",
+                 "Installs a specific country leader (create_country_leader) and, by "
+                 "default, makes their ideology the ruling party. Choose one of the "
+                 "country's preset Millennium Dawn leaders or your own custom leaders.",
+                 [RewardParamDef("leader", "Leader", "leader_ref", "", required=True),
+                  RewardParamDef("setRuling", "Make ruling party", "select", "yes",
+                                 options=["yes", "no"])], _b_promote_leader),
     RewardPreset("army_experience", "Experience", "Army XP", "Adds army experience.",
                  [RewardParamDef("amount", "Amount", "number", 10, required=True)], _b_army_xp),
     RewardPreset("air_experience", "Experience", "Air XP", "Adds air experience.",

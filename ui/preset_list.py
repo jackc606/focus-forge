@@ -125,10 +125,11 @@ class EffectListWidget(_PresetListBase):
     _RAW_PLACEHOLDER = "Raw effect lines (one HOI4 effect per line)"
 
     def __init__(self, items=None, raw_lines=None, *, country_tag: str = "",
-                 idea_refs=(), event_refs=(), on_change=None, parent=None) -> None:
+                 idea_refs=(), event_refs=(), leader_refs=(), on_change=None, parent=None) -> None:
         self._country_tag = country_tag
         self._idea_refs = list(idea_refs or [])
         self._event_refs = list(event_refs or [])
+        self._leader_refs = list(leader_refs or [])
         super().__init__(items, raw_lines, on_change=on_change, parent=parent)
 
     def _groups(self):
@@ -140,7 +141,7 @@ class EffectListWidget(_PresetListBase):
     def _make_card(self, index, item):
         return _RewardItemCard(index, item, self._on_item_changed, self._on_item_deleted,
                                country_tag=self._country_tag, idea_refs=self._idea_refs,
-                               event_refs=self._event_refs)
+                               event_refs=self._event_refs, leader_refs=self._leader_refs)
 
 
 class ConditionListWidget(_PresetListBase):

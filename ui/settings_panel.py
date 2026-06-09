@@ -1,9 +1,10 @@
 """Settings tab: project metadata, country tag picker, base tree button."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -27,11 +28,26 @@ from .project_model import ProjectModel
 from .widgets import hint, panel_header, section_header
 
 
+_AUTOSAVE_OPTIONS = [
+    (0, "Off"),
+    (1, "Every 1 minute"),
+    (2, "Every 2 minutes"),
+    (5, "Every 5 minutes"),
+    (10, "Every 10 minutes"),
+    (15, "Every 15 minutes"),
+]
+
+
 class SettingsPanel(QWidget):
+    # Emitted (with the interval in minutes, 0 = off) when the user changes the
+    # autosave setting, so the main window can reconfigure its timer.
+    autosave_changed = Signal(int)
+
     def __init__(self, model: ProjectModel, parent=None) -> None:
         super().__init__(parent)
         self._model = model
         self._suspend = False
+        self._app_settings = QSettings("FocusForge", "FocusForge")
 
         v = QVBoxLayout(self)
         v.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)
@@ -87,6 +103,28 @@ class SettingsPanel(QWidget):
         export_form.addRow(self._include_ideas)
         self._include_events = QCheckBox("Include events in export")
         export_form.addRow(self._include_events)
+
+        # ----- Autosave -----
+        v.addWidget(section_header("Autosave"))
+        autosave_form = QFormLayout()
+        autosave_form.setSpacing(T.SPACE_SM)
+        v.addLayout(autosave_form)
+        self._autosave = QComboBox()
+        for minutes, label in _AUTOSAVE_OPTIONS:
+            self._autosave.addItem(label, minutes)
+        current = self._app_settings.value("autosave_minutes", 0)
+        try:
+            current = int(current)
+        except (TypeError, ValueError):
+            current = 0
+        idx = self._autosave.findData(current)
+        self._autosave.setCurrentIndex(idx if idx >= 0 else 0)
+        self._autosave.currentIndexChanged.connect(self._on_autosave_changed)
+        autosave_form.addRow("Save every", self._autosave)
+        v.addWidget(hint(
+            "Automatically saves the open project to its .focusforge.json on the chosen "
+            "interval — but only after it has been saved once (so it has a file). New, "
+            "never-saved projects are left alone."))
 
         # ----- Starter Tree -----
         v.addWidget(section_header("Starter Tree"))
@@ -168,6 +206,11 @@ class SettingsPanel(QWidget):
         if self._suspend:
             return
         self._model.update_export_settings(**{attr: value})
+
+    def _on_autosave_changed(self) -> None:
+        minutes = int(self._autosave.currentData() or 0)
+        self._app_settings.setValue("autosave_minutes", minutes)
+        self.autosave_changed.emit(minutes)
 
     def _commit_cfp(self) -> None:
         if self._suspend:

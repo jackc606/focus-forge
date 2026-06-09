@@ -79,7 +79,7 @@ class _OptionCard(QFrame):
     """One event option: key, button text, effects, optional trigger + ai_chance."""
 
     def __init__(self, option: EventOption, *, country_tag, idea_refs, event_refs,
-                 focus_ids, on_change, on_delete, on_move) -> None:
+                 focus_ids, on_change, on_delete, on_move, leader_refs=()) -> None:
         super().__init__()
         self.setObjectName("optionCard")
         self.setFrameShape(QFrame.StyledPanel)
@@ -129,7 +129,7 @@ class _OptionCard(QFrame):
         self._effects = EffectListWidget(
             items=option.items, raw_lines=option.effectRawLines,
             country_tag=country_tag, idea_refs=idea_refs, event_refs=event_refs,
-            on_change=self._on_change)
+            leader_refs=leader_refs, on_change=self._on_change)
         v.addWidget(self._effects)
 
         # Optional per-option trigger.
@@ -205,6 +205,8 @@ class EventEditorDialog(QDialog):
         self._event_refs = [(e.id, f"{e.title or e.id} ({e.id})") for e in model.project.events]
         self._focus_ids = [f.id for f in model.project.focuses]
         self._country_tag = tag
+        from .leader_options import build_leader_refs
+        self._leader_refs = build_leader_refs(model.project)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)
@@ -458,7 +460,7 @@ class EventEditorDialog(QDialog):
             option, country_tag=self._country_tag, idea_refs=self._idea_refs,
             event_refs=self._event_refs, focus_ids=self._focus_ids,
             on_change=self._refresh_preview, on_delete=self._delete_option,
-            on_move=self._move_option)
+            on_move=self._move_option, leader_refs=self._leader_refs)
         self._options_box.addWidget(card)
         self._relabel_options()
         self._refresh_preview()
