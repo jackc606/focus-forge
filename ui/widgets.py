@@ -6,11 +6,27 @@ keyed on the object names set here.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 from . import theme as T
+
+
+class ClickableLabel(QLabel):
+    """A QLabel that emits ``clicked`` on a left-button press and shows a hand
+    cursor — used for the status-bar version link."""
+
+    clicked = Signal()
+
+    def __init__(self, text: str = "", parent=None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 def mono_font(size: int = T.TEXT_BODY) -> QFont:

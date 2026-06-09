@@ -5,6 +5,7 @@ from core.dds_decode import decode_dds
 from core.exporters import (
     export_country_history,
     export_country_localisation,
+    export_party_logo_sprites,
     export_project_files,
 )
 from core.image_write import dds_bgra32, tga_bgra32
@@ -89,6 +90,57 @@ def test_dds_writer_round_trips_decoder():
     rw, rh, out = res
     assert (rw, rh) == (w, h)
     assert bytes(out) == bgra
+
+
+def test_party_logo_preset_loc():
+    """A preset MD logo → a <TAG>.<sub>_icon loc line referencing MD's sprite,
+    and NO generated .gfx (MD already defines it)."""
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="Liberal Front",
+                                   subIdeology="conservatism",
+                                   logoRef="GFX_LBA_western_conservative")]
+    loc = export_country_localisation(p)
+    assert 'LBA.conservatism_icon:0 "£LBA_western_conservative"' in loc
+    assert export_party_logo_sprites(p) is None
+    files = {f.relativePath for f in export_project_files(p)}
+    assert not any(f.endswith("_party_logos.gfx") for f in files)
+
+
+def test_party_logo_custom_sprite_and_loc():
+    """A custom logo → a generated sprite, a _party_logos.gfx file, and a loc line
+    pointing at the generated sprite."""
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="Liberal Front",
+                                   subIdeology="conservatism", logoData="Zm9v")]
+    loc = export_country_localisation(p)
+    assert 'LBA.conservatism_icon:0 "£LBA_conservatism_party_logo"' in loc
+    gfx = export_party_logo_sprites(p)
+    assert gfx is not None
+    assert 'name = "GFX_LBA_conservatism_party_logo"' in gfx
+    assert 'texturefile = "gfx/texticons/parties_icons/lba/LBA_conservatism_party_logo.dds"' in gfx
+    files = {f.relativePath for f in export_project_files(p)}
+    assert "interface/LBA_party_logos.gfx" in files
+
+
+def test_party_logo_no_subideology_skipped():
+    """Without a sub-ideology there's nowhere to map the logo → nothing emitted."""
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="X", logoData="Zm9v")]
+    loc = export_country_localisation(p)
+    assert "_icon:0" not in loc
+    assert export_party_logo_sprites(p) is None
+
+
+def test_party_logo_round_trip():
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="X",
+                                   subIdeology="liberalism",
+                                   logoRef="GFX_LBA_western_liberal", logoData="")]
+    restored = project_from_dict(project_to_dict(p))
+    rp = restored.country.parties[0]
+    assert rp.subIdeology == "liberalism"
+    assert rp.logoRef == "GFX_LBA_western_liberal"
+    assert rp.logoData == ""
 
 
 def test_tga_matches_hoi4_format():

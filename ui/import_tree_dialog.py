@@ -8,16 +8,22 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
 )
 
-from core.focus_import import FocusTreeRef, find_focus_trees
+from core.focus_import import (
+    FocusTreeRef,
+    find_focus_trees,
+    find_focus_trees_in_folder,
+)
 
 from . import theme as T
 from .country_tag_picker import CountryTagPicker
@@ -28,24 +34,53 @@ _GENERIC_TREE_ID = "generic_focus"
 _REF_ROLE = Qt.UserRole
 
 
+def _default_mod_dir(roots) -> str:
+    """Best guess at the user's HOI4 `mod` folder for the folder picker.
+
+    Prefer the parent of a configured root that already lives under
+    ``Hearts of Iron IV/mod`` (so it tracks a non-default install), else the
+    standard Documents location, else empty."""
+    for root in roots:
+        parent = os.path.dirname(os.path.normpath(root))
+        if (os.path.basename(parent).lower() == "mod"
+                and os.path.basename(os.path.dirname(parent)).lower()
+                == "hearts of iron iv"):
+            return parent
+    standard = os.path.join(
+        os.path.expanduser("~"), "Documents", "Paradox Interactive",
+        "Hearts of Iron IV", "mod")
+    return standard if os.path.isdir(standard) else ""
+
+
 class ImportTreeDialog(QDialog):
     def __init__(self, roots, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Import Focus Tree")
         self.resize(720, 560)
         self._chosen = None
+        self._roots = list(roots)
+        self._added_folders: set = set()  # ad-hoc folders already scanned (dedup)
 
         v = QVBoxLayout(self)
         v.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)
         v.setSpacing(T.SPACE_MD)
         v.addWidget(panel_header("Import Focus Tree"))
         v.addWidget(hint("Pick an existing country's focus tree from your game and mod "
-                         "files to load it as an editable project."))
+                         "files to load it as an editable project, or add a custom mod "
+                         "folder to import a tree that isn't in your configured roots."))
 
+        row = QHBoxLayout()
         self._search = QLineEdit()
         self._search.setPlaceholderText("Filter by tag or tree id…")
         self._search.textChanged.connect(self._apply_filter)
-        v.addWidget(self._search)
+        row.addWidget(self._search, 1)
+        self._add_folder_btn = QPushButton("Add Mod Folder…")
+        self._add_folder_btn.setToolTip(
+            "Scan a mod folder's common/national_focus for focus trees, without "
+            "permanently adding it to your Settings roots.")
+        self._add_folder_btn.clicked.connect(self._add_folder)
+        row.addWidget(self._add_folder_btn)
+        v.addLayout(row)
 
         self._tree = QTreeWidget()
         self._tree.setColumnCount(4)
@@ -115,6 +150,54 @@ class ImportTreeDialog(QDialog):
             ref = item.data(0, _REF_ROLE)
             hidden = bool(q) and q not in ref.tag.lower() and q not in ref.tree_id.lower()
             item.setHidden(hidden)
+
+    def _add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select a mod folder (or its common/national_focus)",
+            _default_mod_dir(self._roots))
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        if folder in self._added_folders:
+            QMessageBox.information(self, "Already added",
+                                    "That folder's trees are already in the list.")
+            return
+
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            # Record the folder + configured roots so import-time loc resolves from
+            # the browsed folder first, falling back to the configured game/mod files.
+            found = find_focus_trees_in_folder(folder, [*self._roots, folder])
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+
+        if not found:
+            QMessageBox.warning(
+                self, "No focus trees found",
+                "No focus_tree blocks were found in that folder.\n\n"
+                "Pick a mod's root folder (the one containing common/national_focus) "
+                "or the national_focus folder itself.")
+            return
+
+        # Dedup against trees already shown (same file + tree id).
+        seen = {(r.file, r.tree_id) for r in self._refs}
+        new = [r for r in found if (r.file, r.tree_id) not in seen]
+        self._added_folders.add(folder)
+        self._refs.extend(new)
+        self._refs.sort(key=lambda t: (t.tag, t.tree_id))
+        self._populate()
+        self._apply_filter(self._search.text())
+        if new:
+            self._select_ref(new[0])
+
+    def _select_ref(self, ref) -> None:
+        """Select and scroll to the row for ``ref`` (e.g. a just-added tree)."""
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            if item.data(0, _REF_ROLE) is ref:
+                self._tree.setCurrentItem(item)
+                self._tree.scrollToItem(item)
+                return
 
     def _update_ok(self) -> None:
         self._buttons.button(QDialogButtonBox.Ok).setEnabled(bool(self._tree.selectedItems()))

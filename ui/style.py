@@ -102,6 +102,7 @@ QStatusBar {{
 }}
 QStatusBar::item {{ border: 0; }}
 QLabel#versionLabel {{ color: {T.TEXT_MUTED}; font-size: {T.TEXT_MICRO}px; padding: 0 6px 0 2px; }}
+QLabel#versionLabel:hover {{ color: {T.ACCENT}; text-decoration: underline; }}
 
 /* ----- Tabs ----- */
 QTabWidget::pane {{ background-color: {T.BG_PANEL}; border: 1px solid {T.BORDER_SUBTLE}; }}

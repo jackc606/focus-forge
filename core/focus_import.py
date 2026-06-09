@@ -180,6 +180,9 @@ class FocusTreeRef:
     file: str
     prefix_ids: bool = False  # rename every focus id to <TAG>_<id> on import
                               # (used for "start from the generic MD tree")
+    roots: tuple = ()         # roots to use for loc/replace_path on import; empty
+                              # → the caller's default. Set for ad-hoc folders the
+                              # user browses to that aren't in the configured roots.
 
 
 def _focus_files(roots):
@@ -199,6 +202,43 @@ def _focus_files(roots):
 _TREE_CACHE = {}
 
 
+def _trees_in_file(path: str, roots: tuple = ()) -> list:
+    """Every focus_tree declared in a single .txt file, as FocusTreeRefs."""
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+            raw = f.read()
+    except OSError:
+        return []
+    text = _COMMENT.sub("", raw)
+    out = []
+    for m in _TREE_START.finditer(text):
+        brace = m.end() - 1
+        end = _match_brace(text, brace)
+        block = text[brace + 1:end]
+        tid = _ID.search(block)
+        # tags from the country block — a single tree can apply to several
+        # countries via an OR list (e.g. gulf_focus → SAU/QAT/UAE/BHR/KUW/OMA),
+        # so collect ALL of them and surface the tree under each tag.
+        tags = []
+        for key, kind, body in _statements(block):
+            if key.lower() == "country" and kind == "block":
+                tags = list(dict.fromkeys(_TAG.findall(body)))
+                break
+        count = len(_FOCUS_COUNT.findall(block))
+        if count == 0:
+            continue
+        tree_id = tid.group(1) if tid else "(unknown)"
+        for tag in (tags or ["?"]):
+            out.append(FocusTreeRef(
+                tag=tag,
+                tree_id=tree_id,
+                focus_count=count,
+                file=path,
+                roots=roots,
+            ))
+    return out
+
+
 def find_focus_trees(roots, use_cache: bool = True) -> list:
     """All importable focus trees across the given roots (cached per root set)."""
     key = tuple(roots)
@@ -206,38 +246,43 @@ def find_focus_trees(roots, use_cache: bool = True) -> list:
         return _TREE_CACHE[key]
     trees = []
     for path in _focus_files(roots):
-        try:
-            with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
-                raw = f.read()
-        except OSError:
-            continue
-        text = _COMMENT.sub("", raw)
-        for m in _TREE_START.finditer(text):
-            brace = m.end() - 1
-            end = _match_brace(text, brace)
-            block = text[brace + 1:end]
-            tid = _ID.search(block)
-            # tags from the country block — a single tree can apply to several
-            # countries via an OR list (e.g. gulf_focus → SAU/QAT/UAE/BHR/KUW/OMA),
-            # so collect ALL of them and surface the tree under each tag.
-            tags = []
-            for key, kind, body in _statements(block):
-                if key.lower() == "country" and kind == "block":
-                    tags = list(dict.fromkeys(_TAG.findall(body)))
-                    break
-            count = len(_FOCUS_COUNT.findall(block))
-            if count == 0:
-                continue
-            tree_id = tid.group(1) if tid else "(unknown)"
-            for tag in (tags or ["?"]):
-                trees.append(FocusTreeRef(
-                    tag=tag,
-                    tree_id=tree_id,
-                    focus_count=count,
-                    file=path,
-                ))
+        trees.extend(_trees_in_file(path))
     trees.sort(key=lambda t: (t.tag, t.tree_id))
     _TREE_CACHE[key] = trees
+    return trees
+
+
+def _folder_focus_files(folder: str):
+    """national_focus .txt files for a folder the user browses to ad-hoc.
+
+    Accepts a mod root (``<folder>/common/national_focus``), the
+    ``national_focus`` directory itself, or any loose folder that directly holds
+    focus_tree .txt files."""
+    nf = os.path.join(folder, "common", "national_focus")
+    if os.path.isdir(nf):
+        scan = nf
+    elif os.path.basename(os.path.normpath(folder)).lower() == "national_focus":
+        scan = folder
+    else:
+        scan = folder
+    if not os.path.isdir(scan):
+        return
+    for fn in sorted(os.listdir(scan)):
+        if fn.lower().endswith(".txt"):
+            yield os.path.join(scan, fn)
+
+
+def find_focus_trees_in_folder(folder: str, import_roots) -> list:
+    """Importable focus trees inside an ad-hoc folder the user browsed to.
+
+    ``import_roots`` is the root list to record on each ref so import-time
+    localisation lookup sees both the folder and the configured game/mod roots.
+    Not cached — the folder is transient and may change between scans."""
+    roots = tuple(import_roots)
+    trees = []
+    for path in _folder_focus_files(folder):
+        trees.extend(_trees_in_file(path, roots=roots))
+    trees.sort(key=lambda t: (t.tag, t.tree_id))
     return trees
 
 
@@ -276,6 +321,10 @@ def _resolve_positions(focuses: list) -> dict:
 
 
 def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
+    # Ad-hoc folder refs carry their own roots (folder + configured) so loc
+    # resolves from the browsed folder; configured-root refs leave it empty.
+    if ref.roots:
+        roots = list(ref.roots)
     with open(ref.file, "r", encoding="utf-8-sig", errors="replace") as f:
         text = _COMMENT.sub("", f.read())
 

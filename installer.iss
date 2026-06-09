@@ -1,10 +1,10 @@
 ; Inno Setup script for Focus Forge.
 ; Build the app first:  python -m PyInstaller build.spec --clean --noconfirm
 ; Then compile:         ISCC.exe installer.iss
-; Output:               dist\FocusForge-0.1.5-setup.exe  (per-user install, no admin)
+; Output:               dist\FocusForge-0.1.6-setup.exe  (per-user install, no admin)
 
 #define MyAppName "Focus Forge"
-#define MyAppVersion "0.1.5"
+#define MyAppVersion "0.1.6"
 #define MyAppPublisher "Focus Forge"
 #define MyAppExeName "FocusForge.exe"
 
@@ -34,6 +34,9 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "dist\FocusForge\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; AI Bridge: ship a ready-to-use MCP config next to the exe so Claude Code, opened
+; on the install folder, auto-detects the bundled focusforge-mcp.exe server.
+Source: "packaging\.mcp.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -120,28 +120,43 @@ HELP_TOPICS = [
          "prompts you to save."),
     ]),
     ("Using AI to build your tree", [
-        ("What is the AI Bridge?",
-         "It lets an AI assistant (like Claude) build and edit your focus tree FOR you. You ask "
-         "in plain English — 'add a 4-focus economy branch under my political opening' — and the "
-         "focuses, ideas, and events appear on the canvas as the AI works. You stay in control "
-         "and can undo or tweak anything afterward."),
-        ("Step 1 — Turn the bridge ON",
-         "Click the 'AI Bridge' button on the right of the toolbar. The label at the bottom-right "
-         "turns green and reads 'AI Bridge: on' with a number after it. That's it — Focus Forge is "
-         "now ready to listen. It starts OFF every time you'd expect, and only listens on your own "
-         "PC, so nothing happens until you click it."),
-        ("Step 2 — Connect your AI (one-time setup)",
-         "You only do this once. (1) Install the helper: open a terminal in the Focus Forge folder "
-         "and run  pip install -e \".[agent]\"  — this adds the small 'mcp' connector. (2) Tell "
-         "your AI tool about Focus Forge: in Claude Code, just open the Focus Forge folder (it "
-         "already includes the .mcp.json file and will offer to connect 'focusforge'). For Claude "
-         "Desktop, follow the copy-paste config in docs/MCP.md. If you get stuck, that file has the "
-         "full walkthrough."),
-        ("Step 3 — Just ask",
-         "With the bridge ON and your AI connected, talk to it normally: 'list my focuses', 'add a "
-         "war-economy branch with 3 focuses and a mutually-exclusive choice', 'check the tree for "
-         "errors'. Watch the canvas update live. Tip: ask the AI to 'read the MD focus guide first' "
-         "so it follows Millennium Dawn conventions (costs, icons, filters)."),
+        ("What the AI Bridge does",
+         "It lets an AI assistant (like Claude) build and edit your focus tree FOR you. You ask in "
+         "plain English — e.g. 'add a 4-focus economy branch under my political opening' — and the "
+         "focuses, ideas, and events appear on the canvas as the AI works. You stay in control: "
+         "undo, tweak, or delete anything afterward."),
+        ("Setup if you installed Focus Forge (easiest)",
+         "If you used the Focus Forge installer, everything you need is already included — no "
+         "Python, no commands. Just three clicks:\n\n"
+         "1. In Focus Forge, click 'AI Bridge' on the right of the toolbar — the pill at the "
+         "bottom-right turns green ('AI Bridge: on').\n"
+         "2. Open the Focus Forge install folder in Claude Code. It finds the bundled setup and "
+         "offers to connect a server called 'focusforge'.\n"
+         "3. Approve it. Done — skip to 'Now just ask' below.\n\n"
+         "(Using Claude Desktop instead? See docs/MCP.md for the one-line config — point it at "
+         "focusforge-mcp.exe in the install folder.)"),
+        ("Setup if you run from source (Python)",
+         "Only if you run Focus Forge from the source folder instead of the installer:\n\n"
+         "1. Install Python from python.org and TICK 'Add Python to PATH'.\n"
+         "2. Open the Focus Forge folder in File Explorer, click the address bar, type  cmd  and "
+         "press Enter (a command window opens in the folder).\n"
+         "3. Type this and press Enter:\n\n"
+         "        pip install mcp\n\n"
+         "4. Turn on the bridge (toolbar 'AI Bridge'), then start Claude Code in the folder and "
+         "approve the 'focusforge' server."),
+        ("Now just ask",
+         "With the bridge ON (green pill) and your AI connected, talk to it normally: 'list my "
+         "focuses', 'add a war-economy branch with 3 focuses and a mutually-exclusive choice', "
+         "'check the tree for errors'. Watch the canvas update live. Tip: tell the AI to 'read the "
+         "MD focus guide first' so it follows Millennium Dawn conventions for costs, icons, filters."),
+        ("If it won't connect",
+         "• The AI says it can't reach Focus Forge → make sure Focus Forge is open and the "
+         "'AI Bridge' pill is green.\n"
+         "• Claude Code doesn't list 'focusforge' → start it from inside the Focus Forge folder "
+         "(installed app: the folder with FocusForge.exe; source: the folder with main.py).\n"
+         "• Running from source and 'pip is not recognized' → Python isn't installed, or 'Add "
+         "Python to PATH' wasn't ticked. Reinstall from python.org with that box ticked.\n"
+         "• Still stuck → docs/MCP.md has the full walkthrough and the list of things the AI can do."),
         ("Turning it off & staying safe",
          "Click 'AI Bridge' again to stop listening. The bridge is off by default, only works on "
          "your own computer (it never goes online), and an AI can't touch your project unless the "
@@ -201,6 +216,10 @@ class HelpPanel(QWidget):
         b = QLabel(body)
         b.setObjectName("helpBody")
         b.setWordWrap(True)
+        # Plain text so step newlines and indented commands render literally (not as
+        # HTML), and selectable so users can copy commands / config straight out.
+        b.setTextFormat(Qt.PlainText)
+        b.setTextInteractionFlags(Qt.TextSelectableByMouse)
         cv.addWidget(t)
         cv.addWidget(b)
         card._title = title  # type: ignore[attr-defined]

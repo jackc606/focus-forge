@@ -94,6 +94,7 @@ def _event_from_dict(d: dict) -> EventData:
         title=d.get("title", ""),
         description=d.get("description", ""),
         picture=d.get("picture", "GFX_report_event_generic_parliament"),
+        pictureData=d.get("pictureData", ""),
         eventType=d.get("eventType", "country_event"),
         isTriggeredOnly=bool(d.get("isTriggeredOnly", True)),
         hidden=bool(d.get("hidden", False)),
@@ -185,7 +186,9 @@ def _export_settings_from_dict(d: dict) -> ExportSettings:
 
 def _party_from_dict(d: dict) -> PartyData:
     return PartyData(ideology=d.get("ideology", ""), name=d.get("name", ""),
-                     longName=d.get("longName", ""))
+                     longName=d.get("longName", ""),
+                     subIdeology=d.get("subIdeology", ""),
+                     logoRef=d.get("logoRef", ""), logoData=d.get("logoData", ""))
 
 
 def _leader_from_dict(d: dict) -> LeaderData:

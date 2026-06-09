@@ -141,29 +141,57 @@ class IconProvider(QObject):
         super().__init__()
         self._settings = QSettings("FocusForge", "FocusForge")
         self._roots: list = list(self._settings.value("icon_roots", []) or [])
+        # Transient roots added for the current session only (e.g. a mod folder
+        # the user imported a focus tree from ad-hoc) — NOT persisted to QSettings.
+        self._extra_roots: list = []
         self._index: dict = {}
         self._cache: dict = {}      # icon_value(lower) -> QPixmap or None
         self._focus_sprites = None  # cached [(name, path)] under interface/goals
         self._idea_sprites = None   # cached [(name, path)] for GFX_idea_*
+        self._event_sprites = None  # cached [(name, path)] under gfx/event_pictures
         self._leader_portraits: dict = {}  # tag -> [(relpath, abspath, label)]
         self._portrait_cache: dict = {}    # relpath(lower) -> QPixmap or None
+        self._party_logos: dict = {}       # tag -> [(GFX_name, abspath)]
         self._index_built = False
 
     # ----- roots -----
     def roots(self) -> list:
         return list(self._roots)
 
-    def set_roots(self, roots) -> None:
-        self._roots = [r for r in roots if r]
-        self._settings.setValue("icon_roots", self._roots)
+    def _all_roots(self) -> list:
+        """Persisted roots plus any transient session roots (load order: extras
+        last, so an imported submod's icons override the base game/MD)."""
+        return self._roots + [r for r in self._extra_roots if r not in self._roots]
+
+    def _reset_caches(self) -> None:
         self._index_built = False
         self._index = {}
         self._cache = {}
         self._focus_sprites = None
         self._idea_sprites = None
+        self._event_sprites = None
         self._leader_portraits = {}
         self._portrait_cache = {}
+        self._party_logos = {}
+
+    def set_roots(self, roots) -> None:
+        self._roots = [r for r in roots if r]
+        self._settings.setValue("icon_roots", self._roots)
+        self._reset_caches()
         self.changed.emit()
+
+    def add_extra_roots(self, roots) -> None:
+        """Add transient session roots (e.g. an ad-hoc imported mod folder) so
+        their custom icons resolve, without persisting them to Settings. No-op if
+        nothing new is added."""
+        added = False
+        for r in roots:
+            if r and r not in self._roots and r not in self._extra_roots:
+                self._extra_roots.append(r)
+                added = True
+        if added:
+            self._reset_caches()
+            self.changed.emit()
 
     def ensure_default_roots(self) -> None:
         """On first run with no config, seed from autodetection (if anything found)."""
@@ -174,7 +202,7 @@ class IconProvider(QObject):
 
     # ----- lookup -----
     def _build_index(self) -> None:
-        self._index = build_sprite_index(self._roots)
+        self._index = build_sprite_index(self._all_roots())
         self._index_built = True
 
     def is_indexed(self) -> bool:
@@ -212,6 +240,42 @@ class IconProvider(QObject):
             self._idea_sprites = out
         return self._idea_sprites
 
+    def event_picture_sprites(self) -> list:
+        """Sorted [(GFX_name, abs_path)] for event pictures (sprites whose texture
+        lives under gfx/event_pictures). Cached after first build."""
+        if self._event_sprites is None:
+            if not self._index_built:
+                self._build_index()
+            out = []
+            for _lower, (name, path) in self._index.items():
+                if name.lower().endswith("_shine"):
+                    continue
+                if "event_pictures" in path.lower().replace("\\", "/"):
+                    out.append((name, path))
+            out.sort(key=lambda t: t[0].lower())
+            self._event_sprites = out
+        return self._event_sprites
+
+    def party_logos(self, tag: str) -> list:
+        """Sorted [(GFX_name, abs_path)] of a country's MD party-logo sprites
+        (under gfx/texticons/parties_icons, named GFX_<TAG>_…). Cached per tag."""
+        t = (tag or "").strip().upper()
+        if not t:
+            return []
+        if t not in self._party_logos:
+            if not self._index_built:
+                self._build_index()
+            pref = f"gfx_{t.lower()}_"
+            out = []
+            for _lower, (name, path) in self._index.items():
+                low = name.lower()
+                if ("parties_icons" in path.lower() and low.startswith(pref)
+                        and not low.endswith("_shine")):
+                    out.append((name, path))
+            out.sort(key=lambda x: x[0].lower())
+            self._party_logos[t] = out
+        return self._party_logos[t]
+
     def leader_portraits(self, tag: str) -> list:
         """[(relpath, abspath, label)] of the country's MD leader portrait images
         (gfx/leaders/<TAG>/*.dds, mod roots only); cached per tag."""
@@ -219,7 +283,7 @@ class IconProvider(QObject):
         if not t:
             return []
         if t not in self._leader_portraits:
-            self._leader_portraits[t] = build_leader_portraits(self._roots, t)
+            self._leader_portraits[t] = build_leader_portraits(self._all_roots(), t)
         return self._leader_portraits[t]
 
     def portrait_pixmap(self, relpath: str):
@@ -230,7 +294,7 @@ class IconProvider(QObject):
         if key in self._portrait_cache:
             return self._portrait_cache[key]
         pm = None
-        path = resolve_portrait(self._roots, relpath)
+        path = resolve_portrait(self._all_roots(), relpath)
         if path:
             img = load_dds_qimage(path)
             if img is not None and not img.isNull():
@@ -248,7 +312,7 @@ class IconProvider(QObject):
 
     def pixmap(self, icon_value: str):
         """Return a QPixmap for the focus icon, or None if unavailable."""
-        if not icon_value or not self._roots:
+        if not icon_value or not self._all_roots():
             return None
         key = icon_value.lower()
         if key in self._cache:

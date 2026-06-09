@@ -16,12 +16,39 @@ Claude (MCP client) ──stdio──> focusforge_mcp ──TCP 127.0.0.1:PORT�
 - Every mutation reuses the editor's own logic (id de-dupe, prerequisite cycle refusal, reference
   rewriting), so the agent can't produce a state the GUI couldn't.
 
-## Setup
+## Setup — installed app (no Python needed)
 
-1. **Install the proxy dependency** (once):
+The packaged build ships a console **`focusforge-mcp.exe`** next to `FocusForge.exe`,
+plus a ready-to-use `.mcp.json`. Nothing to `pip install`.
+
+1. **Enable the bridge** in Focus Forge: click **AI Bridge** in the toolbar (pill turns
+   green, `AI Bridge: on :<port>`).
+2. **Register the server**:
+   - **Claude Code**: start it in the install folder (the one with `FocusForge.exe`); it
+     finds the shipped `.mcp.json` and offers the `focusforge` server. Approve it.
+   - **Claude Desktop**: add to `claude_desktop_config.json`, using the full path to the
+     bundled exe:
+     ```json
+     {
+       "mcpServers": {
+         "focusforge": {
+           "command": "C:\\Program Files\\Focus Forge\\focusforge-mcp.exe"
+         }
+       }
+     }
+     ```
+
+## Setup — from source
+
+> Needs Python plus this repo (with `main.py`, `focusforge_mcp/`, `core/`, `.mcp.json`).
+
+1. **Install the proxy dependency** (once). Open a terminal in the repo folder and run:
    ```
-   pip install -e ".[agent]"      # installs `mcp`
+   pip install mcp
    ```
+   On Windows: open the folder in File Explorer, click the address bar, type `cmd`, press
+   Enter, then run the line above. (`pip install -e ".[agent]"` also works and is equivalent —
+   the only extra dependency is `mcp`.)
 2. **Enable the bridge** in Focus Forge: click **AI Bridge** in the toolbar. The status pill
    shows `AI Bridge: on :<port>`. It's **off by default** and only listens on `127.0.0.1` — an
    agent can never touch the project unless you turn it on.

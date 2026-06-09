@@ -1,6 +1,8 @@
 """HOI4 / Millennium Dawn export — ported from exporters.ts. Byte-identical to TS output."""
 from __future__ import annotations
 
+import re
+
 from .availability_presets import build_availability_item_lines
 from .reward_presets import build_reward_item_lines
 from .types import (
@@ -49,6 +51,12 @@ def export_project_files(project: FocusForgeProject) -> list:
             content=export_event_localisation(project),
             bom=True,
         ))
+        event_pic_gfx = export_event_picture_sprites(project)
+        if event_pic_gfx:
+            files.append(ExportedFile(
+                relativePath=f"interface/{settings.localisationPrefix}_event_pictures.gfx",
+                content=event_pic_gfx,
+            ))
     if settings.includeCountry and project.country:
         files.append(ExportedFile(
             relativePath=f"history/countries/{project.countryTag} - {project.projectName or project.countryTag}.txt",
@@ -64,6 +72,12 @@ def export_project_files(project: FocusForgeProject) -> list:
             files.append(ExportedFile(
                 relativePath=f"interface/{settings.localisationPrefix}_portraits.gfx",
                 content=portrait_gfx,
+            ))
+        party_logo_gfx = export_party_logo_sprites(project)
+        if party_logo_gfx:
+            files.append(ExportedFile(
+                relativePath=f"interface/{settings.localisationPrefix}_party_logos.gfx",
+                content=party_logo_gfx,
             ))
     return files
 
@@ -119,8 +133,71 @@ def export_country_history(project: FocusForgeProject) -> str:
 
 
 def _leader_slug(leader) -> str:
-    import re
     return re.sub(r"[^a-z0-9]+", "_", (leader.name or "leader").lower()).strip("_") or "leader"
+
+
+def _san(token: str) -> str:
+    """Filesystem/sprite-safe form of a sub-ideology token (keeps the loc key raw,
+    but hyphens etc. aren't safe in sprite names / filenames)."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", token or "").strip("_")
+
+
+def _party_logo_sprite_name(tag: str, sub: str) -> str:
+    """Generated sprite name for a CUSTOM party logo (distinct ``_party_logo``
+    suffix so it never collides with one of MD's own GFX_<TAG>_<party> sprites)."""
+    return f"GFX_{(tag or '').upper()}_{_san(sub)}_party_logo"
+
+
+def _party_logo_relpath(tag: str, sub: str) -> str:
+    """Posix relpath of a custom party-logo .dds, alongside MD's own party icons."""
+    return (f"gfx/texticons/parties_icons/{(tag or '').lower()}/"
+            f"{(tag or '').upper()}_{_san(sub)}_party_logo.dds")
+
+
+def _party_logo_loc_value(tag: str, party) -> str:
+    """The ``£<value>`` sprite reference for a party's logo, or "" if none.
+    Custom logos point at the generated sprite; presets reuse the chosen MD
+    sprite (its name minus the GFX_ prefix)."""
+    if party.logoData:
+        return f"{(tag or '').upper()}_{_san(party.subIdeology)}_party_logo"
+    ref = party.logoRef or ""
+    if ref:
+        return ref[4:] if ref.startswith("GFX_") else ref
+    return ""
+
+
+def _event_picture_sprite_name(event) -> str:
+    """Generated sprite name for a CUSTOM event picture (``_event_pic`` suffix so it
+    never collides with a vanilla/MD GFX_report_event_… sprite)."""
+    return f"GFX_{_san(event.id)}_event_pic"
+
+
+def _event_picture_relpath(event) -> str:
+    """Posix relpath of a custom event-picture .dds (under the mod's event_pictures)."""
+    return f"gfx/event_pictures/{_san(event.id)}.dds"
+
+
+def _event_picture_value(event) -> str:
+    """The ``picture = …`` GFX name for an event: the generated sprite for a custom
+    image, else the chosen/typed sprite name."""
+    if getattr(event, "pictureData", ""):
+        return _event_picture_sprite_name(event)
+    return event.picture or "GFX_report_event_generic_parliament"
+
+
+def export_event_picture_sprites(project) -> "str | None":
+    """interface/*.gfx spriteTypes wrapping each CUSTOM event picture (imported
+    image), so the generated ``GFX_<id>_event_pic`` reference resolves. None if no
+    event uses a custom picture (presets reference existing sprites)."""
+    entries = [(_event_picture_sprite_name(e), _event_picture_relpath(e))
+               for e in project.events if getattr(e, "pictureData", "")]
+    if not entries:
+        return None
+    lines = ["spriteTypes = {"]
+    for name, tex in entries:
+        lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 
 def _is_portrait_path(ref) -> bool:
@@ -153,6 +230,25 @@ def export_leader_portrait_sprites(project) -> "str | None":
     return "\n".join(lines) + "\n"
 
 
+def export_party_logo_sprites(project) -> "str | None":
+    """interface/*.gfx spriteTypes wrapping each CUSTOM party logo (imported image),
+    so the generated ``£<TAG>_<sub>_party_logo`` reference resolves. None if there
+    are no custom logos (presets reuse MD's own sprites, which need no definition)."""
+    c = project.country
+    if not c:
+        return None
+    tag = project.countryTag
+    entries = [(_party_logo_sprite_name(tag, p.subIdeology), _party_logo_relpath(tag, p.subIdeology))
+               for p in c.parties if p.logoData and p.subIdeology]
+    if not entries:
+        return None
+    lines = ["spriteTypes = {"]
+    for name, tex in entries:
+        lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def export_country_localisation(project: FocusForgeProject) -> str:
     c = project.country
     tag = project.countryTag
@@ -163,6 +259,13 @@ def export_country_localisation(project: FocusForgeProject) -> str:
         key = _party_key(tag, party.ideology)
         lines.append(f' {key}:0 "{_escape_loc(party.name)}"')
         lines.append(f' {key}_long:0 "{_escape_loc(party.longName or party.name)}"')
+    # Party-logo icon mapping MD reads at runtime: <TAG>.<subideology>_icon → £sprite
+    for party in c.parties:
+        if not party.subIdeology:
+            continue
+        value = _party_logo_loc_value(tag, party)
+        if value:
+            lines.append(f' {tag}.{party.subIdeology}_icon:0 "£{value}"')
     return "\n".join(lines) + "\n"
 
 
@@ -351,7 +454,7 @@ def export_events(project: FocusForgeProject) -> str:
         lines.append(f"{TAB}id = {event.id}")
         lines.append(f"{TAB}title = {event.id}.t")
         lines.append(f"{TAB}desc = {event.id}.d")
-        lines.append(f"{TAB}picture = {event.picture or 'GFX_report_event_generic_parliament'}")
+        lines.append(f"{TAB}picture = {_event_picture_value(event)}")
         if event.isTriggeredOnly:
             lines.append(f"{TAB}is_triggered_only = yes")
         if event.hidden:

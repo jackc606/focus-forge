@@ -1,7 +1,12 @@
 """Event model, serialization, export, and validation (the Event editor flow)."""
 from __future__ import annotations
 
-from core.exporters import export_event_localisation, export_events, export_project_files
+from core.exporters import (
+    export_event_localisation,
+    export_event_picture_sprites,
+    export_events,
+    export_project_files,
+)
 from core.serialization import project_from_dict, project_to_dict
 from core.types import (
     AvailabilityRule,
@@ -118,6 +123,47 @@ def test_legacy_event_round_trips_and_exports():
     assert "is_triggered_only = yes" in text
     assert "name = LBA_forge.9.a" in text
     assert "add_war_support = 0.05" in text
+
+
+# ----- custom event picture (imported image) -----
+def _custom_pic_event() -> EventData:
+    return EventData(id="LBA_forge.3", title="Custom", pictureData="ZmFrZWltYWdl",
+                     options=[EventOption(key="a", text="OK")])
+
+
+def test_custom_picture_uses_generated_sprite():
+    text = export_events(_project_with_event(_custom_pic_event()))
+    # the picture points at the generated sprite, not a raw GFX preset
+    assert "picture = GFX_LBA_forge_3_event_pic" in text
+
+
+def test_preset_picture_unaffected():
+    ev = EventData(id="LBA_forge.4", picture="GFX_report_event_protest",
+                   options=[EventOption(key="a")])
+    text = export_events(_project_with_event(ev))
+    assert "picture = GFX_report_event_protest" in text
+
+
+def test_event_picture_sprite_gfx_generated():
+    gfx = export_event_picture_sprites(_project_with_event(_custom_pic_event()))
+    assert gfx is not None
+    assert 'name = "GFX_LBA_forge_3_event_pic"' in gfx
+    assert 'texturefile = "gfx/event_pictures/LBA_forge_3.dds"' in gfx
+    # no custom pictures → no .gfx
+    assert export_event_picture_sprites(_project_with_event(_full_event())) is None
+
+
+def test_event_picture_gfx_file_present_only_with_custom():
+    custom = {f.relativePath for f in export_project_files(_project_with_event(_custom_pic_event()))}
+    assert "interface/LBA_forge_event_pictures.gfx" in custom
+    preset = {f.relativePath for f in export_project_files(_project_with_event(_full_event()))}
+    assert not any("event_pictures.gfx" in f for f in preset)
+
+
+def test_round_trip_preserves_picture_data():
+    proj = _project_with_event(_custom_pic_event())
+    restored = project_from_dict(project_to_dict(proj))
+    assert restored.events[0].pictureData == "ZmFrZWltYWdl"
 
 
 def test_round_trip_preserves_full_event():

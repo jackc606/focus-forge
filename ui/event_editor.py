@@ -9,16 +9,19 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -37,8 +40,18 @@ from core.types import (
 )
 
 from . import theme as T
+from .country_editor import _scaled_b64_png
+from .country_export import _qimage_from_b64
+from .icon_picker import IconPickerDialog
+from .icon_provider import provider
 from .preset_list import ConditionListWidget, EffectListWidget
 from .widgets import hint, panel_header, section_header
+
+# HOI4 event pictures are wide banner images, exported as .dds. The well-known
+# standard is 420×175 px; MD's own are typically ~217×163 (report) or ~397×153
+# (news). Aspect ratio matters more than exact size — keep it a wide ~2.4:1 banner.
+_EVENT_PIC_W, _EVENT_PIC_H = 420, 175
+_IMG_FILTER = "Images (*.png *.tga *.jpg *.jpeg *.bmp *.dds);;All files (*)"
 
 # Curated set of common HOI4 / MD event pictures. The combo stays editable, so any
 # GFX_… sprite name can be typed.
@@ -236,12 +249,33 @@ class EventEditorDialog(QDialog):
         self._type.currentIndexChanged.connect(lambda *_: self._refresh_preview())
         form.addRow("Type", self._type)
 
-        self._picture = QComboBox()
-        self._picture.setEditable(True)
-        self._picture.addItems(EVENT_PICTURES)
-        self._picture.setCurrentText(event.picture if event else EVENT_PICTURES[0])
-        self._picture.currentTextChanged.connect(lambda *_: self._refresh_preview())
-        form.addRow("Picture", self._picture)
+        # Picture: a visual preview + picker (in-game pictures shown as thumbnails,
+        # not text rows) + custom image import.
+        self._picture_name = (event.picture if event else "") or EVENT_PICTURES[0]
+        self._picture_data = (event.pictureData if event else "") or ""
+        pic_row = QWidget()
+        pic_h = QHBoxLayout(pic_row)
+        pic_h.setContentsMargins(0, 0, 0, 0)
+        pic_h.setSpacing(6)
+        self._pic_prev = QLabel()
+        self._pic_prev.setObjectName("iconPreview")
+        self._pic_prev.setFixedSize(84, 40)
+        self._pic_prev.setAlignment(Qt.AlignCenter)
+        pic_h.addWidget(self._pic_prev)
+        self._pic_name_lbl = QLabel()
+        self._pic_name_lbl.setWordWrap(True)
+        pic_h.addWidget(self._pic_name_lbl, 1)
+        choose = QPushButton("Picture…")
+        choose.setToolTip("Choose an in-game event picture from a visual grid.")
+        choose.clicked.connect(self._choose_picture)
+        imp = QPushButton("Import…")
+        imp.setToolTip(
+            f"Import a custom event picture. HOI4 event pictures are wide banners, "
+            f"~{_EVENT_PIC_W}×{_EVENT_PIC_H} px, exported as .dds (.png/.tga/.dds in).")
+        imp.clicked.connect(self._import_picture)
+        pic_h.addWidget(choose)
+        pic_h.addWidget(imp)
+        form.addRow("Picture", pic_row)
 
         # ----- fire settings -----
         flags_row = QHBoxLayout()
@@ -320,6 +354,7 @@ class EventEditorDialog(QDialog):
 
         self._built = True
         self._on_triggered_toggle(self._triggered_only.isChecked())
+        self._refresh_picture_preview()
         self._refresh_preview()
 
     # ----- id suggestion -----
@@ -347,6 +382,60 @@ class EventEditorDialog(QDialog):
         if self._id_edited:
             return
         self._id.setText(self._auto_id_from_title(text))
+
+    # ----- picture -----
+    def _refresh_picture_preview(self) -> None:
+        pm = None
+        if self._picture_data:
+            img = _qimage_from_b64(self._picture_data)
+            if img is not None and not img.isNull():
+                pm = QPixmap.fromImage(img)
+            self._pic_name_lbl.setText("(custom image)")
+        elif self._picture_name:
+            pm = provider().pixmap(self._picture_name)
+            label = self._picture_name
+            self._pic_name_lbl.setText(label[4:] if label.lower().startswith("gfx_") else label)
+        else:
+            self._pic_name_lbl.setText("(none)")
+        if pm is not None and not pm.isNull():
+            self._pic_prev.setPixmap(pm.scaled(
+                self._pic_prev.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self._pic_prev.clear()
+
+    def _choose_picture(self) -> None:
+        sprites = provider().event_picture_sprites()
+        if not sprites:
+            QMessageBox.information(
+                self, "No event pictures",
+                "No in-game event pictures found. Add your HOI4 / mod folders in "
+                "Settings → In-game Icons, or use Import… for a custom image.")
+            return
+        dlg = IconPickerDialog(current=self._picture_name, parent=self, sprites=sprites,
+                               title="Choose Event Picture")
+        if dlg.exec() and dlg.selected_name():
+            self._picture_name = dlg.selected_name()
+            self._picture_data = ""
+            self._refresh_picture_preview()
+            self._refresh_preview()
+
+    def _import_picture(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Import event picture — ~{_EVENT_PIC_W}×{_EVENT_PIC_H} px wide banner "
+            f"(.png/.tga/.dds)",
+            "", _IMG_FILTER)
+        if not path:
+            return
+        img = QImage(path)
+        if img.isNull():
+            QMessageBox.warning(self, "Import failed",
+                                "Couldn't read that image — use a .png, .tga, or .dds.")
+            return
+        # Auto-scale to the standard HOI4 event-picture banner size (420×175).
+        self._picture_data = _scaled_b64_png(img, _EVENT_PIC_W, _EVENT_PIC_H)
+        self._refresh_picture_preview()
+        self._refresh_preview()
 
     # ----- options management -----
     def _option_cards(self):
@@ -430,7 +519,8 @@ class EventEditorDialog(QDialog):
             id=self._id.text().strip(),
             title=self._title.text().strip(),
             description=self._desc.toPlainText().strip(),
-            picture=self._picture.currentText().strip() or "GFX_report_event_generic_parliament",
+            picture=self._picture_name.strip() or "GFX_report_event_generic_parliament",
+            pictureData=self._picture_data,
             eventType=self._type.currentData() or "country_event",
             isTriggeredOnly=self._triggered_only.isChecked(),
             hidden=self._hidden.isChecked(),

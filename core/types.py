@@ -100,6 +100,7 @@ class EventData:
     title: str = ""
     description: str = ""
     picture: str = "GFX_report_event_generic_parliament"
+    pictureData: str = ""                         # base64 PNG of a custom event picture
     eventType: str = "country_event"              # 'country_event' | 'news_event'
     isTriggeredOnly: bool = True
     hidden: bool = False
@@ -115,6 +116,9 @@ class PartyData:
     ideology: str = ""   # top ideology (democratic/communism/fascism/neutrality/nationalist)
     name: str = ""
     longName: str = ""
+    subIdeology: str = ""  # MD sub-ideology token — keys the party-logo loc mapping
+    logoRef: str = ""      # preset MD party-icon sprite name (GFX_…)
+    logoData: str = ""     # base64 PNG of a custom party logo
 
 
 @dataclass

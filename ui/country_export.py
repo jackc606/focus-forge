@@ -8,7 +8,7 @@ import os
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QImage
 
-from core.exporters import _leader_slug
+from core.exporters import _event_picture_relpath, _leader_slug, _party_logo_relpath
 from core.image_write import dds_bgra32, tga_bgra32
 
 
@@ -73,4 +73,39 @@ def export_country_assets(project, mod_dir: str) -> int:
             f.write(dds_bgra32(bgra, w, h))
         written += 1
 
+    for party in c.parties:
+        if not party.logoData or not party.subIdeology:
+            continue
+        img = _qimage_from_b64(party.logoData)
+        if img is None:
+            continue
+        bgra, w, h = _argb32_bytes(img)
+        rel = _party_logo_relpath(tag, party.subIdeology)
+        path = os.path.join(mod_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(dds_bgra32(bgra, w, h))
+        written += 1
+
+    return written
+
+
+def export_event_assets(project, mod_dir: str) -> int:
+    """Write the .dds for each event that uses a CUSTOM imported picture. Returns
+    the number of files written. Independent of country export (events are their
+    own export section)."""
+    written = 0
+    for event in getattr(project, "events", None) or []:
+        if not getattr(event, "pictureData", ""):
+            continue
+        img = _qimage_from_b64(event.pictureData)
+        if img is None:
+            continue
+        bgra, w, h = _argb32_bytes(img)
+        rel = _event_picture_relpath(event)
+        path = os.path.join(mod_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(dds_bgra32(bgra, w, h))
+        written += 1
     return written

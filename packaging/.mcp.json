@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "focusforge": {
+      "command": "./focusforge-mcp.exe"
+    }
+  }
+}

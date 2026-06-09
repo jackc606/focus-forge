@@ -33,7 +33,7 @@ from core.version import version_label
 
 from . import theme as T
 from .country_editor import CountryEditorDialog
-from .country_export import export_country_assets
+from .country_export import export_country_assets, export_event_assets
 from .export_panel import ExportPanel
 from .help_panel import HelpPanel
 from .icon_provider import provider
@@ -49,7 +49,7 @@ from .llm_panel import LlmPanel
 from .project_model import ProjectModel
 from .settings_panel import SettingsPanel
 from .validation_panel import ValidationPanel
-from .widgets import pill
+from .widgets import ClickableLabel, pill
 
 PROJECT_FILTER = "Focus Forge Project (*.focusforge.json);;JSON (*.json);;All files (*)"
 
@@ -112,8 +112,10 @@ class MainWindow(QMainWindow):
         # Status bar
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
-        self._version_label = QLabel(version_label())
+        self._version_label = ClickableLabel(version_label())
         self._version_label.setObjectName("versionLabel")
+        self._version_label.setToolTip("What's new — click to open the dev log")
+        self._version_label.clicked.connect(self._show_devlog)
         self._status_bar.addWidget(self._version_label)
         self._status_label = QLabel("Ready")
         self._status_bar.addWidget(self._status_label, 1)
@@ -351,7 +353,12 @@ class MainWindow(QMainWindow):
         ref = dlg.selected_ref()
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            return import_focus_tree(ref, roots)
+            project = import_focus_tree(ref, roots)
+            # Ad-hoc folder import: register the mod's folder(s) as transient icon
+            # roots so its custom focus icons render (not persisted to Settings).
+            if ref.roots:
+                provider().add_extra_roots(ref.roots)
+            return project
         except Exception as exc:
             QMessageBox.warning(self, "Import failed",
                                 f"Could not import '{ref.tree_id}':\n{exc}")
@@ -370,6 +377,10 @@ class MainWindow(QMainWindow):
     def _manage_events(self) -> None:
         from .events_dialog import EventsManagerDialog
         EventsManagerDialog(self._model, self).exec()
+
+    def _show_devlog(self) -> None:
+        from .devlog_dialog import DevLogDialog
+        DevLogDialog(self).exec()
 
     # ----- AI bridge -----
     def _toggle_bridge(self, on: bool) -> None:
@@ -496,6 +507,9 @@ class MainWindow(QMainWindow):
             # Binary country assets (flag TGAs / custom portrait DDS) aren't text.
             if self._model.project.exportSettings.includeCountry and self._model.project.country:
                 export_country_assets(self._model.project, str(directory))
+            # Custom event-picture DDS (events are their own export section).
+            if self._model.project.exportSettings.includeEvents and self._model.project.events:
+                export_event_assets(self._model.project, str(directory))
             return True
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))

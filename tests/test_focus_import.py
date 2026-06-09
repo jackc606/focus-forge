@@ -1,7 +1,12 @@
 """Tests for the focus-tree importer."""
 from __future__ import annotations
 
-from core.focus_import import FocusTreeRef, find_focus_trees, import_focus_tree
+from core.focus_import import (
+    FocusTreeRef,
+    find_focus_trees,
+    find_focus_trees_in_folder,
+    import_focus_tree,
+)
 
 TREE = """
 # comment line
@@ -180,3 +185,51 @@ def test_completion_reward_drops_autolog(tmp_path):
     raw = root.completionReward.rawLines
     assert "add_political_power = 120" in raw
     assert not any("GetDateText" in line for line in raw)  # auto-log stripped
+
+
+# ---------------------------------------------------------------------------
+# Ad-hoc folder import (a custom mod folder the user browses to, not in roots)
+# ---------------------------------------------------------------------------
+def test_find_trees_in_folder_mod_root(tmp_path):
+    # tmp_path is laid out as a mod root (common/national_focus + localisation).
+    _setup(tmp_path)
+    found = find_focus_trees_in_folder(str(tmp_path), [str(tmp_path)])
+    assert len(found) == 1
+    assert found[0].tag == "TST"
+    assert found[0].tree_id == "test_focus"
+    # the configured + folder roots are recorded on the ref for import-time loc
+    assert found[0].roots == (str(tmp_path),)
+
+
+def test_find_trees_in_folder_national_focus_dir(tmp_path):
+    # Pointing straight at the national_focus directory also works.
+    _setup(tmp_path)
+    nf = tmp_path / "common" / "national_focus"
+    found = find_focus_trees_in_folder(str(nf), [str(nf)])
+    assert {t.tree_id for t in found} == {"test_focus"}
+
+
+def test_find_trees_in_loose_folder(tmp_path):
+    # A loose folder that directly holds a focus .txt (no common/national_focus).
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    (loose / "tree.txt").write_text(TREE, encoding="utf-8")
+    found = find_focus_trees_in_folder(str(loose), [str(loose)])
+    assert {t.tree_id for t in found} == {"test_focus"}
+
+
+def test_import_folder_ref_uses_recorded_roots_for_loc(tmp_path):
+    # The ref's recorded roots drive localisation even when import_focus_tree is
+    # called with an unrelated/empty default root list.
+    _setup(tmp_path)
+    found = find_focus_trees_in_folder(str(tmp_path), [str(tmp_path)])
+    proj = import_focus_tree(found[0], [])   # empty default — must use ref.roots
+    by = {f.id: f for f in proj.focuses}
+    assert by["TST_root"].title == "The Root"      # loc resolved via ref.roots
+    assert by["TST_root"].description == "Root desc"
+
+
+def test_empty_folder_yields_no_trees(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert find_focus_trees_in_folder(str(empty), [str(empty)]) == []

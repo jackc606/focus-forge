@@ -28,7 +28,7 @@ from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
 
-from core.ideologies import TOP_IDEOLOGIES, sub_ideology_groups
+from core.ideologies import IDEOLOGY_TREE, TOP_IDEOLOGIES, sub_ideology_groups
 from core.types import CountryData, LeaderData, PartyData
 
 from . import theme as T
@@ -43,6 +43,11 @@ from .widgets import hint, panel_header, pill, section_header
 
 _IMG_FILTER = "Images (*.png *.tga *.jpg *.jpeg *.bmp *.dds);;All files (*)"
 
+# Millennium Dawn party logos are 22×22 px square sprites (exported as .dds).
+_PARTY_LOGO_PX = 22
+# MD leader portraits are 156×210 px.
+_LEADER_PORTRAIT_W, _LEADER_PORTRAIT_H = 156, 210
+
 
 def _to_b64_png(img: QImage) -> str:
     img = img.convertToFormat(QImage.Format_ARGB32)
@@ -51,6 +56,12 @@ def _to_b64_png(img: QImage) -> str:
     buf.open(QBuffer.WriteOnly)
     img.save(buf, "PNG")
     return base64.b64encode(bytes(ba)).decode("ascii")
+
+
+def _scaled_b64_png(img: QImage, w: int, h: int) -> str:
+    """Scale an imported image to the exact in-game size, then encode as PNG b64
+    (matches how flags are scaled on export — exact target, smooth)."""
+    return _to_b64_png(img.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
 
 
 def _ideology_combo(current: str) -> QComboBox:
@@ -68,16 +79,23 @@ def _ideology_combo(current: str) -> QComboBox:
 
 # ---------------------------------------------------------------------------
 class _PartyRow(QFrame):
-    def __init__(self, party: PartyData, on_delete) -> None:
+    def __init__(self, party: PartyData, on_delete, tag: str = "") -> None:
         super().__init__()
         self.setFrameShape(QFrame.StyledPanel)
-        h = QHBoxLayout(self)
-        h.setContentsMargins(8, 6, 8, 6)
-        h.setSpacing(6)
+        self._tag = (tag or "").strip().upper()
+        self._logoRef = party.logoRef
+        self._logoData = party.logoData
+        v = QVBoxLayout(self)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setSpacing(6)
         self.ideo = QComboBox()
         self.ideo.addItems(TOP_IDEOLOGIES)
         if party.ideology:
             self.ideo.setCurrentText(party.ideology)
+        self.ideo.currentTextChanged.connect(self._on_top_changed)
         self.name = QLineEdit(party.name)
         self.name.setPlaceholderText("name")
         self.long = QLineEdit(party.longName)
@@ -87,15 +105,119 @@ class _PartyRow(QFrame):
         x.setToolTip("Remove")
         x.setFixedWidth(28)
         x.clicked.connect(lambda: on_delete(self))
-        h.addWidget(self.ideo)
-        h.addWidget(self.name, 1)
-        h.addWidget(self.long, 1)
-        h.addWidget(x)
+        top.addWidget(self.ideo)
+        top.addWidget(self.name, 1)
+        top.addWidget(self.long, 1)
+        top.addWidget(x)
+        v.addLayout(top)
+
+        # Sub-ideology + party logo (preset from MD or custom import).
+        bot = QHBoxLayout()
+        bot.setSpacing(6)
+        self.sub = QComboBox()
+        self.sub.setToolTip("MD sub-ideology this party represents — required to "
+                            "assign it a logo.")
+        self._populate_subs(self.ideo.currentText(), party.subIdeology)
+        bot.addWidget(self.sub, 1)
+        self._logo_prev = QLabel()
+        self._logo_prev.setObjectName("iconPreview")
+        self._logo_prev.setFixedSize(28, 28)
+        self._logo_prev.setAlignment(Qt.AlignCenter)
+        bot.addWidget(self._logo_prev)
+        pick = QPushButton("Logo…")
+        pick.setToolTip("Choose a Millennium Dawn party logo for this country.")
+        pick.clicked.connect(self._choose_logo)
+        imp = QPushButton("Import…")
+        imp.setToolTip(
+            f"Import a custom party logo. MD party logos are {_PARTY_LOGO_PX}×"
+            f"{_PARTY_LOGO_PX} px square, exported as .dds (.png/.tga/.dds in).")
+        imp.clicked.connect(self._import_logo)
+        clr = QPushButton("×")
+        clr.setObjectName("deleteButton")
+        clr.setToolTip("Clear logo")
+        clr.setFixedWidth(28)
+        clr.clicked.connect(self._clear_logo)
+        bot.addWidget(pick)
+        bot.addWidget(imp)
+        bot.addWidget(clr)
+        v.addLayout(bot)
+        self._refresh_logo()
+
+    def _on_top_changed(self, top: str) -> None:
+        self._populate_subs(top, "")
+
+    def _populate_subs(self, top: str, current: str) -> None:
+        self.sub.blockSignals(True)
+        self.sub.clear()
+        self.sub.addItem("(none)", "")
+        for s in IDEOLOGY_TREE.get(top, []):
+            self.sub.addItem(s, s)
+        idx = self.sub.findData(current)
+        if idx >= 0:
+            self.sub.setCurrentIndex(idx)
+        self.sub.blockSignals(False)
+
+    def _refresh_logo(self) -> None:
+        pm = None
+        if self._logoData:
+            img = _qimage_from_b64(self._logoData)
+            pm = QPixmap.fromImage(img) if img else None
+        elif self._logoRef:
+            pm = provider().pixmap(self._logoRef)
+        if pm is not None and not pm.isNull():
+            self._logo_prev.setPixmap(
+                pm.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self._logo_prev.clear()
+
+    def _choose_logo(self) -> None:
+        logos = provider().party_logos(self._tag)
+        if not logos:
+            QMessageBox.information(
+                self, "No party logos",
+                f"No Millennium Dawn party logos found for {self._tag or 'this country'}.\n"
+                "Use Import… to add a custom logo, or add the MD folder as an icon "
+                "source in Settings.")
+            return
+        dlg = IconPickerDialog(current=self._logoRef, parent=self, sprites=logos,
+                               title=f"Choose Party Logo — {self._tag}",
+                               loader=load_dds_qimage)
+        if dlg.exec() and dlg.selected_name():
+            self._logoRef = dlg.selected_name()  # GFX_<TAG>_… party-icon sprite
+            self._logoData = ""
+            self._refresh_logo()
+
+    def _import_logo(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Import party logo — {_PARTY_LOGO_PX}×{_PARTY_LOGO_PX} px square "
+            f"(.png/.tga/.dds)",
+            "", _IMG_FILTER)
+        if not path:
+            return
+        img = QImage(path)
+        if img.isNull():
+            QMessageBox.warning(self, "Import failed",
+                                "Couldn't read that image — use a .png, .tga, or .dds.")
+            return
+        # Auto-scale to the canonical MD party-logo size (22×22) so the export is
+        # always the correct dimensions.
+        self._logoData = _scaled_b64_png(img, _PARTY_LOGO_PX, _PARTY_LOGO_PX)
+        self._logoRef = ""
+        self._refresh_logo()
+
+    def _clear_logo(self) -> None:
+        self._logoRef = ""
+        self._logoData = ""
+        self._refresh_logo()
 
     def value(self) -> PartyData:
         return PartyData(ideology=self.ideo.currentText(),
                          name=self.name.text().strip(),
-                         longName=self.long.text().strip())
+                         longName=self.long.text().strip(),
+                         subIdeology=self.sub.currentData() or "",
+                         logoRef=self._logoRef,
+                         logoData=self._logoData)
 
 
 def _is_portrait_path(ref: str) -> bool:
@@ -194,13 +316,20 @@ class _LeaderRow(QFrame):
             self._refresh_portrait()
 
     def _import_portrait(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Import portrait", "", _IMG_FILTER)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Import portrait — {_LEADER_PORTRAIT_W}×{_LEADER_PORTRAIT_H} px "
+            f"(.png/.tga/.dds)",
+            "", _IMG_FILTER)
         if not path:
             return
         img = QImage(path)
         if img.isNull():
+            QMessageBox.warning(self, "Import failed",
+                                "Couldn't read that image — use a .png, .tga, or .dds.")
             return
-        self._pictureData = _to_b64_png(img)
+        # Auto-scale to the canonical MD portrait size (156×210).
+        self._pictureData = _scaled_b64_png(img, _LEADER_PORTRAIT_W, _LEADER_PORTRAIT_H)
         self._pictureRef = ""
         self._refresh_portrait()
 
@@ -333,6 +462,8 @@ class CountryEditorDialog(QDialog):
         self._update_total()
 
         v.addWidget(section_header("Named parties"))
+        v.addWidget(hint("Each party can carry a logo. Pick its MD sub-ideology, then "
+                         "choose a Millennium Dawn party logo or import a custom image."))
         self._parties_box = QVBoxLayout()
         self._parties_box.setSpacing(4)
         v.addLayout(self._parties_box)
@@ -371,7 +502,8 @@ class CountryEditorDialog(QDialog):
         self._update_total()
 
     def _add_party(self, party: PartyData) -> None:
-        self._parties_box.addWidget(_PartyRow(party, self._del_row))
+        self._parties_box.addWidget(
+            _PartyRow(party, self._del_row, self._model.project.countryTag))
 
     # ----- Leaders -----
     def _leaders_tab(self) -> QWidget:
