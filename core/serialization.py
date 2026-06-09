@@ -188,7 +188,8 @@ def _party_from_dict(d: dict) -> PartyData:
     return PartyData(ideology=d.get("ideology", ""), name=d.get("name", ""),
                      longName=d.get("longName", ""),
                      subIdeology=d.get("subIdeology", ""),
-                     logoRef=d.get("logoRef", ""), logoData=d.get("logoData", ""))
+                     logoRef=d.get("logoRef", ""), logoData=d.get("logoData", ""),
+                     description=d.get("description", ""))
 
 
 def _leader_from_dict(d: dict) -> LeaderData:

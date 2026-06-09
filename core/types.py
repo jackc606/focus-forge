@@ -116,9 +116,10 @@ class PartyData:
     ideology: str = ""   # top ideology (democratic/communism/fascism/neutrality/nationalist)
     name: str = ""
     longName: str = ""
-    subIdeology: str = ""  # MD sub-ideology token — keys the party-logo loc mapping
+    subIdeology: str = ""  # MD sub-ideology token — keys the party-logo/description loc
     logoRef: str = ""      # preset MD party-icon sprite name (GFX_…)
     logoData: str = ""     # base64 PNG of a custom party logo
+    description: str = ""  # MD party description (<TAG>.<sub>_desc), shown in politics
 
 
 @dataclass

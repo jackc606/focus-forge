@@ -22,7 +22,9 @@ def main() -> int:
     app.setStyleSheet(build_qss())
     app.setApplicationName("Focus Forge")
     win = MainWindow()
+    win.load_blank()      # don't auto-open a project; the launcher chooses
     win.show()
+    win.show_welcome()    # startup menu: New Submod / Open / Recent / sample
     return app.exec()
 
 

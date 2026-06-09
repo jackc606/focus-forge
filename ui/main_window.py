@@ -29,6 +29,7 @@ from core.mod_scaffold import (
     scaffold_submod,
 )
 from core.types import FocusForgeProject
+from core.sample_project import make_blank_project, make_sample_project
 from core.version import version_label
 
 from . import theme as T
@@ -249,18 +250,71 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open Project", start, filter=PROJECT_FILTER)
         if not path:
             return
+        self._open_path(Path(path))
+
+    def _open_path(self, path: Path) -> None:
         try:
-            self._model.load_from_file(Path(path))
+            self._model.load_from_file(path)
             self._view.fit_to_content()
             self._default_export_dir = self._resolve_mod_dir() or ""
+            self._push_recent(path)
         except Exception as exc:
             QMessageBox.warning(self, "Open failed", str(exc))
+
+    # ----- startup launcher + recent projects -----
+    _RECENT_MAX = 8
+
+    def _recent_projects(self) -> list:
+        """Recently opened/saved project paths that still exist (most recent first)."""
+        raw = self._settings.value("recent_projects", []) or []
+        if isinstance(raw, str):
+            raw = [raw]
+        out = []
+        for p in raw:
+            try:
+                if p and Path(p).is_file():
+                    out.append(str(p))
+            except OSError:
+                continue
+        return out
+
+    def _push_recent(self, path) -> None:
+        p = str(path)
+        keep = [x for x in self._recent_projects()
+                if os.path.normpath(x) != os.path.normpath(p)]
+        keep.insert(0, p)
+        self._settings.setValue("recent_projects", keep[: self._RECENT_MAX])
+
+    def load_blank(self) -> None:
+        """Show an empty project (used behind the startup launcher)."""
+        self._model.replace_project(make_blank_project(), path=None)
+        self._default_export_dir = None
+
+    def _load_sample(self) -> None:
+        self._model.replace_project(make_sample_project(), path=None)
+        self._view.fit_to_content()
+
+    def show_welcome(self) -> None:
+        """Open the startup launcher and route to the chosen action. The blank
+        project stays if the user closes it without choosing."""
+        from .welcome_dialog import WelcomeDialog
+        dlg = WelcomeDialog(recent=self._recent_projects(), parent=self)
+        dlg.exec()
+        if dlg.choice == "new":
+            self._new_submod()
+        elif dlg.choice == "open":
+            self._open()
+        elif dlg.choice == "sample":
+            self._load_sample()
+        elif dlg.choice == "recent" and dlg.recent_path:
+            self._open_path(Path(dlg.recent_path))
 
     def _save(self) -> bool:
         """Save to the current path (or prompt). Returns True if saved."""
         if self._model.path:
             try:
                 self._model.save_to_file(self._model.path)
+                self._push_recent(self._model.path)
                 return True
             except Exception as exc:
                 QMessageBox.warning(self, "Save failed", str(exc))
@@ -282,6 +336,7 @@ class MainWindow(QMainWindow):
             path += ".focusforge.json"
         try:
             self._model.save_to_file(Path(path))
+            self._push_recent(Path(path))
             return True
         except Exception as exc:
             QMessageBox.warning(self, "Save failed", str(exc))
@@ -329,6 +384,7 @@ class MainWindow(QMainWindow):
 
         self._model.replace_project(project, path=proj_path)
         self._model.save_to_file(proj_path)
+        self._push_recent(proj_path)
         self._view.fit_to_content()
         self._default_export_dir = mod_target
 

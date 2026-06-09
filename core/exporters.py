@@ -266,6 +266,14 @@ def export_country_localisation(project: FocusForgeProject) -> str:
         value = _party_logo_loc_value(tag, party)
         if value:
             lines.append(f' {tag}.{party.subIdeology}_icon:0 "£{value}"')
+        # MD displays the party name from <TAG>.<sub> (with a leading £icon token),
+        # not from set_party_name — so write it here too or edits won't show in-game.
+        if (party.name or "").strip():
+            prefix = f"£{value} " if value else ""
+            lines.append(f' {tag}.{party.subIdeology}:0 "{prefix}{_escape_loc(party.name)}"')
+        if (party.description or "").strip():
+            # MD party description shown in the politics screen (<TAG>.<sub>_desc).
+            lines.append(f' {tag}.{party.subIdeology}_desc:0 "{_escape_loc(party.description)}"')
     return "\n".join(lines) + "\n"
 
 

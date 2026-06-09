@@ -122,6 +122,38 @@ def test_party_logo_custom_sprite_and_loc():
     assert "interface/LBA_party_logos.gfx" in files
 
 
+def test_party_description_loc():
+    """A party description → a <TAG>.<sub>_desc loc line (MD's politics-screen text)."""
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="Liberal Front",
+                                   subIdeology="liberalism",
+                                   description="Free markets and reform.")]
+    loc = export_country_localisation(p)
+    assert 'LBA.liberalism_desc:0 "Free markets and reform."' in loc
+    # blank description → no _desc line (keeps MD's existing one)
+    p.country.parties[0].description = ""
+    assert "_desc" not in export_country_localisation(p)
+
+
+def test_party_name_written_to_subideology_key():
+    """MD displays the party name from <TAG>.<sub> (with a £icon prefix), so the
+    exporter must write it there — not only via set_party_name."""
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="Liberal Front",
+                                   subIdeology="liberalism",
+                                   logoRef="GFX_LBA_western_liberal")]
+    loc = export_country_localisation(p)
+    assert 'LBA.liberalism:0 "£LBA_western_liberal Liberal Front"' in loc
+
+
+def test_party_description_round_trip():
+    p = _project()
+    p.country.parties = [PartyData(ideology="democratic", name="X",
+                                   subIdeology="liberalism", description="Platform text.")]
+    restored = project_from_dict(project_to_dict(p))
+    assert restored.country.parties[0].description == "Platform text."
+
+
 def test_party_logo_no_subideology_skipped():
     """Without a sub-ideology there's nowhere to map the logo → nothing emitted."""
     p = _project()

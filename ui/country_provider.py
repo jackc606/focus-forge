@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject
 
 from core.country_history import parse_starting_politics
+from core.md_parties import parse_country_parties
 
 from .icon_provider import provider as icon_provider
 
@@ -17,10 +18,12 @@ class CountryProvider(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._by_tag: dict = {}
+        self._parties_by_tag: dict = {}
         icon_provider().changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._by_tag = {}
+        self._parties_by_tag = {}
 
     def starting_politics(self, tag: str):
         """MD starting-politics dict for the tag (or None); cached per tag."""
@@ -30,6 +33,16 @@ class CountryProvider(QObject):
         if t not in self._by_tag:
             self._by_tag[t] = parse_starting_politics(icon_provider().roots(), t)
         return self._by_tag[t]
+
+    def parties(self, tag: str) -> list:
+        """MD party definitions for the tag (name/longName/subIdeology/logoRef/
+        description dicts); cached per tag. Empty list if none found."""
+        t = (tag or "").strip().upper()
+        if not t:
+            return []
+        if t not in self._parties_by_tag:
+            self._parties_by_tag[t] = parse_country_parties(icon_provider().roots(), t)
+        return self._parties_by_tag[t]
 
 
 _INSTANCE = None

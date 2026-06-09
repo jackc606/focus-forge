@@ -88,6 +88,9 @@ QPushButton {{
 QPushButton:hover {{ background-color: {T.BG_HOVER}; border-color: {T.BORDER_HOVER}; }}
 QPushButton:pressed {{ background-color: {T.BG_INSET}; }}
 QPushButton:disabled {{ color: {T.TEXT_DISABLED}; border-color: {T.BORDER_SUBTLE}; }}
+QPushButton#link {{ background: transparent; border: none; color: {T.TEXT_MUTED};
+    padding: 6px 4px; text-decoration: underline; }}
+QPushButton#link:hover {{ color: {T.ACCENT}; background: transparent; }}
 
 /* ----- Splitter ----- */
 QSplitter::handle {{ background-color: {T.BG_BASE}; }}

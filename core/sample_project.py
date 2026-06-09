@@ -12,6 +12,11 @@ from .types import (
 )
 
 
+def make_blank_project() -> FocusForgeProject:
+    """An empty project shown behind the startup launcher (no sample content)."""
+    return FocusForgeProject(projectName="", countryTag="")
+
+
 def make_sample_project() -> FocusForgeProject:
     return FocusForgeProject(
         projectName="Mexico Sample",

@@ -95,11 +95,22 @@ class _PartyRow(QFrame):
         self.ideo.addItems(TOP_IDEOLOGIES)
         if party.ideology:
             self.ideo.setCurrentText(party.ideology)
+        self.ideo.setToolTip(
+            "Which of HOI4's fixed ideology slots this party fills. Every country "
+            "already has one party per ideology, so this RENAMES that slot's party "
+            "(and can re-logo it) — it does not add a brand-new party. Use one entry "
+            "per ideology; two with the same ideology collide.")
         self.ideo.currentTextChanged.connect(self._on_top_changed)
         self.name = QLineEdit(party.name)
         self.name.setPlaceholderText("name")
+        self.name.setToolTip(
+            "Short display name for this ideology's party, shown in-game (e.g. the "
+            "politics screen). Replaces the existing party name for this country.")
         self.long = QLineEdit(party.longName)
         self.long.setPlaceholderText("long name")
+        self.long.setToolTip(
+            "Full/formal name (e.g. \"People's Republic of …\"). Falls back to the "
+            "short name if left blank.")
         x = QPushButton("×")
         x.setObjectName("deleteButton")
         x.setToolTip("Remove")
@@ -116,7 +127,7 @@ class _PartyRow(QFrame):
         bot.setSpacing(6)
         self.sub = QComboBox()
         self.sub.setToolTip("MD sub-ideology this party represents — required to "
-                            "assign it a logo.")
+                            "assign it a logo or a description.")
         self._populate_subs(self.ideo.currentText(), party.subIdeology)
         bot.addWidget(self.sub, 1)
         self._logo_prev = QLabel()
@@ -141,6 +152,15 @@ class _PartyRow(QFrame):
         bot.addWidget(imp)
         bot.addWidget(clr)
         v.addLayout(bot)
+
+        # MD party description (<TAG>.<sub>_desc) — shown in the politics screen.
+        self.desc = QLineEdit(party.description)
+        self.desc.setPlaceholderText("party description (shown in the politics screen)")
+        self.desc.setToolTip(
+            "Description shown for this party in the in-game politics screen "
+            "(MD's <TAG>.<sub-ideology>_desc). Needs a sub-ideology set, like the "
+            "logo. Leave blank to keep MD's existing description.")
+        v.addWidget(self.desc)
         self._refresh_logo()
 
     def _on_top_changed(self, top: str) -> None:
@@ -217,7 +237,8 @@ class _PartyRow(QFrame):
                          longName=self.long.text().strip(),
                          subIdeology=self.sub.currentData() or "",
                          logoRef=self._logoRef,
-                         logoData=self._logoData)
+                         logoData=self._logoData,
+                         description=self.desc.text().strip())
 
 
 def _is_portrait_path(ref: str) -> bool:
@@ -461,19 +482,75 @@ class CountryEditorDialog(QDialog):
         self._update_in_power()
         self._update_total()
 
+        # This country's existing MD parties (for auto-seeding + the Load button).
+        self._md_parties = country_provider().parties(tag)
+
         v.addWidget(section_header("Named parties"))
-        v.addWidget(hint("Each party can carry a logo. Pick its MD sub-ideology, then "
-                         "choose a Millennium Dawn party logo or import a custom image."))
+        v.addWidget(hint("A country runs several parties, one per MD sub-ideology. These "
+                         "edit that country's existing parties — name, logo and the "
+                         "politics-screen description. Use “Load MD parties” to pull in "
+                         "everything the base mod already defines, then tweak."))
+        self._party_warn = QLabel()
+        self._party_warn.setWordWrap(True)
+        self._party_warn.setStyleSheet(f"color: {T.STATUS_WARN};")
+        self._party_warn.setVisible(False)
+        v.addWidget(self._party_warn)
         self._parties_box = QVBoxLayout()
         self._parties_box.setSpacing(4)
         v.addLayout(self._parties_box)
+        btn_row = QHBoxLayout()
         add = QPushButton("+ Add party")
+        add.setToolTip(
+            "Add a party for one MD sub-ideology (its name, logo and description). "
+            "Pick the sub-ideology on the new row — each party must use a distinct one.")
         add.clicked.connect(lambda: self._add_party(PartyData(ideology="democratic")))
-        v.addWidget(add)
+        load = QPushButton("Load MD parties")
+        load.setEnabled(bool(self._md_parties))
+        load.setToolTip(
+            f"Replace the list with {tag or 'this country'}'s existing Millennium Dawn "
+            f"parties (name, logo, description) so you can edit what's already in-game."
+            if self._md_parties else
+            "No Millennium Dawn parties found for this country (add its mod folder as an "
+            "icon source in Settings).")
+        load.clicked.connect(self._load_md_parties)
+        btn_row.addWidget(add)
+        btn_row.addWidget(load)
+        btn_row.addStretch(1)
+        v.addLayout(btn_row)
         v.addStretch(1)
-        for p in self._country.parties:
+        # Project data wins; a fresh country auto-seeds from the base mod's parties.
+        seed_parties = self._country.parties or self._md_party_data()
+        for p in seed_parties:
             self._add_party(p)
+        self._check_party_collisions()
         return self._scroll(w)
+
+    def _md_party_data(self) -> list:
+        """This country's MD parties as PartyData (from the cached loc import)."""
+        return [PartyData(ideology=d["ideology"], name=d["name"], longName=d["longName"],
+                          subIdeology=d["subIdeology"], logoRef=d["logoRef"],
+                          description=d["description"])
+                for d in (self._md_parties or [])]
+
+    def _load_md_parties(self) -> None:
+        if not self._md_parties:
+            return
+        existing = [r for r in self._rows(self._parties_box) if isinstance(r, _PartyRow)]
+        if existing:
+            ans = QMessageBox.question(
+                self, "Load MD parties",
+                f"Replace the current {len(existing)} party row(s) with "
+                f"{len(self._md_parties)} Millennium Dawn parties for "
+                f"{self._model.project.countryTag}?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
+        for r in existing:
+            r.setParent(None)
+            r.deleteLater()
+        for p in self._md_party_data():
+            self._add_party(p)
+        self._check_party_collisions()
 
     def _update_in_power(self) -> None:
         """Badge the popularity row of the ruling party as 'in power'."""
@@ -502,8 +579,44 @@ class CountryEditorDialog(QDialog):
         self._update_total()
 
     def _add_party(self, party: PartyData) -> None:
-        self._parties_box.addWidget(
-            _PartyRow(party, self._del_row, self._model.project.countryTag))
+        row = _PartyRow(party, self._del_row, self._model.project.countryTag)
+        # Re-check for ideology collisions whenever a row's ideology changes.
+        row.ideo.currentTextChanged.connect(lambda *_: self._check_party_collisions())
+        self._parties_box.addWidget(row)
+        self._check_party_collisions()
+
+    def _party_collisions(self) -> list:
+        """Labels of party slots used by more than one row — these overwrite each
+        other on export. MD keys parties on the sub-ideology (a country can run
+        several under one top ideology), so collisions are per sub-ideology, or per
+        top ideology for rows with no sub-ideology set."""
+        seen_sub, seen_top, dupes = set(), set(), []
+        for r in self._rows(self._parties_box):
+            if not isinstance(r, _PartyRow):
+                continue
+            sub = r.sub.currentData() or ""
+            if sub:
+                if sub in seen_sub and sub not in dupes:
+                    dupes.append(sub)
+                seen_sub.add(sub)
+            else:
+                top = r.ideo.currentText()
+                label = f"{top} (no sub-ideology)"
+                if top in seen_top and label not in dupes:
+                    dupes.append(label)
+                seen_top.add(top)
+        return dupes
+
+    def _check_party_collisions(self) -> None:
+        dupes = self._party_collisions()
+        if dupes:
+            self._party_warn.setText(
+                "⚠ More than one party shares the same slot (" + ", ".join(dupes) + "). "
+                "MD keys each party on its sub-ideology, so these overwrite each other on "
+                "export — only the last is kept. Give each party a distinct sub-ideology.")
+            self._party_warn.setVisible(True)
+        else:
+            self._party_warn.setVisible(False)
 
     # ----- Leaders -----
     def _leaders_tab(self) -> QWidget:
@@ -665,8 +778,11 @@ class CountryEditorDialog(QDialog):
         return sc
 
     def _del_row(self, row) -> None:
+        was_party = isinstance(row, _PartyRow)
         row.setParent(None)
         row.deleteLater()
+        if was_party:
+            self._check_party_collisions()
 
     def _rows(self, box):
         for i in range(box.count()):
@@ -676,6 +792,16 @@ class CountryEditorDialog(QDialog):
                 yield w
 
     def _accept(self) -> None:
+        dupes = self._party_collisions()
+        if dupes:
+            ans = QMessageBox.warning(
+                self, "Party slot collision",
+                "More than one party shares the same slot (" + ", ".join(dupes) + ").\n\n"
+                "MD keys each party on its sub-ideology, so on export only the last party "
+                "for each slot is written — the others are dropped.\n\nSave anyway?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
         c = CountryData()
         c.popularities = {ideo: sb.value() for ideo, sb in self._pop.items() if sb.value()}
         c.rulingParty = self._ruling.currentText()

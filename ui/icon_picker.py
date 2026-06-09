@@ -24,9 +24,14 @@ from .widgets import hint, panel_header
 
 _THUMB = QSize(64, 56)
 _MAX_SHOWN = 600       # cap the grid; refine the search to see narrower results
-_BATCH = 16            # thumbnails decoded per timer tick
 _NAME_ROLE = Qt.UserRole
 _PATH_ROLE = Qt.UserRole + 1
+_DONE_ROLE = Qt.UserRole + 2   # this item's thumbnail load has been attempted
+
+# Decoded thumbnails, keyed by absolute path, shared across every picker instance
+# and session — so reopening a picker (or scrolling back) is instant. Values are a
+# QPixmap, or None for a file that failed to decode (so we don't retry it).
+_THUMB_CACHE: dict = {}
 
 
 class IconPickerDialog(QDialog):
@@ -41,10 +46,13 @@ class IconPickerDialog(QDialog):
         # Normalise to (value, path, label). 2-tuples (name, path) display the
         # name (GFX_ stripped); 3-tuples carry an explicit display label.
         self._all = [self._norm(s) for s in raw]
-        self._load_row = 0
-        self._timer = QTimer(self)
-        self._timer.setInterval(0)
-        self._timer.timeout.connect(self._load_batch)
+        # Thumbnails decode lazily — only for items scrolled into view — so opening a
+        # picker with thousands of large images (e.g. event pictures) stays snappy.
+        # A short debounce coalesces the burst of scroll signals into one decode pass.
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.setInterval(16)
+        self._load_timer.timeout.connect(self._load_visible)
 
         v = QVBoxLayout(self)
         v.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)
@@ -70,6 +78,7 @@ class IconPickerDialog(QDialog):
         self._list.setSpacing(4)
         self._list.itemDoubleClicked.connect(self._accept_item)
         self._list.itemSelectionChanged.connect(self._update_ok)
+        self._list.verticalScrollBar().valueChanged.connect(self._schedule_load)
         v.addWidget(self._list, 1)
 
         if not self._all:
@@ -100,7 +109,7 @@ class IconPickerDialog(QDialog):
 
     # ----- population + lazy thumbnails -----
     def _populate(self, query: str) -> None:
-        self._timer.stop()
+        self._load_timer.stop()
         self._list.clear()
         q = (query or "").strip().lower()
         if q:
@@ -120,24 +129,55 @@ class IconPickerDialog(QDialog):
             self._count.setText(f"Showing {_MAX_SHOWN:,} of {total:,} — refine the search to narrow.")
         else:
             self._count.setText(f"{total:,} icon(s)")
-        self._load_row = 0
-        if self._list.count():
-            self._timer.start()
+        self._schedule_load()
 
-    def _load_batch(self) -> None:
-        end = min(self._load_row + _BATCH, self._list.count())
-        for row in range(self._load_row, end):
+    def _schedule_load(self, *_args) -> None:
+        """(Re)start the debounce; thumbnails for the visible range load shortly after."""
+        if self._list.count():
+            self._load_timer.start()
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        # Layout (and thus visualItemRect) is only valid once shown.
+        super().showEvent(event)
+        self._schedule_load()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._schedule_load()
+
+    def _load_visible(self) -> None:
+        """Decode thumbnails only for items in (or just outside) the viewport."""
+        if not self._list.count():
+            return
+        vp = self._list.viewport().rect()
+        # one screen of buffer above/below, so thumbnails are ready just before
+        # they scroll into view
+        top = vp.top() - vp.height()
+        bottom = vp.bottom() + vp.height()
+        for row in range(self._list.count()):
             item = self._list.item(row)
-            if item is None:
+            if item is None or item.data(_DONE_ROLE):
                 continue
-            img = self._loader(item.data(_PATH_ROLE))
+            r = self._list.visualItemRect(item)
+            if r.bottom() < top:
+                continue
+            if r.top() > bottom:
+                break  # items are in order — everything past here is further down
+            self._set_thumb(item)
+            item.setData(_DONE_ROLE, True)
+
+    def _set_thumb(self, item) -> None:
+        path = item.data(_PATH_ROLE)
+        pm = _THUMB_CACHE.get(path, False)
+        if pm is False:  # not decoded yet this session
+            img = self._loader(path)
+            pm = None
             if img is not None and not img.isNull():
                 pm = QPixmap.fromImage(img).scaled(
                     _THUMB, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                item.setIcon(QIcon(pm))
-        self._load_row = end
-        if self._load_row >= self._list.count():
-            self._timer.stop()
+            _THUMB_CACHE[path] = pm
+        if pm is not None and not pm.isNull():
+            item.setIcon(QIcon(pm))
 
     # ----- selection -----
     def _select_name(self, name: str) -> None:

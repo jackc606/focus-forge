@@ -86,6 +86,39 @@ def test_country_party_and_leader_checks():
             "country.leader.name", "country.leader.ideology"} <= codes
 
 
+def test_duplicate_subideology_collides():
+    c = CountryData(rulingParty="democratic", popularities={"democratic": 100.0},
+                    parties=[PartyData(ideology="democratic", subIdeology="conservatism", name="A"),
+                             PartyData(ideology="democratic", subIdeology="conservatism", name="B"),  # same sub
+                             PartyData(ideology="democratic", subIdeology="liberalism", name="C")])
+    p = _valid_base(country=c,
+                    exportSettings=ExportSettings(focusFileName="lba", localisationPrefix="LBA",
+                                                  includeCountry=True))
+    assert "country.party.collision" in _codes(p)
+
+
+def test_multiple_parties_same_top_different_sub_is_clean():
+    # MD allows several parties under one top ideology, distinguished by sub-ideology.
+    c = CountryData(rulingParty="democratic", popularities={"democratic": 100.0},
+                    parties=[PartyData(ideology="democratic", subIdeology="conservatism", name="A"),
+                             PartyData(ideology="democratic", subIdeology="liberalism", name="B"),
+                             PartyData(ideology="democratic", subIdeology="socialism", name="C")])
+    p = _valid_base(country=c,
+                    exportSettings=ExportSettings(focusFileName="lba", localisationPrefix="LBA",
+                                                  includeCountry=True))
+    assert "country.party.collision" not in _codes(p)
+
+
+def test_subless_parties_same_top_collide():
+    c = CountryData(rulingParty="democratic", popularities={"democratic": 100.0},
+                    parties=[PartyData(ideology="democratic", name="A"),
+                             PartyData(ideology="democratic", name="B")])  # no sub → top collides
+    p = _valid_base(country=c,
+                    exportSettings=ExportSettings(focusFileName="lba", localisationPrefix="LBA",
+                                                  includeCountry=True))
+    assert "country.party.collision" in _codes(p)
+
+
 def test_ideas_and_events_export_consistency():
     # include ideas but none -> warning
     p = _valid_base(exportSettings=ExportSettings(focusFileName="lba", localisationPrefix="LBA",

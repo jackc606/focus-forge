@@ -25,6 +25,13 @@ CHANGELOG = [
             "The AI Bridge is now bundled into the installed app, so it works without a "
             "separate Python install.",
             "Click the version in the bottom-left corner to open this dev log.",
+            "Startup launcher: Focus Forge now opens to a New Submod / Open Project / "
+            "Recent menu instead of jumping straight into the sample project.",
+            "Import a country's existing Millennium Dawn parties (name, logo, "
+            "description) into the Country editor with “Load MD parties”.",
+            "Parties now have an editable politics-screen description, and warn when two "
+            "share the same sub-ideology slot.",
+            "Faster icon/picture pickers — thumbnails load only as you scroll.",
         ],
     },
     {

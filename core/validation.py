@@ -160,11 +160,38 @@ def _validate_country(country, issues: list) -> None:
         total = sum(float(v) for v in pops.values())
         if not (98 <= total <= 102):
             _warn(issues, "country.popularities.sum", f"Starting popularities sum to {total:g}% (should be ~100%).")
+    # MD keys each party on its SUB-ideology (a country can run several parties
+    # under one top ideology), so collisions are per sub-ideology — or per top
+    # ideology for parties that have no sub-ideology (vanilla set_party_name).
+    seen_sub, seen_top_nosub = {}, {}
     for i, party in enumerate(country.parties or []):
-        if (party.ideology or "") not in TOP_IDEOLOGIES:
+        ideo = party.ideology or ""
+        sub = (party.subIdeology or "").strip()
+        if ideo not in TOP_IDEOLOGIES:
             _warn(issues, "country.party.ideology", f"Party {i + 1} has an invalid ideology '{party.ideology}'.")
         if not (party.name or "").strip():
             _warn(issues, "country.party.name", f"Party {i + 1} ({party.ideology or '?'}) has no name.")
+        # A description (or logo) is keyed on the sub-ideology; without one it can't
+        # be written and would be silently dropped on export.
+        if (getattr(party, "description", "") or "").strip() and not sub:
+            _warn(issues, "country.party.description.nosub",
+                  f"Party {i + 1} ({party.ideology or '?'}) has a description but no "
+                  f"sub-ideology, so it won't be exported. Pick a sub-ideology.")
+        if sub:
+            if sub in seen_sub:
+                _warn(issues, "country.party.collision",
+                      f"Parties {seen_sub[sub] + 1} and {i + 1} both use the '{sub}' "
+                      f"sub-ideology — they overwrite each other on export. Use it once.")
+            else:
+                seen_sub[sub] = i
+        elif ideo in TOP_IDEOLOGIES:
+            if ideo in seen_top_nosub:
+                _warn(issues, "country.party.collision",
+                      f"Parties {seen_top_nosub[ideo] + 1} and {i + 1} are both '{ideo}' "
+                      f"with no sub-ideology — they overwrite each other. Give each a "
+                      f"distinct sub-ideology.")
+            else:
+                seen_top_nosub[ideo] = i
     subs = set(all_sub_ideologies())
     for i, leader in enumerate(country.leaders or []):
         if not (leader.name or "").strip():
