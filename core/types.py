@@ -65,6 +65,7 @@ class FocusNodeData:
     title: str = ""
     description: str = ""
     icon: str = ""
+    iconData: str = ""  # base64 PNG of a custom imported icon (overrides icon)
     position: FocusPosition = field(default_factory=FocusPosition)
     cost: float = 5
     filters: list = field(default_factory=list)

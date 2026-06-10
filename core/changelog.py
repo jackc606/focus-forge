@@ -9,6 +9,20 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.1.7",
+        "date": "2026-06-10",
+        "title": "Custom focus icons",
+        "changes": [
+            "Import your own focus icon — Inspector → Icon → Import…. The image is "
+            "auto-scaled to the in-game 100×88 size and shows on the canvas instantly.",
+            "On export the icon is written as a .dds with its sprite definition "
+            "generated for you — including the “shine” the game plays when a focus "
+            "becomes completable.",
+            "× next to Import… removes a custom icon and returns to the named one.",
+            "Inspector layout fix: fields no longer get cut off at the right edge.",
+        ],
+    },
+    {
         "version": "0.1.6",
         "date": "2026-06-09",
         "title": "Importers, custom art & an easier AI bridge",

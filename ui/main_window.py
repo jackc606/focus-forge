@@ -34,7 +34,11 @@ from core.version import version_label
 
 from . import theme as T
 from .country_editor import CountryEditorDialog
-from .country_export import export_country_assets, export_event_assets
+from .country_export import (
+    export_country_assets,
+    export_event_assets,
+    export_focus_icon_assets,
+)
 from .export_panel import ExportPanel
 from .help_panel import HelpPanel
 from .icon_provider import provider
@@ -634,6 +638,8 @@ class MainWindow(QMainWindow):
                 return False
         try:
             self._model.export_to_directory(directory)
+            # Custom focus-icon DDS (the focus tree is always exported).
+            export_focus_icon_assets(self._model.project, str(directory))
             # Binary country assets (flag TGAs / custom portrait DDS) aren't text.
             if self._model.project.exportSettings.includeCountry and self._model.project.country:
                 export_country_assets(self._model.project, str(directory))

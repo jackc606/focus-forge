@@ -31,6 +31,12 @@ def export_project_files(project: FocusForgeProject) -> list:
             bom=True,
         ),
     ]
+    focus_icon_gfx = export_focus_icon_sprites(project)
+    if focus_icon_gfx:
+        files.append(ExportedFile(
+            relativePath=f"interface/{settings.localisationPrefix}_focus_icons.gfx",
+            content=focus_icon_gfx,
+        ))
     if settings.includeIdeas and project.ideas:
         files.append(ExportedFile(
             relativePath=f"common/ideas/{settings.localisationPrefix}_ideas.txt",
@@ -200,6 +206,72 @@ def export_event_picture_sprites(project) -> "str | None":
     return "\n".join(lines) + "\n"
 
 
+def _focus_icon_sprite_name(focus) -> str:
+    """Generated sprite name for a CUSTOM focus icon (``_focus_icon`` suffix so it
+    never collides with a vanilla/MD GFX_focus_… sprite)."""
+    return f"GFX_{_san(focus.id)}_focus_icon"
+
+
+def _focus_icon_relpath(focus) -> str:
+    """Posix relpath of a custom focus-icon .dds (under the mod's goals folder,
+    where HOI4/MD keep focus art — the New Submod scaffold creates it)."""
+    return f"gfx/interface/goals/{_san(focus.id)}.dds"
+
+
+def _focus_icon_value(focus) -> str:
+    """The ``icon = …`` GFX name for a focus: the generated sprite for a custom
+    imported image, else the chosen/typed sprite name."""
+    if getattr(focus, "iconData", ""):
+        return _focus_icon_sprite_name(focus)
+    return focus.icon
+
+
+def _focus_shine_lines(name: str, tex: str) -> list:
+    """The standard HOI4 ``GFX_…_shine`` spriteType (two scrolling add-blend
+    animations over the icon, like base-game goals_shine.gfx) — without it the
+    game logs a missing-sprite error and completable focuses don't glow."""
+    lines = [f"{TAB}spriteType = {{",
+             f'{TAB}{TAB}name = "{name}_shine"',
+             f'{TAB}{TAB}texturefile = "{tex}"',
+             f'{TAB}{TAB}effectFile = "gfx/FX/buttonstate.lua"']
+    for rotation in ("-90.0", "90.0"):
+        lines.extend([
+            f"{TAB}{TAB}animation = {{",
+            f'{TAB}{TAB}{TAB}animationmaskfile = "{tex}"',
+            f'{TAB}{TAB}{TAB}animationtexturefile = "gfx/interface/goals/shine_overlay.dds"',
+            f"{TAB}{TAB}{TAB}animationrotation = {rotation}",
+            f"{TAB}{TAB}{TAB}animationlooping = no",
+            f"{TAB}{TAB}{TAB}animationtime = 0.75",
+            f"{TAB}{TAB}{TAB}animationdelay = 0",
+            f'{TAB}{TAB}{TAB}animationblendmode = "add"',
+            f'{TAB}{TAB}{TAB}animationtype = "scrolling"',
+            f"{TAB}{TAB}{TAB}animationrotationoffset = {{ x = 0.0 y = 0.0 }}",
+            f"{TAB}{TAB}{TAB}animationtexturescale = {{ x = 1.0 y = 1.0 }}",
+            f"{TAB}{TAB}}}",
+        ])
+    lines.append(f"{TAB}{TAB}legacy_lazy_load = no")
+    lines.append(f"{TAB}}}")
+    return lines
+
+
+def export_focus_icon_sprites(project) -> "str | None":
+    """interface/*.gfx spriteTypes wrapping each CUSTOM focus icon (imported
+    image), so the generated ``GFX_<id>_focus_icon`` reference resolves — plus the
+    matching ``_shine`` sprite the game expects for every focus icon. None if no
+    focus uses a custom icon (named icons reference existing sprites)."""
+    entries = [(_focus_icon_sprite_name(f), _focus_icon_relpath(f))
+               for f in project.focuses if getattr(f, "iconData", "")]
+    if not entries:
+        return None
+    lines = ["spriteTypes = {"]
+    for name, tex in entries:
+        lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
+    for name, tex in entries:
+        lines.extend(_focus_shine_lines(name, tex))
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 def _is_portrait_path(ref) -> bool:
     """True when a leader's pictureRef is an MD portrait image path (always under
     gfx/leaders/<TAG>/…), vs a GFX sprite name or a bare filename."""
@@ -307,7 +379,7 @@ def _export_focus(focus: FocusNodeData) -> list:
     lines: list = [
         f"{TAB}focus = {{",
         f"{TAB}{TAB}id = {focus.id}",
-        f"{TAB}{TAB}icon = {focus.icon}",
+        f"{TAB}{TAB}icon = {_focus_icon_value(focus)}",
         f"{TAB}{TAB}x = {focus.position.x}",
         f"{TAB}{TAB}y = {focus.position.y}",
         f"{TAB}{TAB}cost = {focus.cost}",

@@ -6,11 +6,13 @@ import re
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -19,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage, QPixmap
 
 from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
@@ -31,11 +33,16 @@ from core.types import CompletionReward, FocusPosition
 from . import theme as T
 from .availability_editor import AvailabilityEditor
 from .chip_selector import ChipSelector
+from .country_editor import _IMG_FILTER, _scaled_b64_png
+from .country_export import _qimage_from_b64
 from .icon_picker import IconPickerDialog
 from .icon_provider import provider
 from .project_model import ProjectModel
 from .reward_editor import RewardEditor
 from .widgets import divider, panel_header
+
+# In-game focus icon size (all base/MD focus icons are 100×88).
+_FOCUS_ICON_W, _FOCUS_ICON_H = 100, 88
 
 
 class InspectorPanel(QWidget):
@@ -82,12 +89,17 @@ class InspectorPanel(QWidget):
         self._desc_edit.setMinimumHeight(70)
         form.addRow("Description", self._desc_edit)
 
+        # Icon: preview + name on the first line, the action buttons on a second
+        # line — side by side they force the form wider than the panel and every
+        # field gets clipped (the inspector never scrolls sideways).
         self._icon_edit = QComboBox()
         self._icon_edit.setEditable(True)
         self._icon_edit.addItems(MD_ICON_PRESETS)
         icon_row = QWidget()
-        ir = QHBoxLayout(icon_row)
-        ir.setContentsMargins(0, 0, 0, 0)
+        ic = QVBoxLayout(icon_row)
+        ic.setContentsMargins(0, 0, 0, 0)
+        ic.setSpacing(6)
+        ir = QHBoxLayout()
         ir.setSpacing(6)
         self._icon_preview = QLabel()
         self._icon_preview.setFixedSize(40, 34)
@@ -95,9 +107,27 @@ class InspectorPanel(QWidget):
         self._icon_preview.setObjectName("iconPreview")
         ir.addWidget(self._icon_preview)
         ir.addWidget(self._icon_edit, 1)
+        ic.addLayout(ir)
+        ib = QHBoxLayout()
+        ib.setSpacing(6)
         self._icon_browse = QPushButton("Browse…")
+        self._icon_browse.setToolTip("Choose an in-game focus icon from a visual grid.")
         self._icon_browse.clicked.connect(self._open_icon_picker)
-        ir.addWidget(self._icon_browse)
+        ib.addWidget(self._icon_browse)
+        self._icon_import = QPushButton("Import…")
+        self._icon_import.setToolTip(
+            f"Import a custom focus icon. HOI4 focus icons are {_FOCUS_ICON_W}×"
+            f"{_FOCUS_ICON_H} px, exported as .dds (.png/.tga/.dds in).")
+        self._icon_import.clicked.connect(self._import_icon)
+        ib.addWidget(self._icon_import)
+        self._icon_clear = QPushButton("×")
+        self._icon_clear.setObjectName("deleteButton")
+        self._icon_clear.setToolTip("Remove the custom imported icon (go back to the named icon)")
+        self._icon_clear.setFixedWidth(28)
+        self._icon_clear.clicked.connect(self._clear_custom_icon)
+        ib.addWidget(self._icon_clear)
+        ib.addStretch(1)
+        ic.addLayout(ib)
         form.addRow("Icon", icon_row)
 
         pos_holder = QWidget()
@@ -130,7 +160,8 @@ class InspectorPanel(QWidget):
 
         # Toggle for the raw-lines inputs + generated script previews in both
         # editors below — hidden by default to keep the inspector clean.
-        self._show_script = QCheckBox("Show raw script & generated blocks")
+        # "&&" — a single "&" is a Qt mnemonic and renders as an underline.
+        self._show_script = QCheckBox("Show raw script && generated blocks")
         v.addWidget(self._show_script)
 
         # Availability (when can it be taken)
@@ -245,7 +276,18 @@ class InspectorPanel(QWidget):
         self._refresh_icon_preview()
 
     def _refresh_icon_preview(self) -> None:
-        pm = provider().pixmap(self._icon_edit.currentText())
+        focus = self._model.find_focus(self._model.selected_id)
+        custom = getattr(focus, "iconData", "") if focus else ""
+        self._icon_clear.setVisible(bool(custom))
+        pm = None
+        if custom:
+            img = _qimage_from_b64(custom)
+            pm = QPixmap.fromImage(img) if img is not None else None
+            self._icon_preview.setToolTip(
+                "Custom imported icon — overrides the icon name on export.")
+        else:
+            pm = provider().pixmap(self._icon_edit.currentText())
+            self._icon_preview.setToolTip("")
         if pm is not None and not pm.isNull():
             self._icon_preview.setPixmap(pm.scaled(
                 40, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
@@ -255,7 +297,31 @@ class InspectorPanel(QWidget):
     def _open_icon_picker(self) -> None:
         dlg = IconPickerDialog(current=self._icon_edit.currentText(), parent=self)
         if dlg.exec() and dlg.selected_name():
+            self._commit("iconData", "")  # picking a sprite drops the custom image
             self._icon_edit.setCurrentText(dlg.selected_name())
+            self._refresh_icon_preview()
+
+    def _import_icon(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Import focus icon — {_FOCUS_ICON_W}×{_FOCUS_ICON_H} px "
+            f"(.png/.tga/.dds)",
+            "", _IMG_FILTER)
+        if not path:
+            return
+        img = QImage(path)
+        if img.isNull():
+            QMessageBox.warning(self, "Import failed",
+                                "Couldn't read that image — use a .png, .tga, or .dds.")
+            return
+        # Auto-scale to the standard HOI4 focus-icon size (100×88) so the export
+        # is always the correct dimensions.
+        self._commit("iconData", _scaled_b64_png(img, _FOCUS_ICON_W, _FOCUS_ICON_H))
+        self._refresh_icon_preview()
+
+    def _clear_custom_icon(self) -> None:
+        self._commit("iconData", "")
+        self._refresh_icon_preview()
 
     def _commit(self, field: str, value) -> None:
         if self._suspend:

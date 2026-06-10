@@ -8,7 +8,12 @@ import os
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QImage
 
-from core.exporters import _event_picture_relpath, _leader_slug, _party_logo_relpath
+from core.exporters import (
+    _event_picture_relpath,
+    _focus_icon_relpath,
+    _leader_slug,
+    _party_logo_relpath,
+)
 from core.image_write import dds_bgra32, tga_bgra32
 
 
@@ -87,6 +92,27 @@ def export_country_assets(project, mod_dir: str) -> int:
             f.write(dds_bgra32(bgra, w, h))
         written += 1
 
+    return written
+
+
+def export_focus_icon_assets(project, mod_dir: str) -> int:
+    """Write the .dds for each focus that uses a CUSTOM imported icon. Returns
+    the number of files written. Always runs (the focus tree is always part of
+    the export)."""
+    written = 0
+    for focus in project.focuses:
+        if not getattr(focus, "iconData", ""):
+            continue
+        img = _qimage_from_b64(focus.iconData)
+        if img is None:
+            continue
+        bgra, w, h = _argb32_bytes(img)
+        rel = _focus_icon_relpath(focus)
+        path = os.path.join(mod_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(dds_bgra32(bgra, w, h))
+        written += 1
     return written
 
 

@@ -162,6 +162,7 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         title=d.get("title", ""),
         description=d.get("description", ""),
         icon=d.get("icon", ""),
+        iconData=d.get("iconData", ""),
         position=FocusPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
         cost=d.get("cost", 5),
         filters=list(d.get("filters") or []),

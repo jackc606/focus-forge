@@ -45,6 +45,10 @@ HELP_TOPICS = [
         ("Prerequisites / mutually exclusive / filters",
          "Set these in the Inspector — each is a searchable dropdown of the project's "
          "focuses (or the HOI4 search filters)."),
+        ("Focus icons",
+         "Inspector → Icon: Browse… picks an in-game icon from a visual grid; Import… "
+         "adds your own image (auto-scaled to 100×88, exported as .dds with the .gfx "
+         "sprite — shine included — generated for you). × removes the custom icon."),
         ("Delete focuses",
          "Select one (or rubber-band several) and press Delete, or right-click a node → "
          "Delete. Prerequisite / mutex references to deleted focuses are cleaned up."),

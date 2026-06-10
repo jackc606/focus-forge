@@ -4,13 +4,14 @@ on a plate directly below it, so the canvas previews the in-game tree (WYSIWYG).
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
 )
 
 from . import theme as T
+from .country_export import _qimage_from_b64
 from .icon_provider import provider
 
 # Grid: x-neighbours sit side by side; y+1 is one level down with room for the
@@ -60,11 +61,13 @@ class FocusNodeItem(QGraphicsObject):
     connect_ended = Signal(str, str, QPointF)   # source_id, target_id ("" if none), drop pos
 
     def __init__(self, focus_id: str, title: str, icon: str, grid_x: int, grid_y: int,
-                 cost=5, prereq_count: int = 0) -> None:
+                 cost=5, prereq_count: int = 0, icon_data: str = "") -> None:
         super().__init__()
         self._focus_id = focus_id
         self._title = title or focus_id
         self._icon = icon or "?"
+        self._icon_data = icon_data or ""
+        self._custom_pm = None  # decoded pixmap for a custom imported icon
         self._grid_x = grid_x
         self._grid_y = grid_y
         self._cost = cost
@@ -90,13 +93,17 @@ class FocusNodeItem(QGraphicsObject):
         return (self._grid_x, self._grid_y)
 
     def update_data(self, title: str, icon: str, grid_x: int, grid_y: int,
-                    cost=None, prereq_count: int = None) -> None:
+                    cost=None, prereq_count: int = None, icon_data: str = "") -> None:
         changed = False
         if title != self._title:
             self._title = title or self._focus_id
             changed = True
         if icon != self._icon:
             self._icon = icon or "?"
+            changed = True
+        if (icon_data or "") != self._icon_data:
+            self._icon_data = icon_data or ""
+            self._custom_pm = None  # re-decode lazily on next paint
             changed = True
         if cost is not None and cost != self._cost:
             self._cost = cost
@@ -115,6 +122,17 @@ class FocusNodeItem(QGraphicsObject):
         return QRectF(-GLOW_PAD, -PORT_PAD, NODE_W + 2 * GLOW_PAD, NODE_H + 2 * PORT_PAD)
 
     # ----- painting -----
+    def _icon_pixmap(self):
+        """The node's icon art: a custom imported image wins over the named
+        in-game sprite (mirrors what the exporter emits)."""
+        if self._icon_data:
+            if self._custom_pm is None:
+                img = _qimage_from_b64(self._icon_data)
+                self._custom_pm = QPixmap.fromImage(img) if img is not None else QPixmap()
+            if not self._custom_pm.isNull():
+                return self._custom_pm
+        return provider().pixmap(self._icon)
+
     def _paint_glow(self, painter: QPainter, selected: bool) -> None:
         """Painted accent halo for the selected node (replaces the old
         QGraphicsDropShadowEffect, which crashes on item removal). Outline-only
@@ -145,7 +163,7 @@ class FocusNodeItem(QGraphicsObject):
             bracket = QColor(T.FOCUS_BRACKET)
 
         icon_rect = QRectF(ICON_X, ICON_Y, ICON, ICON)
-        pm = provider().pixmap(self._icon)
+        pm = self._icon_pixmap()
         if pm is not None and not pm.isNull():
             # Real in-game icon — the .dds already carries its own frame art, so
             # draw it edge-to-edge (preserving aspect) and skip the synthetic frame.
