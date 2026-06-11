@@ -26,8 +26,9 @@ class GraphScene(QGraphicsScene):
         self._connect_anchor = None
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802 — Qt API
-        # Always paint over the union of every view's visible scene rect so
-        # corner stamps stay anchored to the camera, not the dirty patch.
+        # Always paint over the union of every view's visible scene rect: the
+        # vignette gradient is sized from the painted rect, so painting only the
+        # dirty patch would render a visibly different gradient per patch.
         full_rect = QRectF(rect)
         for view in self.views():
             visible = view.mapToScene(view.viewport().rect()).boundingRect()

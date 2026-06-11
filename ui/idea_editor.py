@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QCompleter,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -28,17 +27,21 @@ from core.types import IdeaData
 from . import theme as T
 from .icon_picker import IconPickerDialog
 from .icon_provider import provider
+from .no_scroll import NoScrollComboBox, NoScrollDoubleSpinBox
 from .tech_provider import tech_provider
 from .widgets import hint, panel_header, section_header
 
 _MOD_LINE = re.compile(r"([A-Za-z0-9_]+)\s*=\s*(-?[\d.]+)")
+
+# HOI4 idea icons are roughly 65:55 — preview at a small multiple of that ratio.
+_ICON_PREVIEW_W, _ICON_PREVIEW_H = 40, 34
 
 
 def _build_modifier_combo(current: str) -> QComboBox:
     """Editable, searchable combo of every MD/HOI4 idea modifier grouped by
     functional theme. Item text is the BARE modifier name (no indent) so the
     caller's ``currentText()`` stays clean; group headers are disabled rows."""
-    cb = QComboBox()
+    cb = NoScrollComboBox()
     cb.setEditable(True)
     cb.setInsertPolicy(QComboBox.NoInsert)
     cb.setMaxVisibleItems(24)
@@ -90,17 +93,17 @@ class IdeaEditorDialog(QDialog):
         form.addRow("ID", self._id)
 
         self._desc = QPlainTextEdit(idea.description if idea else "")
-        self._desc.setMaximumHeight(70)
+        self._desc.setMaximumHeight(T.TEXTAREA_MEDIUM)
         form.addRow("Description", self._desc)
 
         # Icon row
         icon_row = QWidget()
         ir = QHBoxLayout(icon_row)
         ir.setContentsMargins(0, 0, 0, 0)
-        ir.setSpacing(6)
+        ir.setSpacing(T.SPACE_SM)
         self._icon_preview = QLabel()
         self._icon_preview.setObjectName("iconPreview")
-        self._icon_preview.setFixedSize(40, 34)
+        self._icon_preview.setFixedSize(_ICON_PREVIEW_W, _ICON_PREVIEW_H)
         self._icon_preview.setAlignment(Qt.AlignCenter)
         ir.addWidget(self._icon_preview)
         self._icon_name = QLabel()
@@ -152,7 +155,8 @@ class IdeaEditorDialog(QDialog):
         self._icon_name.setText(self._picture or "(no icon)")
         pm = provider().pixmap(self._picture) if self._picture else None
         if pm is not None and not pm.isNull():
-            self._icon_preview.setPixmap(pm.scaled(40, 34, Qt.KeepAspectRatio,
+            self._icon_preview.setPixmap(pm.scaled(_ICON_PREVIEW_W, _ICON_PREVIEW_H,
+                                                   Qt.KeepAspectRatio,
                                                    Qt.SmoothTransformation))
         else:
             self._icon_preview.clear()
@@ -162,9 +166,9 @@ class IdeaEditorDialog(QDialog):
         row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(6)
+        h.setSpacing(T.SPACE_SM)
         combo = _build_modifier_combo(key)
-        spin = QDoubleSpinBox()
+        spin = NoScrollDoubleSpinBox()
         spin.setRange(-1e6, 1e6)
         spin.setDecimals(4)
         spin.setSingleStep(0.05)
@@ -175,7 +179,7 @@ class IdeaEditorDialog(QDialog):
         x = QPushButton("×")
         x.setObjectName("deleteButton")
         x.setToolTip("Remove modifier")
-        x.setFixedWidth(28)
+        x.setFixedWidth(T.ICON_BUTTON)
         h.addWidget(combo, 1)
         h.addWidget(spin)
         h.addWidget(x)

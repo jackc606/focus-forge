@@ -29,6 +29,23 @@ class ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class ClickableFrame(QFrame):
+    """A QFrame that emits ``clicked`` on a left-button release inside the
+    frame (so a press-then-drag-away doesn't trigger it)."""
+
+    clicked = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        if (event.button() == Qt.LeftButton
+                and self.rect().contains(event.position().toPoint())):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 def mono_font(size: int = T.TEXT_BODY) -> QFont:
     """Cascadia Mono (with fallback) at a pixel size — for code/preview panes."""
     f = QFont(T.FONT_MONO_FAMILY)
@@ -77,13 +94,14 @@ def pill(text: str, kind: str = "neutral") -> QLabel:
     return lbl
 
 
-def issue_card(severity: str, message: str) -> QFrame:
-    """A validation issue row: tinted card with a glyph + wrapped message."""
+def issue_card(severity: str, message: str, on_click=None) -> QFrame:
+    """A validation issue row: tinted card with a glyph + wrapped message.
+    With ``on_click`` the card shows a hand cursor and calls it on left-click."""
     is_error = severity == "error"
-    card = QFrame()
+    card = QFrame() if on_click is None else ClickableFrame()
     card.setObjectName("issueCardError" if is_error else "issueCardWarning")
     row = QHBoxLayout(card)
-    row.setContentsMargins(T.SPACE_SM, 6, T.SPACE_SM, 6)
+    row.setContentsMargins(T.SPACE_SM, T.SPACE_XS, T.SPACE_SM, T.SPACE_XS)
     row.setSpacing(T.SPACE_SM)
 
     symbol = QLabel("×" if is_error else "!")  # render in the UI font (Bahnschrift lacks ✕/⚠)
@@ -96,4 +114,7 @@ def issue_card(severity: str, message: str) -> QFrame:
     text.setObjectName("issueTextError" if is_error else "issueTextWarning")
     text.setWordWrap(True)
     row.addWidget(text, 1)
+
+    if on_click is not None:
+        card.clicked.connect(on_click)
     return card

@@ -1,11 +1,12 @@
 """Export preview: combobox of files + monospace preview."""
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
 from core.exporters import export_project_files
 
 from . import theme as T
+from .no_scroll import NoScrollComboBox
 from .project_model import ProjectModel
 from .widgets import mono_font, panel_header, section_header
 
@@ -22,7 +23,8 @@ class ExportPanel(QWidget):
         v.addWidget(panel_header("Export"))
         v.addWidget(section_header("Output file"))
 
-        self._combo = QComboBox()
+        self._combo = NoScrollComboBox()
+        self._combo.setToolTip("Generated file to preview below")
         self._combo.currentIndexChanged.connect(self._render_selected)
         v.addWidget(self._combo)
 

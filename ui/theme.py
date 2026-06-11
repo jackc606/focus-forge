@@ -26,6 +26,7 @@ TEXT_DISABLED = "#566273"  # disabled controls
 
 ACCENT = "#4fd08a"         # signal green — selection, focus ring, primary
 ACCENT_HOVER = "#63e29d"   # brighter accent (hover)
+ACCENT_HOVER_BG = "#3a8862"  # primary-button hover fill (between DIM and ACCENT)
 ACCENT_DIM = "#2f6e4d"     # accent fills / borders
 ACCENT_SOFT = "#1d2b22"    # selected list/row tint
 
@@ -71,6 +72,18 @@ SPACE_XL = 24
 RADIUS_INPUT = 4
 RADIUS_CARD = 6
 RADIUS_NODE = 8
+
+# Component sizes (px)
+ICON_BUTTON = 28      # square row buttons (× delete, ↑/↓ reorder, color swatch)
+BUTTON_TALL = 40      # prominent dialog buttons (welcome screen)
+TEXTAREA_SHORT = 64   # compact raw-lines / single-purpose text edits
+TEXTAREA_MEDIUM = 80  # description fields, collapsed card previews
+TEXTAREA_TALL = 112   # script preview panes
+
+# Dialog size presets (w, h) — keep ad-hoc resize() calls on a small scale
+DIALOG_SM = (460, 480)   # list managers (ideas, events)
+DIALOG_MD = (560, 560)   # welcome, devlog, single-entity editors
+DIALOG_LG = (720, 560)   # import wizard, icon picker
 
 # Type scale (px)
 TEXT_MICRO = 11   # mono ids, meta

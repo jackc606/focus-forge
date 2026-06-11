@@ -35,7 +35,7 @@ _OPTIONAL_FIELDS = {
     AvailabilityRule: {"completedFocuses", "flagsRequired", "flagsBlocked", "items", "rawLines"},
     EventReward: {"days"},
     EventOption: {"items", "trigger", "aiChance"},
-    EventData: {"meanTimeToHappen", "trigger"},
+    EventData: {"meanTimeToHappen", "fireOnDate", "trigger"},
     TechBonusReward: {"name"},
     RewardItem: {"enabled"},
     FocusForgeProject: {"country"},
@@ -54,7 +54,7 @@ def _to_plain(value: Any) -> Any:
         optional = _OPTIONAL_FIELDS.get(type(value), set())
         for f in fields(value):
             v = getattr(value, f.name)
-            if v is None and f.name in optional:
+            if (v is None or v == "") and f.name in optional:
                 continue
             out[f.name] = _to_plain(v)
         return out
@@ -101,6 +101,7 @@ def _event_from_dict(d: dict) -> EventData:
         major=bool(d.get("major", False)),
         fireOnlyOnce=bool(d.get("fireOnlyOnce", False)),
         meanTimeToHappen=d.get("meanTimeToHappen"),
+        fireOnDate=d.get("fireOnDate", "") or "",
         trigger=_availability_from_dict(d["trigger"]) if d.get("trigger") else None,
         options=[_event_option_from_dict(o) for o in (d.get("options") or [])],
     )

@@ -4,7 +4,6 @@ from __future__ import annotations
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +21,7 @@ from core.base_tree import apply_base_tree_to_project
 
 from . import theme as T
 from .country_tag_picker import CountryTagPicker
+from .no_scroll import NoScrollComboBox, NoScrollSpinBox
 from .icon_provider import autodetect_roots, provider
 from .project_model import ProjectModel
 from .widgets import hint, panel_header, section_header
@@ -86,9 +85,9 @@ class SettingsPanel(QWidget):
         export_form.addRow("Localization Prefix", self._loc_prefix)
 
         cfp_box = QHBoxLayout()
-        self._cfp_x = QSpinBox()
+        self._cfp_x = NoScrollSpinBox()
         self._cfp_x.setRange(0, 999999)
-        self._cfp_y = QSpinBox()
+        self._cfp_y = NoScrollSpinBox()
         self._cfp_y.setRange(0, 999999)
         cfp_box.addWidget(QLabel("x"))
         cfp_box.addWidget(self._cfp_x)
@@ -109,7 +108,7 @@ class SettingsPanel(QWidget):
         autosave_form = QFormLayout()
         autosave_form.setSpacing(T.SPACE_SM)
         v.addLayout(autosave_form)
-        self._autosave = QComboBox()
+        self._autosave = NoScrollComboBox()
         for minutes, label in _AUTOSAVE_OPTIONS:
             self._autosave.addItem(label, minutes)
         current = self._app_settings.value("autosave_minutes", 0)

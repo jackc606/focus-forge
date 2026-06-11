@@ -23,6 +23,7 @@ from .icon_provider import provider
 from .widgets import hint, panel_header
 
 _THUMB = QSize(64, 56)
+_GRID = QSize(_THUMB.width() + 30, _THUMB.height() + 36)  # room for label row
 _MAX_SHOWN = 600       # cap the grid; refine the search to see narrower results
 _NAME_ROLE = Qt.UserRole
 _PATH_ROLE = Qt.UserRole + 1
@@ -39,7 +40,7 @@ class IconPickerDialog(QDialog):
                  title: str = "Choose Focus Icon", loader=None) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(620, 560)
+        self.resize(*T.DIALOG_LG)
         self._chosen = None
         self._loader = loader or load_dds_qimage
         raw = list(sprites) if sprites is not None else provider().focus_sprites()
@@ -70,12 +71,12 @@ class IconPickerDialog(QDialog):
         self._list = QListWidget()
         self._list.setViewMode(QListWidget.IconMode)
         self._list.setIconSize(_THUMB)
-        self._list.setGridSize(QSize(94, 92))
+        self._list.setGridSize(_GRID)
         self._list.setResizeMode(QListWidget.Adjust)
         self._list.setMovement(QListWidget.Static)
         self._list.setUniformItemSizes(True)
         self._list.setWordWrap(True)
-        self._list.setSpacing(4)
+        self._list.setSpacing(T.SPACE_XS)
         self._list.itemDoubleClicked.connect(self._accept_item)
         self._list.itemSelectionChanged.connect(self._update_ok)
         self._list.verticalScrollBar().valueChanged.connect(self._schedule_load)

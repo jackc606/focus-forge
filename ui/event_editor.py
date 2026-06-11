@@ -12,7 +12,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -25,7 +24,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -44,6 +42,7 @@ from .country_editor import _scaled_b64_png
 from .country_export import _qimage_from_b64
 from .icon_picker import IconPickerDialog
 from .icon_provider import provider
+from .no_scroll import NoScrollComboBox, NoScrollSpinBox
 from .preset_list import ConditionListWidget, EffectListWidget
 from .widgets import hint, panel_header, section_header
 
@@ -51,6 +50,8 @@ from .widgets import hint, panel_header, section_header
 # standard is 420×175 px; MD's own are typically ~217×163 (report) or ~397×153
 # (news). Aspect ratio matters more than exact size — keep it a wide ~2.4:1 banner.
 _EVENT_PIC_W, _EVENT_PIC_H = 420, 175
+# In-dialog thumbnail of the banner above, at roughly 1/5 scale.
+_PIC_PREVIEW_W, _PIC_PREVIEW_H = 84, 40
 _IMG_FILTER = "Images (*.png *.tga *.jpg *.jpeg *.bmp *.dds);;All files (*)"
 
 # Curated set of common HOI4 / MD event pictures. The combo stays editable, so any
@@ -88,24 +89,24 @@ class _OptionCard(QFrame):
         self._on_move = on_move
 
         v = QVBoxLayout(self)
-        v.setContentsMargins(10, 10, 10, 10)
-        v.setSpacing(6)
+        v.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
+        v.setSpacing(T.SPACE_SM)
 
         header = QHBoxLayout()
         self._title = QLabel("<b>Option</b>")
         header.addWidget(self._title)
         header.addStretch(1)
         up = QPushButton("↑")
-        up.setFixedWidth(28)
+        up.setFixedWidth(T.ICON_BUTTON)
         up.setToolTip("Move option up")
         up.clicked.connect(lambda: self._on_move(self, -1))
         down = QPushButton("↓")
-        down.setFixedWidth(28)
+        down.setFixedWidth(T.ICON_BUTTON)
         down.setToolTip("Move option down")
         down.clicked.connect(lambda: self._on_move(self, 1))
         delete = QPushButton("×")
         delete.setObjectName("deleteButton")
-        delete.setFixedWidth(28)
+        delete.setFixedWidth(T.ICON_BUTTON)
         delete.setToolTip("Remove option")
         delete.clicked.connect(lambda: self._on_delete(self))
         header.addWidget(up)
@@ -114,9 +115,9 @@ class _OptionCard(QFrame):
         v.addLayout(header)
 
         form = QFormLayout()
-        form.setSpacing(6)
+        form.setSpacing(T.SPACE_SM)
         self._key = QLineEdit(option.key or "")
-        self._key.setMaximumWidth(60)
+        self._key.setMaximumWidth(120)
         self._key.textChanged.connect(lambda *_: self._on_change())
         form.addRow("Key", self._key)
         self._text = QLineEdit(option.text or "")
@@ -150,7 +151,7 @@ class _OptionCard(QFrame):
         self._ai_chk = QCheckBox("AI chance (base)")
         self._ai_chk.setChecked(option.aiChance is not None)
         self._ai_chk.toggled.connect(self._toggle_ai)
-        self._ai_spin = QSpinBox()
+        self._ai_spin = NoScrollSpinBox()
         self._ai_spin.setRange(0, 1000)
         self._ai_spin.setValue(int(option.aiChance) if option.aiChance is not None else 10)
         self._ai_spin.setEnabled(option.aiChance is not None)
@@ -241,10 +242,10 @@ class EventEditorDialog(QDialog):
         form.addRow("Title", self._title)
 
         self._desc = QPlainTextEdit(event.description if event else "")
-        self._desc.setMaximumHeight(70)
+        self._desc.setMaximumHeight(T.TEXTAREA_MEDIUM)
         form.addRow("Description", self._desc)
 
-        self._type = QComboBox()
+        self._type = NoScrollComboBox()
         self._type.addItem("Country event", "country_event")
         self._type.addItem("News event", "news_event")
         self._type.setCurrentIndex(0 if (not event or event.eventType != "news_event") else 1)
@@ -258,10 +259,10 @@ class EventEditorDialog(QDialog):
         pic_row = QWidget()
         pic_h = QHBoxLayout(pic_row)
         pic_h.setContentsMargins(0, 0, 0, 0)
-        pic_h.setSpacing(6)
+        pic_h.setSpacing(T.SPACE_SM)
         self._pic_prev = QLabel()
         self._pic_prev.setObjectName("iconPreview")
-        self._pic_prev.setFixedSize(84, 40)
+        self._pic_prev.setFixedSize(_PIC_PREVIEW_W, _PIC_PREVIEW_H)
         self._pic_prev.setAlignment(Qt.AlignCenter)
         pic_h.addWidget(self._pic_prev)
         self._pic_name_lbl = QLabel()
@@ -302,7 +303,7 @@ class EventEditorDialog(QDialog):
 
         mtth_row = QHBoxLayout()
         self._mtth_label = QLabel("Mean time to happen (days)")
-        self._mtth = QSpinBox()
+        self._mtth = NoScrollSpinBox()
         self._mtth.setRange(0, 100000)
         self._mtth.setSpecialValueText("(off)")
         self._mtth.setValue(int(event.meanTimeToHappen) if (event and event.meanTimeToHappen) else 0)
@@ -312,6 +313,25 @@ class EventEditorDialog(QDialog):
         mtth_row.addStretch(1)
         v.addLayout(mtth_row)
         v.addWidget(hint("Mean time to happen only applies when is_triggered_only is off."))
+
+        # ----- fire on an exact date -----
+        date_row = QHBoxLayout()
+        self._fire_date_chk = QCheckBox("Fire on exact date")
+        has_fire_date = bool(event and (event.fireOnDate or "").strip())
+        self._fire_date_chk.setChecked(has_fire_date)
+        self._fire_date_chk.toggled.connect(self._on_fire_date_toggle)
+        self._fire_date = QLineEdit((event.fireOnDate or "").strip() if event else "")
+        self._fire_date.setPlaceholderText("year.month.day — e.g. 2003.3.20")
+        self._fire_date.setMaximumWidth(220)
+        self._fire_date.textChanged.connect(lambda *_: self._refresh_preview())
+        date_row.addWidget(self._fire_date_chk)
+        date_row.addWidget(self._fire_date)
+        date_row.addStretch(1)
+        v.addLayout(date_row)
+        v.addWidget(hint("Lands exactly once, on that date, for this country: exports as "
+                         "is_triggered_only + fire_only_once with a date trigger, attempted "
+                         "daily from an on_daily on_action (a small on_actions file is added "
+                         "to the export)."))
 
         # ----- event-level trigger -----
         v.addWidget(section_header("Event trigger (optional)"))
@@ -356,6 +376,7 @@ class EventEditorDialog(QDialog):
 
         self._built = True
         self._on_triggered_toggle(self._triggered_only.isChecked())
+        self._on_fire_date_toggle(self._fire_date_chk.isChecked())
         self._refresh_picture_preview()
         self._refresh_preview()
 
@@ -485,12 +506,21 @@ class EventEditorDialog(QDialog):
         for i, card in enumerate(self._option_cards()):
             card.set_label(i, eid)
 
-    # ----- triggered-only / mtth -----
+    # ----- triggered-only / mtth / fire date -----
     def _on_triggered_toggle(self, checked: bool) -> None:
         # mtth is meaningless for triggered-only events.
-        self._mtth.setEnabled(not checked)
-        self._mtth_label.setEnabled(not checked)
+        scheduled = getattr(self, "_fire_date_chk", None) and self._fire_date_chk.isChecked()
+        self._mtth.setEnabled(not checked and not scheduled)
+        self._mtth_label.setEnabled(not checked and not scheduled)
         self._refresh_preview()
+
+    def _on_fire_date_toggle(self, checked: bool) -> None:
+        # A date-scheduled event is forced is_triggered_only + fire_only_once on
+        # export, so those checkboxes (and mtth) don't apply while it's on.
+        self._fire_date.setEnabled(checked)
+        self._triggered_only.setEnabled(not checked)
+        self._fire_once.setEnabled(not checked)
+        self._on_triggered_toggle(self._triggered_only.isChecked())
 
     # ----- preview -----
     def _refresh_preview(self) -> None:
@@ -500,6 +530,7 @@ class EventEditorDialog(QDialog):
         try:
             event = self.result_event()
             proj = FocusForgeProject(
+                countryTag=self._country_tag,
                 events=[event],
                 exportSettings=ExportSettings(localisationPrefix=self._loc_prefix()),
             )
@@ -529,6 +560,7 @@ class EventEditorDialog(QDialog):
             major=self._major.isChecked(),
             fireOnlyOnce=self._fire_once.isChecked(),
             meanTimeToHappen=(mtth if (mtth > 0 and not self._triggered_only.isChecked()) else None),
+            fireOnDate=(self._fire_date.text().strip() if self._fire_date_chk.isChecked() else ""),
             trigger=event_trigger,
             options=[c.result_option() for c in self._option_cards()],
         )

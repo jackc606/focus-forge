@@ -1,16 +1,11 @@
 """Reward editor: simple fields + preset picker + per-item dynamic forms + raw lines + preview."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPlainTextEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -21,95 +16,15 @@ from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from core.exporters import export_completion_reward_lines
 from core.reward_presets import (
     REWARD_PRESET_GROUPS,
-    REWARD_PRESETS,
+    build_reward_item_lines,
     create_reward_item,
     get_reward_preset,
 )
 from core.types import CompletionReward, RewardItem
 
+from . import theme as T
+from .item_card import PresetItemCard
 from .param_widgets import make_param_widget
-
-
-class _RewardItemCard(QFrame):
-    def __init__(self, index: int, item: RewardItem, on_change, on_delete,
-                 country_tag: str = "", idea_refs=(), event_refs=(), leader_refs=()) -> None:
-        super().__init__()
-        self.setFrameShape(QFrame.StyledPanel)
-        self._index = index
-        self._item = item
-        self._on_change = on_change
-        self._on_delete = on_delete
-        self._country_tag = country_tag
-        self._idea_refs = list(idea_refs or [])
-        self._event_refs = list(event_refs or [])
-        self._leader_refs = list(leader_refs or [])
-        preset = get_reward_preset(item.kind)
-
-        v = QVBoxLayout(self)
-        v.setContentsMargins(10, 10, 10, 10)
-        v.setSpacing(8)
-
-        # Header row
-        header = QHBoxLayout()
-        title = QLabel(f"<b>{preset.label if preset else item.kind}</b>")
-        header.addWidget(title)
-        header.addStretch(1)
-        self._enabled_chk = QCheckBox("enabled")
-        self._enabled_chk.setChecked(item.enabled is not False)
-        self._enabled_chk.toggled.connect(self._toggle_enabled)
-        header.addWidget(self._enabled_chk)
-        del_btn = QPushButton("Delete")
-        del_btn.clicked.connect(lambda: self._on_delete(self._index))
-        header.addWidget(del_btn)
-        v.addLayout(header)
-
-        if preset and preset.description:
-            desc = QLabel(preset.description)
-            desc.setObjectName("muted")
-            desc.setWordWrap(True)
-            v.addWidget(desc)
-
-        # Param form
-        form = QFormLayout()
-        form.setSpacing(6)
-        v.addLayout(form)
-        if preset:
-            for param in preset.params:
-                widget = self._make_widget(param, item.params.get(param.key, param.defaultValue))
-                tooltip = param.helpText or ""
-                widget.setToolTip(tooltip)
-                form.addRow(param.label, widget)
-
-        # Preview (toggled with the inspector's "show script" checkbox)
-        self._preview = QPlainTextEdit()
-        self._preview.setReadOnly(True)
-        self._preview.setMaximumHeight(80)
-        v.addWidget(self._preview)
-        self._refresh_preview()
-
-    def set_preview_visible(self, show: bool) -> None:
-        self._preview.setVisible(bool(show))
-
-    def _make_widget(self, param, current):
-        return make_param_widget(
-            param, current, lambda val: self._set_param(param.key, val),
-            country_tag=self._country_tag, idea_refs=self._idea_refs,
-            event_refs=self._event_refs, leader_refs=self._leader_refs)
-
-    def _set_param(self, key: str, value) -> None:
-        self._item.params[key] = value
-        self._refresh_preview()
-        self._on_change()
-
-    def _toggle_enabled(self, checked: bool) -> None:
-        self._item.enabled = checked
-        self._refresh_preview()
-        self._on_change()
-
-    def _refresh_preview(self) -> None:
-        from core.reward_presets import build_reward_item_lines
-        lines = build_reward_item_lines(self._item)
-        self._preview.setPlainText("\n".join(lines) if lines else "(no output)")
 
 
 class RewardEditor(QWidget):
@@ -121,7 +36,7 @@ class RewardEditor(QWidget):
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(8)
+        v.setSpacing(T.SPACE_SM)
 
         # Simple fields
         form = QFormLayout()
@@ -154,14 +69,14 @@ class RewardEditor(QWidget):
 
         # Items list
         self._items_box = QVBoxLayout()
-        self._items_box.setSpacing(8)
+        self._items_box.setSpacing(T.SPACE_SM)
         v.addLayout(self._items_box)
 
         # Raw lines
         self._raw_label = QLabel("Raw Lines (one HOI4 effect per line)")
         v.addWidget(self._raw_label)
         self._raw = QPlainTextEdit()
-        self._raw.setMaximumHeight(70)
+        self._raw.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw.textChanged.connect(self._commit_raw)
         v.addWidget(self._raw)
 
@@ -170,7 +85,7 @@ class RewardEditor(QWidget):
         v.addWidget(self._preview_label)
         self._preview = QPlainTextEdit()
         self._preview.setReadOnly(True)
-        self._preview.setMaximumHeight(110)
+        self._preview.setMaximumHeight(T.TEXTAREA_TALL)
         v.addWidget(self._preview)
 
         # Raw + generated blocks are toggled together from the inspector; hidden
@@ -230,10 +145,14 @@ class RewardEditor(QWidget):
         from .leader_options import build_leader_refs
         leader_refs = build_leader_refs(self._model.project)
         for index, item in enumerate(reward.items or []):
-            card = _RewardItemCard(index, item, self._on_item_changed,
-                                   self._on_item_deleted, country_tag=tag,
-                                   idea_refs=idea_refs, event_refs=event_refs,
-                                   leader_refs=leader_refs)
+            card = PresetItemCard(
+                index, item, get_reward_preset(item.kind),
+                on_change=self._on_item_changed, on_delete=self._on_item_deleted,
+                build_lines=build_reward_item_lines, empty_text="(no output)",
+                make_widget=lambda param, current, set_value: make_param_widget(
+                    param, current, set_value, country_tag=tag,
+                    idea_refs=idea_refs, event_refs=event_refs,
+                    leader_refs=leader_refs))
             self._items_box.addWidget(card)
 
         self._raw.blockSignals(True)
@@ -254,7 +173,7 @@ class RewardEditor(QWidget):
             w.setVisible(self._script_visible)
         for i in range(self._items_box.count()):
             card = self._items_box.itemAt(i).widget()
-            if isinstance(card, _RewardItemCard):
+            if isinstance(card, PresetItemCard):
                 card.set_preview_visible(self._script_visible)
 
     def _commit_simple(self, attr: str, value) -> None:

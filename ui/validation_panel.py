@@ -1,12 +1,11 @@
 """Validation tab: scrollable issue list, click to jump to focus."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
 from . import theme as T
 from .project_model import ProjectModel
-from .widgets import panel_header, pill
+from .widgets import hint, issue_card, panel_header, pill
 
 
 class ValidationPanel(QWidget):
@@ -32,6 +31,9 @@ class ValidationPanel(QWidget):
         self._summary_row.setSpacing(T.SPACE_SM)
         self._summary_row.addStretch(1)
         self._box.addLayout(self._summary_row)
+
+        self._empty = hint("No validation issues — the project exports cleanly.")
+        self._box.addWidget(self._empty)
 
         self._issues_box = QVBoxLayout()
         self._issues_box.setSpacing(T.SPACE_SM)
@@ -59,6 +61,7 @@ class ValidationPanel(QWidget):
         errors = sum(1 for i in issues if i.severity == "error")
         warnings = sum(1 for i in issues if i.severity == "warning")
         self._set_summary(errors, warnings)
+        self._empty.setVisible(not issues)
         # Clear
         while self._issues_box.count():
             child = self._issues_box.takeAt(0)
@@ -66,26 +69,9 @@ class ValidationPanel(QWidget):
             if w:
                 w.deleteLater()
         for issue in issues:
-            self._issues_box.addWidget(self._issue_card(issue))
-
-    def _issue_card(self, issue) -> QFrame:
-        is_error = issue.severity == "error"
-        frame = QFrame()
-        frame.setObjectName("issueCardError" if is_error else "issueCardWarning")
-        frame.setCursor(Qt.PointingHandCursor)
-        h = QHBoxLayout(frame)
-        h.setContentsMargins(T.SPACE_SM, 6, T.SPACE_SM, 6)
-        h.setSpacing(T.SPACE_SM)
-        symbol = QLabel("×" if is_error else "!")  # render in the UI font (Bahnschrift lacks ✕/⚠)
-        symbol.setObjectName("issueSymbolError" if is_error else "issueSymbolWarning")
-        symbol.setFixedWidth(16)
-        symbol.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        text = QLabel(f"<b>{issue.code}</b>: {issue.message}")
-        text.setObjectName("issueTextError" if is_error else "issueTextWarning")
-        text.setWordWrap(True)
-        h.addWidget(symbol)
-        h.addWidget(text, 1)
-        focus_id = issue.focusId
-        if focus_id:
-            frame.mouseReleaseEvent = lambda evt: self._model.set_selection(focus_id)  # type: ignore[attr-defined]
-        return frame
+            on_click = None
+            if issue.focusId:
+                on_click = lambda fid=issue.focusId: self._model.set_selection(fid)
+            self._issues_box.addWidget(issue_card(
+                issue.severity, f"<b>{issue.code}</b>: {issue.message}",
+                on_click=on_click))

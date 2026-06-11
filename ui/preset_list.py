@@ -5,21 +5,31 @@ Unlike ``RewardEditor`` / ``AvailabilityEditor`` (which are bound to a focus and
 push every change straight into the model), these are decoupled — they own a local
 draft list and fire an ``on_change`` callback so a host dialog can refresh a
 preview and persist on its own terms. The event editor composes them for option
-effects, option triggers, and the event-level fire trigger. The item cards
-themselves (`_RewardItemCard`, `_AvailabilityItemCard`) are reused verbatim from
-the focus editors.
+effects, option triggers, and the event-level fire trigger. The item cards are
+the same ``PresetItemCard`` the focus editors use.
 """
 from __future__ import annotations
 
 from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
-from core.availability_presets import AVAILABILITY_PRESET_GROUPS, create_availability_item
-from core.reward_presets import REWARD_PRESET_GROUPS, create_reward_item
+from core.availability_presets import (
+    AVAILABILITY_PRESET_GROUPS,
+    build_availability_item_lines,
+    create_availability_item,
+    get_availability_preset,
+)
+from core.reward_presets import (
+    REWARD_PRESET_GROUPS,
+    build_reward_item_lines,
+    create_reward_item,
+    get_reward_preset,
+)
 from core.types import RewardItem
 
-from .availability_editor import _AvailabilityItemCard
+from . import theme as T
+from .item_card import PresetItemCard
 from .no_scroll import NoScrollComboBox as QComboBox
-from .reward_editor import _RewardItemCard
+from .param_widgets import make_param_widget
 
 
 class _PresetListBase(QWidget):
@@ -34,7 +44,7 @@ class _PresetListBase(QWidget):
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(6)
+        v.setSpacing(T.SPACE_SM)
 
         self._combo = QComboBox()
         self._combo.addItem(self._ADD_LABEL, None)
@@ -48,11 +58,11 @@ class _PresetListBase(QWidget):
         v.addWidget(self._combo)
 
         self._items_box = QVBoxLayout()
-        self._items_box.setSpacing(6)
+        self._items_box.setSpacing(T.SPACE_SM)
         v.addLayout(self._items_box)
 
         self._raw_edit = QPlainTextEdit()
-        self._raw_edit.setMaximumHeight(56)
+        self._raw_edit.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw_edit.setPlaceholderText(self._RAW_PLACEHOLDER)
         self._raw_edit.setPlainText("\n".join(self._raw))
         self._raw_edit.textChanged.connect(self._commit_raw)
@@ -139,9 +149,14 @@ class EffectListWidget(_PresetListBase):
         return create_reward_item(kind)
 
     def _make_card(self, index, item):
-        return _RewardItemCard(index, item, self._on_item_changed, self._on_item_deleted,
-                               country_tag=self._country_tag, idea_refs=self._idea_refs,
-                               event_refs=self._event_refs, leader_refs=self._leader_refs)
+        return PresetItemCard(
+            index, item, get_reward_preset(item.kind),
+            on_change=self._on_item_changed, on_delete=self._on_item_deleted,
+            build_lines=build_reward_item_lines, empty_text="(no output)",
+            make_widget=lambda param, current, set_value: make_param_widget(
+                param, current, set_value, country_tag=self._country_tag,
+                idea_refs=self._idea_refs, event_refs=self._event_refs,
+                leader_refs=self._leader_refs))
 
 
 class ConditionListWidget(_PresetListBase):
@@ -163,5 +178,10 @@ class ConditionListWidget(_PresetListBase):
         return create_availability_item(kind)
 
     def _make_card(self, index, item):
-        return _AvailabilityItemCard(index, item, self._on_item_changed, self._on_item_deleted,
-                                     country_tag=self._country_tag, focus_ids=self._focus_ids)
+        return PresetItemCard(
+            index, item, get_availability_preset(item.kind),
+            on_change=self._on_item_changed, on_delete=self._on_item_deleted,
+            build_lines=build_availability_item_lines, empty_text="(disabled)",
+            make_widget=lambda param, current, set_value: make_param_widget(
+                param, current, set_value, country_tag=self._country_tag,
+                focus_ids=self._focus_ids))

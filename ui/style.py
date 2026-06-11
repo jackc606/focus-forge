@@ -80,7 +80,7 @@ QPushButton#primary, QToolBar QToolButton#primary {{
     border-radius: {T.RADIUS_CARD}px;
 }}
 QPushButton#primary:hover, QToolBar QToolButton#primary:hover {{
-    background-color: #3a8862;
+    background-color: {T.ACCENT_HOVER_BG};
     border-color: {T.ACCENT_HOVER};
 }}
 QPushButton#primary:pressed, QToolBar QToolButton#primary:pressed {{
@@ -254,6 +254,7 @@ QLabel#sectionHeader {{
 }}
 QLabel#hint {{ color: {T.TEXT_MUTED}; font-size: {T.TEXT_BODY}px; }}
 QLabel#muted {{ color: {T.TEXT_MUTED}; }}
+QLabel#warningText {{ color: {T.STATUS_WARN}; }}
 
 /* ----- Help tab cards ----- */
 QFrame#helpCard {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_CARD}px; }}

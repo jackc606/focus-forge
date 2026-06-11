@@ -24,7 +24,7 @@ class DevLogDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Dev Log")
-        self.resize(560, 600)
+        self.resize(*T.DIALOG_MD)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_LG)

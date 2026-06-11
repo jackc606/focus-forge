@@ -37,20 +37,34 @@ PORT_PAD = 12                     # boundingRect padding so ports paint/hit full
 GLOW_PAD = 5                      # horizontal padding so the selection glow paints fully
 
 
+# Memoized — paint() asks for the same few fonts every frame for every visible
+# node, and QFont construction is not free. Built lazily so no QFont exists
+# before the QApplication does.
+_FONTS: dict = {}
+
+
 def _ui_font(size: int, weight: int = T.WEIGHT_REGULAR) -> QFont:
-    f = QFont(T.FONT_UI_FAMILY)
-    f.setStyleHint(QFont.SansSerif)
-    f.setWeight(QFont.Weight(weight))
-    f.setPixelSize(size)
-    return f
+    key = ("ui", size, weight)
+    f = _FONTS.get(key)
+    if f is None:
+        f = QFont(T.FONT_UI_FAMILY)
+        f.setStyleHint(QFont.SansSerif)
+        f.setWeight(QFont.Weight(weight))
+        f.setPixelSize(size)
+        _FONTS[key] = f
+    return QFont(f)  # cheap shared-data copy; callers can't corrupt the cache
 
 
 def _mono_font(size: int, weight: int = T.WEIGHT_REGULAR) -> QFont:
-    f = QFont(T.FONT_MONO_FAMILY)
-    f.setStyleHint(QFont.Monospace)
-    f.setWeight(QFont.Weight(weight))
-    f.setPixelSize(size)
-    return f
+    key = ("mono", size, weight)
+    f = _FONTS.get(key)
+    if f is None:
+        f = QFont(T.FONT_MONO_FAMILY)
+        f.setStyleHint(QFont.Monospace)
+        f.setWeight(QFont.Weight(weight))
+        f.setPixelSize(size)
+        _FONTS[key] = f
+    return QFont(f)  # cheap shared-data copy; callers can't corrupt the cache
 
 
 class FocusNodeItem(QGraphicsObject):
@@ -68,6 +82,8 @@ class FocusNodeItem(QGraphicsObject):
         self._icon = icon or "?"
         self._icon_data = icon_data or ""
         self._custom_pm = None  # decoded pixmap for a custom imported icon
+        self._scaled_pm = None  # icon scaled to the node, rebuilt when the source changes
+        self._scaled_src_key = None
         self._grid_x = grid_x
         self._grid_y = grid_y
         self._cost = cost
@@ -100,10 +116,14 @@ class FocusNodeItem(QGraphicsObject):
             changed = True
         if icon != self._icon:
             self._icon = icon or "?"
+            self._scaled_pm = None
+            self._scaled_src_key = None
             changed = True
         if (icon_data or "") != self._icon_data:
             self._icon_data = icon_data or ""
             self._custom_pm = None  # re-decode lazily on next paint
+            self._scaled_pm = None
+            self._scaled_src_key = None
             changed = True
         if cost is not None and cost != self._cost:
             self._cost = cost
@@ -168,8 +188,11 @@ class FocusNodeItem(QGraphicsObject):
             # Real in-game icon — the .dds already carries its own frame art, so
             # draw it edge-to-edge (preserving aspect) and skip the synthetic frame.
             avail = QRectF(4, ICON_Y, NODE_W - 8, ICON)
-            scaled = pm.scaled(int(avail.width()), int(avail.height()),
-                               Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if self._scaled_pm is None or self._scaled_src_key != pm.cacheKey():
+                self._scaled_pm = pm.scaled(int(avail.width()), int(avail.height()),
+                                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self._scaled_src_key = pm.cacheKey()
+            scaled = self._scaled_pm
             dx = avail.x() + (avail.width() - scaled.width()) / 2
             dy = avail.y() + (avail.height() - scaled.height()) / 2
             painter.drawPixmap(QPointF(dx, dy), scaled)

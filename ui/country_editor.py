@@ -48,6 +48,12 @@ _PARTY_LOGO_PX = 22
 # MD leader portraits are 156×210 px.
 _LEADER_PORTRAIT_W, _LEADER_PORTRAIT_H = 156, 210
 
+# In-dialog preview sizes, derived from the in-game asset ratios above.
+_LOGO_PREVIEW_PX = 28                                # 22 px logo + breathing room
+_PORTRAIT_PREVIEW_W, _PORTRAIT_PREVIEW_H = 34, 40    # leader portrait 156:210
+_FLAG_PREVIEW_W, _FLAG_PREVIEW_H = 123, 78           # main flag 82×52 ×1.5
+_FLAG_VARIANT_W, _FLAG_VARIANT_H = 62, 40            # variant flag 82×52 ×0.75
+
 
 def _to_b64_png(img: QImage) -> str:
     img = img.convertToFormat(QImage.Format_ARGB32)
@@ -86,11 +92,11 @@ class _PartyRow(QFrame):
         self._logoRef = party.logoRef
         self._logoData = party.logoData
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 6, 8, 6)
-        v.setSpacing(6)
+        v.setContentsMargins(T.SPACE_SM, T.SPACE_XS, T.SPACE_SM, T.SPACE_XS)
+        v.setSpacing(T.SPACE_SM)
 
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(T.SPACE_SM)
         self.ideo = QComboBox()
         self.ideo.addItems(TOP_IDEOLOGIES)
         if party.ideology:
@@ -114,7 +120,7 @@ class _PartyRow(QFrame):
         x = QPushButton("×")
         x.setObjectName("deleteButton")
         x.setToolTip("Remove")
-        x.setFixedWidth(28)
+        x.setFixedWidth(T.ICON_BUTTON)
         x.clicked.connect(lambda: on_delete(self))
         top.addWidget(self.ideo)
         top.addWidget(self.name, 1)
@@ -124,7 +130,7 @@ class _PartyRow(QFrame):
 
         # Sub-ideology + party logo (preset from MD or custom import).
         bot = QHBoxLayout()
-        bot.setSpacing(6)
+        bot.setSpacing(T.SPACE_SM)
         self.sub = QComboBox()
         self.sub.setToolTip("MD sub-ideology this party represents — required to "
                             "assign it a logo or a description.")
@@ -132,7 +138,7 @@ class _PartyRow(QFrame):
         bot.addWidget(self.sub, 1)
         self._logo_prev = QLabel()
         self._logo_prev.setObjectName("iconPreview")
-        self._logo_prev.setFixedSize(28, 28)
+        self._logo_prev.setFixedSize(_LOGO_PREVIEW_PX, _LOGO_PREVIEW_PX)
         self._logo_prev.setAlignment(Qt.AlignCenter)
         bot.addWidget(self._logo_prev)
         pick = QPushButton("Logo…")
@@ -146,7 +152,7 @@ class _PartyRow(QFrame):
         clr = QPushButton("×")
         clr.setObjectName("deleteButton")
         clr.setToolTip("Clear logo")
-        clr.setFixedWidth(28)
+        clr.setFixedWidth(T.ICON_BUTTON)
         clr.clicked.connect(self._clear_logo)
         bot.addWidget(pick)
         bot.addWidget(imp)
@@ -186,7 +192,8 @@ class _PartyRow(QFrame):
             pm = provider().pixmap(self._logoRef)
         if pm is not None and not pm.isNull():
             self._logo_prev.setPixmap(
-                pm.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                pm.scaled(_LOGO_PREVIEW_PX, _LOGO_PREVIEW_PX,
+                          Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self._logo_prev.clear()
 
@@ -253,8 +260,8 @@ class _LeaderRow(QFrame):
         self._pictureRef = leader.pictureRef
         self._pictureData = leader.pictureData
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 6, 8, 6)
-        v.setSpacing(6)
+        v.setContentsMargins(T.SPACE_SM, T.SPACE_XS, T.SPACE_SM, T.SPACE_XS)
+        v.setSpacing(T.SPACE_SM)
 
         top = QHBoxLayout()
         self.name = QLineEdit(leader.name)
@@ -263,13 +270,13 @@ class _LeaderRow(QFrame):
         x = QPushButton("×")
         x.setObjectName("deleteButton")
         x.setToolTip("Remove")
-        x.setFixedWidth(28)
+        x.setFixedWidth(T.ICON_BUTTON)
         x.clicked.connect(lambda: on_delete(self))
         top.addWidget(x)
         v.addLayout(top)
 
         form = QFormLayout()
-        form.setSpacing(6)
+        form.setSpacing(T.SPACE_SM)
         self.ideo = _ideology_combo(leader.ideology)
         form.addRow("Ideology", self.ideo)
         self.traits = ChipSelector(placeholder="search traits…")
@@ -280,10 +287,10 @@ class _LeaderRow(QFrame):
         v.addLayout(form)
 
         prow = QHBoxLayout()
-        prow.setSpacing(6)
+        prow.setSpacing(T.SPACE_SM)
         self._preview = QLabel()
         self._preview.setObjectName("iconPreview")
-        self._preview.setFixedSize(34, 40)
+        self._preview.setFixedSize(_PORTRAIT_PREVIEW_W, _PORTRAIT_PREVIEW_H)
         self._preview.setAlignment(Qt.AlignCenter)
         prow.addWidget(self._preview)
         self._pic_label = QLabel()
@@ -315,7 +322,8 @@ class _LeaderRow(QFrame):
             self._pic_label.setText(self._pictureRef or "(no portrait)")
             pm = provider().pixmap(self._pictureRef) if self._pictureRef else None
         if pm is not None and not pm.isNull():
-            self._preview.setPixmap(pm.scaled(34, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self._preview.setPixmap(pm.scaled(_PORTRAIT_PREVIEW_W, _PORTRAIT_PREVIEW_H,
+                                              Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self._preview.clear()
 
@@ -449,7 +457,7 @@ class CountryEditorDialog(QDialog):
             field = QWidget()
             fl = QHBoxLayout(field)
             fl.setContentsMargins(0, 0, 0, 0)
-            fl.setSpacing(6)
+            fl.setSpacing(T.SPACE_SM)
             fl.addWidget(sb, 1)
             fl.addWidget(badge)
             form.addRow(ideo, field)
@@ -492,11 +500,11 @@ class CountryEditorDialog(QDialog):
                          "everything the base mod already defines, then tweak."))
         self._party_warn = QLabel()
         self._party_warn.setWordWrap(True)
-        self._party_warn.setStyleSheet(f"color: {T.STATUS_WARN};")
+        self._party_warn.setObjectName("warningText")
         self._party_warn.setVisible(False)
         v.addWidget(self._party_warn)
         self._parties_box = QVBoxLayout()
-        self._parties_box.setSpacing(4)
+        self._parties_box.setSpacing(T.SPACE_XS)
         v.addLayout(self._parties_box)
         btn_row = QHBoxLayout()
         add = QPushButton("+ Add party")
@@ -658,7 +666,7 @@ class CountryEditorDialog(QDialog):
                          ".png/.tga/.dds and it's auto-scaled + converted to .tga "
                          "(large/medium/small) on export. Leave unset to keep MD's flag."))
         self._flag_preview = QLabel()
-        self._flag_preview.setFixedSize(123, 78)  # 82x52 ×1.5
+        self._flag_preview.setFixedSize(_FLAG_PREVIEW_W, _FLAG_PREVIEW_H)
         self._flag_preview.setObjectName("iconPreview")
         self._flag_preview.setAlignment(Qt.AlignCenter)
         v.addWidget(self._flag_preview)
@@ -688,7 +696,7 @@ class CountryEditorDialog(QDialog):
             lbl.setFixedWidth(90)
             prev = QLabel()
             prev.setObjectName("iconPreview")
-            prev.setFixedSize(62, 40)
+            prev.setFixedSize(_FLAG_VARIANT_W, _FLAG_VARIANT_H)
             self._variant_previews[ideo] = prev
             choose = QPushButton("Choose…")
             choose.clicked.connect(lambda _c=False, i=ideo: self._set_variant(i, self._pick_preset_flag()))

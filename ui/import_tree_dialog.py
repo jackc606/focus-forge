@@ -56,7 +56,7 @@ class ImportTreeDialog(QDialog):
     def __init__(self, roots, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Import Focus Tree")
-        self.resize(720, 560)
+        self.resize(*T.DIALOG_LG)
         self._chosen = None
         self._roots = list(roots)
         self._added_folders: set = set()  # ad-hoc folders already scanned (dedup)

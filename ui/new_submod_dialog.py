@@ -65,7 +65,7 @@ class NewSubmodDialog(QDialog):
         loc_row = QWidget()
         lr = QHBoxLayout(loc_row)
         lr.setContentsMargins(0, 0, 0, 0)
-        lr.setSpacing(6)
+        lr.setSpacing(T.SPACE_SM)
         self._location = QLineEdit(self._settings.value("mod_root", "") or default_mod_root())
         lr.addWidget(self._location, 1)
         browse = QPushButton("Browse…")

@@ -31,8 +31,8 @@ class GraphView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # Repaint the whole viewport on any change so the strategic-grid
-        # background and corner stamps stay anchored to the camera.
+        # Repaint the whole viewport on any change: the background vignette is
+        # sized from the painted rect, so partial repaints would seam.
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self._panning = False
         self._pan_start = QPoint()

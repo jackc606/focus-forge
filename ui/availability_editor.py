@@ -3,13 +3,8 @@ presets + raw lines. Mirrors the reward editor."""
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QFormLayout,
-    QFrame,
-    QHBoxLayout,
     QLabel,
     QPlainTextEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +19,8 @@ from core.availability_presets import (
 )
 from core.types import AvailabilityRule, RewardItem
 
+from . import theme as T
+from .item_card import PresetItemCard
 from .param_widgets import make_param_widget
 
 
@@ -44,74 +41,6 @@ def availability_preview_lines(rule: AvailabilityRule) -> list:
     return lines
 
 
-class _AvailabilityItemCard(QFrame):
-    def __init__(self, index, item, on_change, on_delete, *, country_tag, focus_ids) -> None:
-        super().__init__()
-        self.setFrameShape(QFrame.StyledPanel)
-        self._index = index
-        self._item = item
-        self._on_change = on_change
-        self._on_delete = on_delete
-        preset = get_availability_preset(item.kind)
-
-        v = QVBoxLayout(self)
-        v.setContentsMargins(10, 10, 10, 10)
-        v.setSpacing(8)
-
-        header = QHBoxLayout()
-        header.addWidget(QLabel(f"<b>{preset.label if preset else item.kind}</b>"))
-        header.addStretch(1)
-        self._enabled_chk = QCheckBox("enabled")
-        self._enabled_chk.setChecked(item.enabled is not False)
-        self._enabled_chk.toggled.connect(self._toggle_enabled)
-        header.addWidget(self._enabled_chk)
-        del_btn = QPushButton("Delete")
-        del_btn.clicked.connect(lambda: self._on_delete(self._index))
-        header.addWidget(del_btn)
-        v.addLayout(header)
-
-        if preset and preset.description:
-            desc = QLabel(preset.description)
-            desc.setObjectName("muted")
-            desc.setWordWrap(True)
-            v.addWidget(desc)
-
-        form = QFormLayout()
-        form.setSpacing(6)
-        v.addLayout(form)
-        if preset:
-            for param in preset.params:
-                widget = make_param_widget(
-                    param, item.params.get(param.key, param.defaultValue),
-                    lambda val, k=param.key: self._set_param(k, val),
-                    country_tag=country_tag, focus_ids=focus_ids)
-                widget.setToolTip(param.helpText or "")
-                form.addRow(param.label, widget)
-
-        self._preview = QPlainTextEdit()
-        self._preview.setReadOnly(True)
-        self._preview.setMaximumHeight(64)
-        v.addWidget(self._preview)
-        self._refresh_preview()
-
-    def set_preview_visible(self, show: bool) -> None:
-        self._preview.setVisible(bool(show))
-
-    def _set_param(self, key, value) -> None:
-        self._item.params[key] = value
-        self._refresh_preview()
-        self._on_change()
-
-    def _toggle_enabled(self, checked) -> None:
-        self._item.enabled = checked
-        self._refresh_preview()
-        self._on_change()
-
-    def _refresh_preview(self) -> None:
-        lines = build_availability_item_lines(self._item)
-        self._preview.setPlainText("\n".join(lines) if lines else "(disabled)")
-
-
 class AvailabilityEditor(QWidget):
     def __init__(self, model, parent=None) -> None:
         super().__init__(parent)
@@ -121,7 +50,7 @@ class AvailabilityEditor(QWidget):
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(8)
+        v.setSpacing(T.SPACE_SM)
 
         self._combo = QComboBox()
         self._combo.addItem("Add condition…", None)
@@ -135,13 +64,13 @@ class AvailabilityEditor(QWidget):
         v.addWidget(self._combo)
 
         self._items_box = QVBoxLayout()
-        self._items_box.setSpacing(8)
+        self._items_box.setSpacing(T.SPACE_SM)
         v.addLayout(self._items_box)
 
         self._raw_label = QLabel("Raw Trigger Lines (one per line)")
         v.addWidget(self._raw_label)
         self._raw = QPlainTextEdit()
-        self._raw.setMaximumHeight(64)
+        self._raw.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw.textChanged.connect(self._commit_raw)
         v.addWidget(self._raw)
 
@@ -149,7 +78,7 @@ class AvailabilityEditor(QWidget):
         v.addWidget(self._preview_label)
         self._preview = QPlainTextEdit()
         self._preview.setReadOnly(True)
-        self._preview.setMaximumHeight(110)
+        self._preview.setMaximumHeight(T.TEXTAREA_TALL)
         v.addWidget(self._preview)
 
         # Toggled together with the reward editor from the inspector; hidden by default.
@@ -184,9 +113,13 @@ class AvailabilityEditor(QWidget):
         focus_ids = [f.id for f in self._model.project.focuses if f.id != self._focus_id]
         tag = self._model.project.countryTag
         for index, item in enumerate(rule.items or []):
-            card = _AvailabilityItemCard(index, item, self._on_item_changed,
-                                         self._on_item_deleted,
-                                         country_tag=tag, focus_ids=focus_ids)
+            card = PresetItemCard(
+                index, item, get_availability_preset(item.kind),
+                on_change=self._on_item_changed, on_delete=self._on_item_deleted,
+                build_lines=build_availability_item_lines, empty_text="(disabled)",
+                make_widget=lambda param, current, set_value: make_param_widget(
+                    param, current, set_value,
+                    country_tag=tag, focus_ids=focus_ids))
             self._items_box.addWidget(card)
         self._raw.blockSignals(True)
         self._raw.setPlainText("\n".join(rule.rawLines or []))
@@ -205,7 +138,7 @@ class AvailabilityEditor(QWidget):
             w.setVisible(self._script_visible)
         for i in range(self._items_box.count()):
             card = self._items_box.itemAt(i).widget()
-            if isinstance(card, _AvailabilityItemCard):
+            if isinstance(card, PresetItemCard):
                 card.set_preview_visible(self._script_visible)
 
     def _on_add_preset(self, idx: int) -> None:

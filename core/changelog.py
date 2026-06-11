@@ -9,6 +9,26 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.1.8",
+        "date": "2026-06-11",
+        "title": "Date-scheduled events & UI polish",
+        "changes": [
+            "Events can fire on an exact date — tick “Fire on exact date” in the "
+            "event editor and give it a year.month.day (e.g. 2003.3.20). It lands "
+            "exactly once, on that date, for your country; the export generates "
+            "the HOI4 plumbing (date trigger + on_actions file) for you.",
+            "The Events manager shows each scheduled event's date, and Validation "
+            "flags malformed dates before you export.",
+            "UI consistency pass: spacing and sizes unified across every editor "
+            "and dialog, empty-state hints in the Ideas/Events managers and the "
+            "Validation tab, and Enter opens the selected idea/event.",
+            "Scrolling a panel no longer accidentally changes dropdowns or number "
+            "fields the cursor happens to pass over.",
+            "Smoother canvas on big trees — node fonts and icons are cached "
+            "instead of rebuilt every repaint.",
+        ],
+    },
+    {
         "version": "0.1.7",
         "date": "2026-06-10",
         "title": "Custom focus icons",

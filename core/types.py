@@ -108,6 +108,7 @@ class EventData:
     major: bool = False
     fireOnlyOnce: bool = False
     meanTimeToHappen: Optional[int] = None        # days; only meaningful when not triggered-only
+    fireOnDate: str = ""                          # 'year.month.day' — fire exactly on this date
     trigger: Optional[AvailabilityRule] = None    # event-level fire trigger
     options: list = field(default_factory=list)
 

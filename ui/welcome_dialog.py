@@ -28,7 +28,7 @@ class WelcomeDialog(QDialog):
     def __init__(self, recent=None, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Welcome to Focus Forge")
-        self.resize(560, 480)
+        self.resize(*T.DIALOG_MD)
         self.choice = None          # 'new' | 'open' | 'recent' | 'sample' | None
         self.recent_path = None
 
@@ -42,13 +42,13 @@ class WelcomeDialog(QDialog):
 
         new_btn = QPushButton("＋   Create New Submod")
         new_btn.setObjectName("primary")
-        new_btn.setMinimumHeight(40)
+        new_btn.setMinimumHeight(T.BUTTON_TALL)
         new_btn.setToolTip("Start a fresh submod project (optionally from an existing tree).")
         new_btn.clicked.connect(lambda: self._choose("new"))
         v.addWidget(new_btn)
 
         open_btn = QPushButton("📂   Open Project…")
-        open_btn.setMinimumHeight(40)
+        open_btn.setMinimumHeight(T.BUTTON_TALL)
         open_btn.setToolTip("Open an existing .focusforge.json project.")
         open_btn.clicked.connect(lambda: self._choose("open"))
         v.addWidget(open_btn)

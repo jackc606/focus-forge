@@ -125,11 +125,21 @@ def _validate_metadata(project: FocusForgeProject, issues: list) -> None:
         _validate_events(project.events, issues)
 
 
+_HOI4_DATE = re.compile(r"^\d{1,4}\.(\d{1,2})\.(\d{1,2})$")
+
+
 def _validate_events(events, issues: list) -> None:
     for event in (events or []):
         eid = (event.id or "").strip() or "?"
         if not (event.picture or "").strip():
             _warn(issues, "event.picture.empty", f"Event '{eid}' has no picture.")
+        fire_date = (getattr(event, "fireOnDate", "") or "").strip()
+        if fire_date:
+            m = _HOI4_DATE.match(fire_date)
+            if not m or not (1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= 31):
+                _err(issues, "event.fireOnDate.invalid",
+                     f"Event '{eid}' fire date '{fire_date}' isn't a HOI4 date "
+                     f"(year.month.day, e.g. 2003.3.20).")
         options = event.options or []
         # A non-hidden event needs at least one option (the button the player clicks).
         if not options and not getattr(event, "hidden", False):

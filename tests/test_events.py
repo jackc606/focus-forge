@@ -99,6 +99,62 @@ def test_mtth_only_when_not_triggered_only():
     assert "mean_time_to_happen" not in text2
 
 
+def test_fire_on_date_forces_schedule_flags_and_trigger():
+    ev = _full_event()
+    ev.isTriggeredOnly = False
+    ev.fireOnlyOnce = False
+    ev.meanTimeToHappen = 30
+    ev.fireOnDate = "2003.3.20"
+    text = export_events(_project_with_event(ev))
+    assert "is_triggered_only = yes" in text          # forced by the schedule
+    assert "fire_only_once = yes" in text             # forced by the schedule
+    assert "mean_time_to_happen" not in text          # suppressed by the schedule
+    assert "tag = LBA" in text                        # on_daily fires per-country
+    assert "date > 2003.3.20" in text
+    # the user's own trigger conditions are kept after the schedule gate
+    assert "has_country_flag = lba_ready" in text
+
+
+def test_fire_on_date_emits_on_actions_file():
+    ev = _full_event()
+    ev.fireOnDate = "2003.3.20"
+    files = {f.relativePath: f.content
+             for f in export_project_files(_project_with_event(ev))}
+    path = "common/on_actions/LBA_forge_on_actions.txt"
+    assert path in files
+    body = files[path]
+    assert "on_daily = {" in body
+    assert "LBA_forge.1" in body
+
+
+def test_no_on_actions_file_without_dated_events():
+    files = {f.relativePath for f in export_project_files(_project_with_event(_full_event()))}
+    assert not any("on_actions" in p for p in files)
+
+
+def test_fire_on_date_round_trips():
+    ev = _full_event()
+    ev.fireOnDate = "2003.3.20"
+    restored = project_from_dict(project_to_dict(_project_with_event(ev)))
+    assert restored.events[0].fireOnDate == "2003.3.20"
+    # undated events stay undated (and the key is omitted from the dict)
+    plain = project_to_dict(_project_with_event(_full_event()))
+    assert "fireOnDate" not in plain["events"][0]
+
+
+def test_fire_on_date_validation():
+    ev = _full_event()
+    ev.fireOnDate = "March 20, 2003"
+    issues = validate_project(_project_with_event(ev))
+    assert any(i.code == "event.fireOnDate.invalid" for i in issues)
+    ev.fireOnDate = "2003.13.1"                       # month out of range
+    issues = validate_project(_project_with_event(ev))
+    assert any(i.code == "event.fireOnDate.invalid" for i in issues)
+    ev.fireOnDate = "2003.3.20"
+    issues = validate_project(_project_with_event(ev))
+    assert not any(i.code == "event.fireOnDate.invalid" for i in issues)
+
+
 def test_event_localisation():
     loc = export_event_localisation(_project_with_event(_full_event()))
     assert 'LBA_forge.1.t:0 "A Decision"' in loc

@@ -23,7 +23,7 @@ from .no_scroll import NoScrollComboBox as QComboBox
 class _FlowLayout(QLayout):
     """Minimal wrapping layout (adapted from Qt's FlowLayout example)."""
 
-    def __init__(self, parent=None, spacing=6) -> None:
+    def __init__(self, parent=None, spacing=T.SPACE_SM) -> None:
         super().__init__(parent)
         self._items = []
         self._spacing = spacing
@@ -91,8 +91,8 @@ class _Chip(QFrame):
         if tooltip:
             self.setToolTip(tooltip)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 2, 4, 2)
-        lay.setSpacing(4)
+        lay.setContentsMargins(T.SPACE_SM, 2, T.SPACE_XS, 2)
+        lay.setSpacing(T.SPACE_XS)
         lay.addWidget(QLabel(token))
         x = QPushButton("×")
         x.setObjectName("chipClose")
@@ -115,7 +115,7 @@ class ChipSelector(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(T.SPACE_XS)
 
         # Optional category filter (only shown when grouped suggestions are set).
         self._filter_combo = QComboBox()

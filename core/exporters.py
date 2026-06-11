@@ -63,6 +63,11 @@ def export_project_files(project: FocusForgeProject) -> list:
                 relativePath=f"interface/{settings.localisationPrefix}_event_pictures.gfx",
                 content=event_pic_gfx,
             ))
+        if scheduled_events(project):
+            files.append(ExportedFile(
+                relativePath=f"common/on_actions/{settings.localisationPrefix}_on_actions.txt",
+                content=export_on_actions(project),
+            ))
     if settings.includeCountry and project.country:
         files.append(ExportedFile(
             relativePath=f"history/countries/{project.countryTag} - {project.projectName or project.countryTag}.txt",
@@ -526,26 +531,46 @@ def _availability_inner_lines(rule: AvailabilityRule) -> list:
     return lines
 
 
+def scheduled_events(project: FocusForgeProject) -> list:
+    """Events with a fireOnDate — they export as triggered-only + fire_only_once
+    with a ``date >`` trigger, and are pumped from an ``on_daily`` on_action."""
+    return [e for e in project.events
+            if (getattr(e, "fireOnDate", "") or "").strip()]
+
+
 def export_events(project: FocusForgeProject) -> str:
     lines = [f"add_namespace = {project.exportSettings.localisationPrefix}"]
     for event in project.events:
+        # Date-scheduled events are forced triggered-only + fire-once: the
+        # on_daily on_action attempts them every day, the date trigger gates
+        # them, so they land exactly once, on the chosen date.
+        fire_date = (getattr(event, "fireOnDate", "") or "").strip()
         lines.append("")
         lines.append(f"{event.eventType or 'country_event'} = {{")
         lines.append(f"{TAB}id = {event.id}")
         lines.append(f"{TAB}title = {event.id}.t")
         lines.append(f"{TAB}desc = {event.id}.d")
         lines.append(f"{TAB}picture = {_event_picture_value(event)}")
-        if event.isTriggeredOnly:
+        if event.isTriggeredOnly or fire_date:
             lines.append(f"{TAB}is_triggered_only = yes")
         if event.hidden:
             lines.append(f"{TAB}hidden = yes")
         if event.major:
             lines.append(f"{TAB}major = yes")
-        if event.fireOnlyOnce:
+        if event.fireOnlyOnce or fire_date:
             lines.append(f"{TAB}fire_only_once = yes")
-        if (not event.isTriggeredOnly) and event.meanTimeToHappen:
+        if (not event.isTriggeredOnly) and (not fire_date) and event.meanTimeToHappen:
             lines.append(f"{TAB}mean_time_to_happen = {{ days = {int(event.meanTimeToHappen)} }}")
         event_trigger = _availability_inner_lines(event.trigger)
+        if fire_date:
+            # on_daily fires for every country — gate on the project's tag first
+            # (cheap short-circuit) so the event lands once, for this country.
+            schedule = []
+            tag = (project.countryTag or "").strip().upper()
+            if tag:
+                schedule.append(f"tag = {tag}")
+            schedule.append(f"date > {fire_date}")
+            event_trigger = schedule + event_trigger
         if event_trigger:
             lines.append(f"{TAB}trigger = {{")
             for ln in event_trigger:
@@ -570,6 +595,22 @@ def export_events(project: FocusForgeProject) -> str:
                 lines.append(f"{TAB}{TAB}{raw}")
             lines.append(f"{TAB}}}")
         lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def export_on_actions(project: FocusForgeProject) -> str:
+    """on_daily attempts every date-scheduled event once per day; each event's
+    own ``date >`` trigger + fire_only_once make it land exactly once on its
+    date. on_actions files merge additively across mods, so this coexists with
+    Millennium Dawn's own on_actions."""
+    lines = ["on_actions = {"]
+    lines.append(f"{TAB}on_daily = {{")
+    lines.append(f"{TAB}{TAB}events = {{")
+    for event in scheduled_events(project):
+        lines.append(f"{TAB}{TAB}{TAB}{event.id}")
+    lines.append(f"{TAB}{TAB}}}")
+    lines.append(f"{TAB}}}")
+    lines.append("}")
     return "\n".join(lines) + "\n"
 
 
