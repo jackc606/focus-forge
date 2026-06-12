@@ -34,14 +34,25 @@ def decode_dds(data: bytes):
         return None  # DX10 header / BC7 etc. not supported
 
     if pf_flags & _DDPF_FOURCC:
+        # Reject truncated payloads up front — the block decoders index straight
+        # into the data and would otherwise crash on a half-downloaded file.
+        blocks = ((width + 3) // 4) * ((height + 3) // 4)
         if fourcc == b"DXT1":
+            if len(data) < off + blocks * 8:
+                return None
             return width, height, _decode_bc1(data, off, width, height)
         if fourcc == b"DXT3":
+            if len(data) < off + blocks * 16:
+                return None
             return width, height, _decode_bc2(data, off, width, height)
         if fourcc == b"DXT5":
+            if len(data) < off + blocks * 16:
+                return None
             return width, height, _decode_bc3(data, off, width, height)
         return None
     if pf_flags & _DDPF_RGB:
+        if len(data) < off + width * height * (rgb_bits // 8):
+            return None
         return width, height, _decode_uncompressed(
             data, off, width, height, rgb_bits, masks, bool(pf_flags & _DDPF_ALPHAPIXELS))
     return None

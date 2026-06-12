@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 
 from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QPixmap
@@ -19,6 +20,20 @@ from core.gfx_index import build_sprite_index, resolve_sprite
 from core.portrait_index import build_leader_portraits, resolve_portrait
 
 from .dds_image import load_dds_qimage
+
+# Decoded-pixmap cache caps. Focus icons are small (~35 KB each) but the same
+# cache also holds event-picture banners (~300 KB); portraits are ~130 KB.
+# Caps keep a long editing session from growing memory without bound.
+_PIXMAP_CACHE_MAX = 256
+_PORTRAIT_CACHE_MAX = 64
+
+
+def _cache_put(cache: dict, key, value, cap: int) -> None:
+    """Insert with FIFO eviction once the cache reaches ``cap`` entries."""
+    if key not in cache and len(cache) >= cap:
+        cache.pop(next(iter(cache)))
+    cache[key] = value
+
 
 _STEAM_GUESSES = [
     r"C:\Program Files (x86)\Steam",
@@ -153,6 +168,9 @@ class IconProvider(QObject):
         self._portrait_cache: dict = {}    # relpath(lower) -> QPixmap or None
         self._party_logos: dict = {}       # tag -> [(GFX_name, abspath)]
         self._index_built = False
+        self._index_lock = threading.Lock()
+        self._index_gen = 0  # bumped on roots change so a stale build is discarded
+        self._index_thread = None
 
     # ----- roots -----
     def roots(self) -> list:
@@ -164,6 +182,7 @@ class IconProvider(QObject):
         return self._roots + [r for r in self._extra_roots if r not in self._roots]
 
     def _reset_caches(self) -> None:
+        self._index_gen += 1  # invalidate any in-flight background build
         self._index_built = False
         self._index = {}
         self._cache = {}
@@ -202,8 +221,30 @@ class IconProvider(QObject):
 
     # ----- lookup -----
     def _build_index(self) -> None:
-        self._index = build_sprite_index(self._all_roots())
-        self._index_built = True
+        # Serialized: the background warm-up and a first-paint fallback may
+        # arrive together; whoever loses the race finds the index built and
+        # returns. A roots change mid-build bumps the generation so the stale
+        # result is discarded instead of published.
+        with self._index_lock:
+            if self._index_built:
+                return
+            gen = self._index_gen
+            index = build_sprite_index(self._all_roots())
+            if gen == self._index_gen:
+                self._index = index
+                self._index_built = True
+
+    def warm_index_async(self) -> None:
+        """Build the sprite index on a background thread so the first canvas
+        paint / icon lookup doesn't freeze the UI scanning every root's .gfx
+        files. Pure file I/O + parsing — no Qt GUI objects are touched."""
+        if self._index_built or not self._all_roots():
+            return
+        if self._index_thread is not None and self._index_thread.is_alive():
+            return
+        self._index_thread = threading.Thread(
+            target=self._build_index, name="focusforge-icon-index", daemon=True)
+        self._index_thread.start()
 
     def is_indexed(self) -> bool:
         return self._index_built
@@ -299,7 +340,7 @@ class IconProvider(QObject):
             img = load_dds_qimage(path)
             if img is not None and not img.isNull():
                 pm = QPixmap.fromImage(img)
-        self._portrait_cache[key] = pm
+        _cache_put(self._portrait_cache, key, pm, _PORTRAIT_CACHE_MAX)
         return pm
 
     def has_icons(self) -> bool:
@@ -325,7 +366,7 @@ class IconProvider(QObject):
             img = load_dds_qimage(path)
             if img is not None and not img.isNull():
                 pm = QPixmap.fromImage(img)
-        self._cache[key] = pm
+        _cache_put(self._cache, key, pm, _PIXMAP_CACHE_MAX)
         return pm
 
 

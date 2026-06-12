@@ -25,11 +25,14 @@ class EventsManagerDialog(ListManagerDialog):
         )
 
     def _items(self):
+        # One bulk pass for the labels below — counting per event re-walks
+        # every focus reward per row.
+        self._ref_counts = self._model.event_reference_counts()
         return self._model.project.events
 
     def _item_label(self, event) -> str:
         opt_n = len(event.options or [])
-        refs = self._model.event_reference_count(event.id)
+        refs = self._ref_counts.get(event.id, 0)
         parts = [f"{opt_n} option{'s' if opt_n != 1 else ''}"]
         if refs:
             parts.append(f"{refs} ref{'s' if refs != 1 else ''}")

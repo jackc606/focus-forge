@@ -31,6 +31,7 @@ class EdgeItem(QGraphicsPathItem):
         pen.setJoinStyle(Qt.MiterJoin)
         pen.setCosmetic(True)  # constant on-screen weight, like the grid
         self.setPen(pen)
+        self._shape_cache = None  # widened hit path, rebuilt when the path moves
         self.refresh()
 
     @property
@@ -38,10 +39,13 @@ class EdgeItem(QGraphicsPathItem):
         return self._kind
 
     def shape(self) -> QPainterPath:
-        # Widen the hit area so the thin line is easy to right-click.
-        stroker = QPainterPathStroker()
-        stroker.setWidth(10)
-        return stroker.createStroke(self.path())
+        # Widen the hit area so the thin line is easy to right-click. Cached —
+        # shape() runs on every hover/click hit-test over the scene.
+        if self._shape_cache is None:
+            stroker = QPainterPathStroker()
+            stroker.setWidth(10)
+            self._shape_cache = stroker.createStroke(self.path())
+        return self._shape_cache
 
     @property
     def source_id(self) -> str:
@@ -52,6 +56,7 @@ class EdgeItem(QGraphicsPathItem):
         return self._target.focus_id
 
     def refresh(self) -> None:
+        self._shape_cache = None
         if self._kind == "mutex":
             self.setPath(self._mutex_path())
         else:

@@ -40,7 +40,7 @@ MD_RULING_PARTIES = [
     "nationalist_monarchists_are_in_power",
 ]
 
-GOVERNMENTS = ["democratic", "communism", "fascism", "neutrality"]
+GOVERNMENTS = ["democratic", "communism", "fascism", "neutrality", "nationalist"]
 
 
 @dataclass
@@ -75,7 +75,9 @@ def _b_has_opinion(p): return [f"has_opinion = {{ target = {_value(p, 'tag')} va
 def _b_at_war(p): return ["has_war = yes"]
 def _b_at_peace(p): return ["has_war = no"]
 def _b_war_with(p): return [f"has_war_with = {_value(p, 'tag')}"]
-def _b_leader_name(p): return [f'has_country_leader = {{ name = "{_value(p, "name")}" }}']
+# ruling_only restricts the match to the leader actually in power — without it
+# the trigger also fires while the named person merely leads an opposition party.
+def _b_leader_name(p): return [f'has_country_leader = {{ name = "{_value(p, "name")}" ruling_only = yes }}']
 def _b_date_after(p): return [f"date > {_value(p, 'date')}"]
 def _b_date_before(p): return [f"date < {_value(p, 'date')}"]
 def _b_gdp(p): return [f"check_variable = {{ gdp_total > {_number_value(p, 'amount')} }}"]
@@ -174,8 +176,8 @@ _RAW = [
                        [_p("tech", "Technology", "tech", "", required=True, placeholder="internet1")], _b_has_tech),
     AvailabilityPreset("state_controlled", "Tech & State", "Controls state",
                        "Requires owning and controlling a state.",
-                       [_p("state", "State", "state", 0, required=True),
-                        _p("tag", "Owner tag", "string", "", required=True)], _b_state_controlled),
+                       [_p("state", "State", "state", "", required=True),
+                        _p("tag", "Owner tag", "country_tag", "", required=True)], _b_state_controlled),
     AvailabilityPreset("building_count", "Tech & State", "Building count",
                        "Requires more than N of a building (across the country).",
                        [_p("building", "Building", "building", "industrial_complex", required=True),
@@ -239,4 +241,13 @@ def validate_availability_item(item) -> list:
         s = "" if cur is None else str(cur).strip()
         if param.required and s == "":
             issues.append(f"{preset.label} is missing {param.label}.")
+        if param.type in ("number", "state") and s != "":
+            try:
+                float(cur)
+            except (TypeError, ValueError):
+                issues.append(f"{preset.label} has an invalid number for {param.label}.")
+                continue
+            # State ids start at 1 — a 0/negative value exports a broken block.
+            if param.type == "state" and float(cur) < 1:
+                issues.append(f"{preset.label} needs a real state id (1 or higher) for {param.label}.")
     return issues

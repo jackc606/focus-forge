@@ -7,9 +7,10 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
 
 from core.exporters import export_project_files
+from core.file_io import atomic_write_bytes
 from core.sample_project import make_sample_project
 from core.serialization import project_from_dict, project_to_dict
 from core.types import (
@@ -38,6 +39,13 @@ class ProjectModel(QObject):
         self._path: Optional[Path] = None
         self._selected_id: str = ""
         self._dirty = False  # unsaved changes since last load/save
+        self._focus_index: dict = {f.id: f for f in self._project.focuses}
+        # Validation walks the whole project — debounce it so a burst of
+        # keystrokes in the inspector costs one pass, not one per character.
+        self._validation_timer = QTimer(self)
+        self._validation_timer.setSingleShot(True)
+        self._validation_timer.setInterval(250)
+        self._validation_timer.timeout.connect(self._emit_validation)
 
     # ----- accessors -----
     @property
@@ -61,6 +69,11 @@ class ProjectModel(QObject):
             self.dirty_changed.emit(value)
 
     def find_focus(self, focus_id: str) -> Optional[FocusNodeData]:
+        # O(1) via the id index (rebuilt on every change notification); the
+        # linear fallback covers lookups made mid-mutation, before re-index.
+        f = self._focus_index.get(focus_id)
+        if f is not None and f.id == focus_id:
+            return f
         for f in self._project.focuses:
             if f.id == focus_id:
                 return f
@@ -370,6 +383,15 @@ class ProjectModel(QObject):
         """How many focus reward references point at this event (delete warnings)."""
         return sum(1 for val in self._iter_event_refs() if val == event_id)
 
+    def event_reference_counts(self) -> dict:
+        """{event_id: reference count} over all focus rewards in ONE pass — use
+        this when labelling every event (per-event counting is O(events×focuses))."""
+        counts: dict = {}
+        for val in self._iter_event_refs():
+            if val:
+                counts[val] = counts.get(val, 0) + 1
+        return counts
+
     def _iter_event_refs(self):
         """Yield every focus-reward value that references an event id — both
         ``country_event`` reward-item params (type ``event_ref``) and the
@@ -417,14 +439,22 @@ class ProjectModel(QObject):
 
     # ----- I/O -----
     def load_from_file(self, path: Path) -> None:
-        text = path.read_text(encoding="utf-8-sig")
-        data = json.loads(text)
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+            data = json.loads(text)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ValueError(
+                f"{path.name} isn't a readable Focus Forge project — the file is "
+                f"corrupt or not UTF-8 JSON ({exc}). If you have a backup or a "
+                f"version in source control, restore that copy.") from exc
         self.replace_project(project_from_dict(data), path=path)
         self.status_message.emit(f"Opened {path}")
 
     def save_to_file(self, path: Path) -> None:
         text = json.dumps(project_to_dict(self._project), indent=2, ensure_ascii=False)
-        path.write_bytes(text.encode("utf-8"))
+        # Atomic write: a crash or full disk mid-save must never truncate the
+        # user's only copy of the project.
+        atomic_write_bytes(path, text.encode("utf-8"))
         self._path = path
         self._set_dirty(False)
         self.project_path_changed.emit(str(path))
@@ -436,7 +466,7 @@ class ProjectModel(QObject):
             target = directory / f.relativePath
             target.parent.mkdir(parents=True, exist_ok=True)
             content = ("﻿" + f.content) if f.bom else f.content
-            target.write_bytes(content.encode("utf-8"))
+            atomic_write_bytes(target, content.encode("utf-8"))
         self.status_message.emit(f"Exported {len(files)} files to {directory}")
         return len(files)
 
@@ -449,6 +479,13 @@ class ProjectModel(QObject):
 
     # ----- emit helpers -----
     def _emit_all(self) -> None:
+        self._focus_index = {f.id: f for f in self._project.focuses}
         self._set_dirty(True)
         self.project_changed.emit()
+        if QCoreApplication.instance() is not None:
+            self._validation_timer.start()
+        else:  # headless (tests): no event loop to fire the timer
+            self._emit_validation()
+
+    def _emit_validation(self) -> None:
         self.validation_changed.emit(validate_project(self._project))

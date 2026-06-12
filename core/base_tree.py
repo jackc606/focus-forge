@@ -50,10 +50,13 @@ _PLACEHOLDER_DESC = (
 )
 
 
+_TAG_RE = re.compile(r"[^A-Z0-9]")
+
+
 def normalize_country_tag(tag: str) -> str:
     if tag is None:
         return "TAG"
-    cleaned = re.sub(r"[^A-Z0-9]", "", tag.strip().upper())[:3]
+    cleaned = _TAG_RE.sub("", tag.strip().upper())[:3]
     return cleaned or "TAG"
 
 

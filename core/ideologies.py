@@ -7,7 +7,7 @@ TOP_IDEOLOGIES = ["democratic", "communism", "fascism", "neutrality", "nationali
 
 IDEOLOGY_TREE = {
     "democratic": ["conservatism", "liberalism", "socialism", "Western_Autocracy"],
-    "communism": ["State", "Conservative", "Autocracy", "Vilayat_e_Faqih",
+    "communism": ["Communist-State", "Conservative", "Autocracy", "Vilayat_e_Faqih",
                   "Mod_Vilayat_e_Faqih", "anarchist_communism"],
     "fascism": ["Kingdom", "Caliphate"],
     "neutrality": ["Neutral_conservatism", "oligarchism", "neutral_Social",

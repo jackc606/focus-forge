@@ -1,4 +1,6 @@
-"""Reward presets — ported from rewardPresets.ts. 30 reward kinds across groups."""
+"""Reward presets — the catalog of focus completion-reward kinds, grouped for
+the picker. Each preset pairs param definitions with a pure params→lines
+builder; MD scripted-effect contracts are verified against MD's own files."""
 from __future__ import annotations
 
 import base64
@@ -44,19 +46,55 @@ BUILDING_TYPES = [
     "nuclear_reactor",
 ]
 
+# Equipment archetypes verified against MD's common/units/equipment files
+# (ids are case-sensitive; the widget stays typable for anything not listed).
 EQUIPMENT_TYPES = [
     "Inf_equipment",
     "util_vehicle_equipment",
-    "Arty_equipment",
+    "artillery_equipment",
+    "AA_Equipment",
+    "L_AT_Equipment",
     "train_equipment",
-    "Convoy",
-    "fighter_equipment",
-    "CAS_equipment",
-    "naval_equipment",
-    "medium_tank_chassis_2",
+    "convoy",
+    "small_plane_airframe",
+    "medium_plane_airframe",
+    "corvette",
+    "frigate",
+    "medium_tank_chassis",
+    "heavy_tank_chassis",
 ]
 
-RESOURCE_TYPES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium"]
+RESOURCE_TYPES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium", "coal"]
+
+# MD internal-faction opinion helpers (common/scripted_effects/
+# 00_internal_faction_effects.txt) — each reads temp_opinion and no-ops unless
+# the country has the matching faction idea.
+INTEREST_GROUP_EFFECTS = [
+    "change_all_internal_faction_opinion",
+    "change_chaebols_opinion",
+    "change_communist_cadres_opinion",
+    "change_defense_industry_opinion",
+    "change_farmers_opinion",
+    "change_foreign_jihadis_opinion",
+    "change_fossil_fuel_industry_opinion",
+    "change_industrial_conglomerates_opinion",
+    "change_intelligence_community_opinion",
+    "change_international_bankers_opinion",
+    "change_iranian_quds_force_opinion",
+    "change_labour_unions_opinion",
+    "change_landowners_opinion",
+    "change_maritime_industry_opinion",
+    "change_oligarchs_opinion",
+    "change_saudi_royal_family_opinion",
+    "change_small_medium_business_owners_opinion",
+    "change_the_clergy_opinion",
+    "change_the_donju_opinion",
+    "change_the_military_opinion",
+    "change_the_priesthood_opinion",
+    "change_the_ulema_opinion",
+    "change_the_wahabi_ulema_opinion",
+    "change_wall_street_opinion",
+]
 
 WARGOAL_TYPES = [
     "take_state_focus",
@@ -116,7 +154,10 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "foreign_influence.targetTag": "Country tag being influenced, usually the country whose focus is completing.",
     "relative_party_popularity.partyIndex": "Which MD party's popularity to shift. MD uses one global party list (the same index = the same party in every country), so this picks from all 24 MD parties by name.",
     "relative_party_popularity.popularity": "Relative popularity added to that party or outlook. Use decimals such as 0.05 for a modest shift.",
-    "relative_party_popularity.outlook": "Outlook movement used by the MD helper alongside the party popularity shift.",
+    "relative_party_popularity.outlook": "Optional outlook movement. Leave 0 for a pure "
+                                         "relative shift; any nonzero value switches the MD "
+                                         "helper to its additive mode, also moving the whole "
+                                         "ideology group's popularity.",
     "interest_group_opinion.amount": "Opinion shift stored before calling the selected Millennium Dawn interest-group helper.",
     "interest_group_opinion.effect": "Scripted MD helper to call, such as change_farmers_opinion or change_the_military_opinion.",
     "add_resource.state": "Numeric HOI4 state ID where the resource will be added.",
@@ -127,8 +168,13 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "timed_resource.state": "One of YOUR state IDs that receives the resource.",
     "timed_resource.days": "How many days the resource lasts before it expires (e.g. 730 = 2 years).",
     "state_building.state": "Numeric HOI4 state ID where construction is added.",
-    "state_building.building": "Building type to construct instantly in the selected state.",
+    "state_building.building": "Building type to construct instantly in the selected state "
+                               "— infrastructure, factories, air bases, or any MD building id. "
+                               "Slot-consuming factories also get a free shared building slot.",
     "state_building.level": "Number of building levels to add.",
+    "state_building.province": "Province id inside the state — required for province-level "
+                               "buildings (naval base, bunker, coastal bunker); leave blank "
+                               "for normal state buildings like infrastructure or factories.",
     "equipment_stockpile.type": "Equipment archetype added to the country stockpile. The ID must exist in Millennium Dawn.",
     "equipment_stockpile.amount": "Number of equipment pieces added to the stockpile.",
     "equipment_stockpile.producer": "Optional country tag credited as the equipment source or manufacturer, such as USA, SOV, CHI, or MEX. Leave blank to avoid assigning a foreign producer.",
@@ -214,6 +260,8 @@ def _b_promote_leader(p):
     if data.get("picture"):
         inner.append(f'picture = "{data["picture"]}"')
     ideo = (data.get("ideology") or "").strip()
+    if ideo == "State":  # legacy token from before the rename — MD's id is Communist-State
+        ideo = "Communist-State"
     if ideo:
         inner.append(f"ideology = {ideo}")
     traits = [t for t in (data.get("traits") or []) if t]
@@ -242,14 +290,21 @@ def _b_swap_idea(p):
     )
 
 
-def _b_country_event(p):
+def _event_days_suffix(p) -> str:
     raw_days = p.get("days", 0)
     try:
-        days = float(raw_days) if raw_days not in ("", None) else 0
+        days = int(float(raw_days)) if raw_days not in ("", None) else 0
     except (TypeError, ValueError):
         days = 0
-    suffix = f" days = {format_number(days)}" if days > 0 else ""
-    return [f"country_event = {{ id = {_value(p, 'eventId')}{suffix} }}"]
+    return f" days = {days}" if days > 0 else ""
+
+
+def _b_country_event(p):
+    return [f"country_event = {{ id = {_value(p, 'eventId')}{_event_days_suffix(p)} }}"]
+
+
+def _b_news_event(p):
+    return [f"news_event = {{ id = {_value(p, 'eventId')}{_event_days_suffix(p)} }}"]
 
 
 def _b_custom_tooltip(p): return [f"custom_effect_tooltip = {_value(p, 'tooltipId')}"]
@@ -344,11 +399,14 @@ def _b_urban_dev_fund(p):
 
 
 def _b_hydroelectric_dam(p):
+    # MD's additive helper (!_energy_effects.txt) adds to the state's existing
+    # hydro production and guards the modifier add — a plain set_variable would
+    # overwrite any dams the state already has.
     inner = [
         f"{_number_value(p, 'state')} = {{",
-        f"\tset_variable = {{ hydroelectric_energy_production_var = {_number_value(p, 'production')} }}",
-        "\tset_variable = { hydroelectric_energy_storage_var = 0 }",
-        "\tadd_dynamic_modifier = { modifier = hydroelectric_infrastructure_in_state }",
+        f"\tset_temp_variable = {{ electric_addition = {_number_value(p, 'production')} }}",
+        "\tset_temp_variable = { storage_addition = 0 }",
+        "\tadd_hydroelectric_energy_production_effect = yes",
         "}",
     ]
     tt = _value(p, "tooltip")
@@ -405,14 +463,30 @@ def _b_timed_resource(p):
     ]
 
 
+# Buildings with shares_slots = yes in MD's common/buildings/00_buildings.txt —
+# only these get a free slot alongside the construction so the reward never
+# overfills a full state. Everything else (infrastructure, air bases, radar,
+# MD's renewable-energy "synthetic_refinery", …) has its own row and must NOT
+# grant a shared slot as a side effect.
+_SHARED_SLOT_BUILDINGS = {
+    "industrial_complex", "arms_factory", "dockyard", "offices",
+    "agriculture_district", "stronghold_network", "naval_headquarters",
+    "energy_infrastructure", "industrial_infrastructure",
+}
+
+
 def _b_state_building(p):
-    return _block(
-        f"{_number_value(p, 'state')}",
-        [
-            "add_extra_state_shared_building_slots = 1",
-            f"add_building_construction = {{ type = {_value(p, 'building')} level = {_number_value(p, 'level')} instant_build = yes }}",
-        ],
-    )
+    building = _value(p, "building")
+    lines = []
+    if building in _SHARED_SLOT_BUILDINGS:
+        lines.append("add_extra_state_shared_building_slots = 1")
+    # Province-level buildings (naval_base, bunker, coastal_bunker, …) need an
+    # explicit province inside the construction block or HOI4 ignores them.
+    province = _value(p, "province")
+    prov = f" province = {province}" if province not in ("", "0") else ""
+    lines.append(
+        f"add_building_construction = {{ type = {building}{prov} level = {_number_value(p, 'level')} instant_build = yes }}")
+    return _block(f"{_number_value(p, 'state')}", lines)
 
 
 def _b_equipment_stockpile(p):
@@ -443,6 +517,14 @@ def _b_create_wargoal(p):
         "create_wargoal",
         [f"type = {_value(p, 'type')}", f"target = {_value(p, 'target')}"],
     )
+
+
+def _b_puppet(p):
+    return [f"puppet = {_value(p, 'target')}"]
+
+
+def _b_annex(p):
+    return [f"annex_country = {{ target = {_value(p, 'target')} transfer_troops = yes }}"]
 
 
 def _b_add_variable(p):
@@ -494,6 +576,9 @@ _RAW_PRESETS = [
     RewardPreset("country_event", "Events and Flags", "Country Event", "Fires a country event immediately or after a delay.",
                  [RewardParamDef("eventId", "Event ID", "event_ref", "", required=True, placeholder="MEX_forge.1"),
                   RewardParamDef("days", "Delay Days", "number", 0)], _b_country_event),
+    RewardPreset("news_event", "Events and Flags", "News Event", "Fires a news event (shown to every country) immediately or after a delay.",
+                 [RewardParamDef("eventId", "Event ID", "event_ref", "", required=True, placeholder="MEX_forge.2"),
+                  RewardParamDef("days", "Delay Days", "number", 0)], _b_news_event),
     RewardPreset("custom_tooltip", "Events and Flags", "Custom Tooltip", "Shows a custom effect tooltip.",
                  [RewardParamDef("tooltipId", "Tooltip Loc Key", "string", "", required=True)], _b_custom_tooltip),
     RewardPreset("set_country_flag", "Events and Flags", "Set Country Flag", "Sets a country flag for later triggers or event logic.",
@@ -508,14 +593,17 @@ _RAW_PRESETS = [
     RewardPreset("treasury_change", "Millennium Dawn Economy", "Treasury Change", "Uses the common MD treasury helper pattern.",
                  [RewardParamDef("amount", "Treasury Change", "number", 1, required=True, step=0.1)], _b_treasury_change),
     RewardPreset("productivity_growth", "Millennium Dawn Economy", "Productivity Growth",
-                 "Flat productivity change across all your states (MD), in points on a 100 base. ~25 solid, 50 large; negative cuts it.",
+                 "Flat productivity change across all your states on MD's internal scale "
+                 "(states start around 550-1000). 25-50 matches MD's own focuses; negative cuts it.",
                  [RewardParamDef("amount", "Productivity Change", "number", 25, required=True, step=5)], _b_productivity_growth),
     RewardPreset("state_productivity", "Millennium Dawn Economy", "State Productivity",
-                 "Flat productivity change for ONE state (MD), in points on a 100 base. ~25 solid, 50 large.",
-                 [RewardParamDef("state", "State", "state", 0, required=True),
+                 "Flat productivity change for ONE state on MD's internal scale (states "
+                 "start around 550-1000). MD's own focuses typically grant 25-50.",
+                 [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("amount", "Productivity Change", "number", 25, required=True, step=5)], _b_state_productivity),
     RewardPreset("economic_growth", "Millennium Dawn Economy", "Economic Growth (GDP)",
-                 "Triggers MD's one-shot GDP growth boost, once or several times.",
+                 "Triggers MD's one-shot GDP growth boost, once or several times. At the "
+                 "maximum growth level each extra call grants 100 PP + 5% stability instead.",
                  [RewardParamDef("times", "Times", "number", 1, required=True)], _b_economic_growth),
     RewardPreset("agriculture_district", "Millennium Dawn Economy", "Agriculture District",
                  "Builds random agriculture districts, raising farming output (MD).",
@@ -523,8 +611,8 @@ _RAW_PRESETS = [
     RewardPreset("corporate_tax", "Millennium Dawn Economy", "Corporate Tax Change",
                  "Changes the corporate tax rate (MD). Positive raises taxes, negative cuts them.",
                  [RewardParamDef("amount", "Tax Change", "number", -5, required=True)], _b_corporate_tax),
-    RewardPreset("radicalization", "Millennium Dawn Economy", "Radicalization Change",
-                 "Changes national radicalization (MD). Negative reduces unrest.",
+    RewardPreset("radicalization", "Millennium Dawn Politics", "Radicalization Change",
+                 "Changes national radicalization (MD counter-terror system). Negative reduces unrest.",
                  [RewardParamDef("amount", "Radicalization Change", "number", -5, required=True)], _b_radicalization),
     RewardPreset("income_tax", "Millennium Dawn Economy", "Personal Income Tax",
                  "Changes the personal/population income tax rate (MD). Positive raises taxes, negative cuts them.",
@@ -535,15 +623,18 @@ _RAW_PRESETS = [
     RewardPreset("international_investment", "Millennium Dawn Economy", "International Investment",
                  "Changes international investment inflow (MD). Positive attracts foreign investment.",
                  [RewardParamDef("amount", "Investment Change", "number", 3.5, required=True, step=0.5)], _b_intl_investment),
-    RewardPreset("government_expenses", "Millennium Dawn Economy", "Government Expenses",
-                 "Changes recurring government expenses (MD budget). Positive raises spending.",
+    RewardPreset("government_expenses", "Millennium Dawn Economy", "Government Expenses (Italy only)",
+                 "Changes recurring government expenses. The MD helper behind this writes an "
+                 "Italy-specific budget variable — for any other country it does nothing.",
                  [RewardParamDef("amount", "Expense Change", "number", 0.2, required=True, step=0.1)], _b_govt_expenses),
-    RewardPreset("urban_development_fund", "Millennium Dawn Economy", "Urban Development Fund",
-                 "Adds to the urban development fund (MD).",
+    RewardPreset("urban_development_fund", "Millennium Dawn Economy", "Urban Development Fund (Denmark only)",
+                 "Adds to the urban development fund. The MD helper behind this writes a "
+                 "Denmark-specific variable — for any other country it does nothing.",
                  [RewardParamDef("amount", "Amount", "number", 10, required=True)], _b_urban_dev_fund),
     RewardPreset("hydroelectric_dam", "Millennium Dawn Economy", "Hydroelectric Dam",
-                 "Adds MD hydroelectric power to a state (production var + the hydroelectric infrastructure modifier). Production is in GW (0.8 is about 800 MW).",
-                 [RewardParamDef("state", "State", "state", 0, required=True),
+                 "Adds MD hydroelectric power to a state via MD's additive helper (stacks "
+                 "with existing dams). Production is in GW (0.8 is about 800 MW).",
+                 [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("production", "Production (GW)", "number", 0.8, required=True, step=0.1),
                   RewardParamDef("tooltip", "Tooltip Key", "string", "", placeholder="TT_SYR_TABQA_DAM_HYDRO")],
                  _b_hydroelectric_dam),
@@ -556,27 +647,33 @@ _RAW_PRESETS = [
     RewardPreset("relative_party_popularity", "Millennium Dawn Politics", "Relative Party Popularity", "Uses the MD party popularity helper. Pick the party whose popularity shifts.",
                  [RewardParamDef("partyIndex", "Party", "party_index", 14, required=True),
                   RewardParamDef("popularity", "Popularity Increase", "number", 0.05, required=True, step=0.01),
-                  RewardParamDef("outlook", "Outlook Increase", "number", 0.02, step=0.01)], _b_relative_party_popularity),
-    RewardPreset("interest_group_opinion", "Millennium Dawn Politics", "Interest Group Opinion", "Sets temp_opinion and calls a MD opinion helper effect.",
+                  RewardParamDef("outlook", "Outlook Increase", "number", 0, step=0.01)], _b_relative_party_popularity),
+    RewardPreset("interest_group_opinion", "Millennium Dawn Politics", "Interest Group Opinion",
+                 "Shifts an MD internal faction's opinion. Only does something if the country "
+                 "actually has that faction's idea; autocratic governments double positive shifts.",
                  [RewardParamDef("amount", "Opinion Change", "number", 5, required=True),
-                  RewardParamDef("effect", "Effect Name", "string", "change_farmers_opinion", required=True)], _b_interest_group_opinion),
+                  RewardParamDef("effect", "Interest Group", "select", "change_farmers_opinion",
+                                 required=True, options=INTEREST_GROUP_EFFECTS)], _b_interest_group_opinion),
     RewardPreset("add_manpower", "State and Material", "Manpower", "Adds manpower.",
                  [RewardParamDef("amount", "Amount", "number", 10000, required=True)], _b_add_manpower),
     RewardPreset("add_resource", "State and Material", "State Resource", "Adds resources to a state.",
-                 [RewardParamDef("state", "State", "state", 0, required=True),
+                 [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("type", "Resource", "select", "steel", required=True, options=RESOURCE_TYPES),
                   RewardParamDef("amount", "Amount", "number", 4, required=True)], _b_add_resource),
     RewardPreset("timed_resource", "State and Material", "Timed Resource", "Adds a resource to one of your states for a limited time (e.g. a 730-day deal). Name the donor country in the focus text.",
                  [RewardParamDef("type", "Resource", "select", "oil", required=True, options=RESOURCE_TYPES),
                   RewardParamDef("amount", "Amount", "number", 8, required=True),
-                  RewardParamDef("state", "State", "state", 0, required=True),
+                  RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("days", "Days", "number", 730, required=True)], _b_timed_resource),
-    RewardPreset("state_building", "State and Material", "State Building", "Adds construction in a state scope.",
-                 [RewardParamDef("state", "State", "state", 0, required=True),
+    RewardPreset("state_building", "State and Material", "State Building",
+                 "Instantly builds levels of a building (infrastructure, factories, …) in a specific state.",
+                 [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("building", "Building", "building", "industrial_complex", required=True),
-                  RewardParamDef("level", "Level", "number", 1, required=True)], _b_state_building),
+                  RewardParamDef("level", "Level", "number", 1, required=True),
+                  RewardParamDef("province", "Province", "string", "",
+                                 placeholder="needed for naval base / bunker")], _b_state_building),
     RewardPreset("equipment_stockpile", "State and Material", "Equipment Stockpile", "Adds equipment, optionally with a producer tag.",
-                 [RewardParamDef("type", "Equipment Type", "select", "Inf_equipment", required=True, options=EQUIPMENT_TYPES),
+                 [RewardParamDef("type", "Equipment Type", "equipment", "Inf_equipment", required=True, options=EQUIPMENT_TYPES),
                   RewardParamDef("amount", "Amount", "number", 1000, required=True),
                   RewardParamDef("producer", "Producer", "country_tag", "")], _b_equipment_stockpile),
     RewardPreset("opinion_modifier", "Diplomacy and War", "Opinion Modifier", "Adds an opinion modifier toward another country (e.g. USA gains +25).",
@@ -588,6 +685,10 @@ _RAW_PRESETS = [
     RewardPreset("create_wargoal", "Diplomacy and War", "Create Wargoal", "Creates a wargoal against a target.",
                  [RewardParamDef("target", "Target", "country_tag", "", required=True),
                   RewardParamDef("type", "Wargoal Type", "select", "puppet_wargoal_focus", required=True, options=WARGOAL_TYPES)], _b_create_wargoal),
+    RewardPreset("puppet", "Diplomacy and War", "Puppet Country", "Makes the target country a puppet/subject of this country.",
+                 [RewardParamDef("target", "Target", "country_tag", "", required=True)], _b_puppet),
+    RewardPreset("annex", "Diplomacy and War", "Annex Country", "Annexes the target country (its troops transfer to you).",
+                 [RewardParamDef("target", "Target", "country_tag", "", required=True)], _b_annex),
     RewardPreset("add_variable", "Variables", "Add To Variable", "Adds to a variable. Useful for MD arrays and country-specific mechanics.",
                  [RewardParamDef("variable", "Variable", "string", "", required=True, placeholder="party_pop_array^1"),
                   RewardParamDef("amount", "Amount", "number", 1, required=True, step=0.01)], _b_add_variable),
@@ -666,4 +767,8 @@ def validate_reward_item(item) -> list:
                 float(current)
             except (TypeError, ValueError):
                 issues.append(f"{preset.label} has an invalid number for {param.label}.")
+                continue
+            # State ids start at 1 — a 0/negative value exports a broken block.
+            if param.type == "state" and float(current) < 1:
+                issues.append(f"{preset.label} needs a real state id (1 or higher) for {param.label}.")
     return issues

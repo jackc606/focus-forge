@@ -125,6 +125,8 @@ class AgentBridge(QObject):
             request = json.loads(line.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as exc:
             return {"ok": False, "error": f"Bad JSON: {exc}"}
+        if not isinstance(request, dict):
+            return {"ok": False, "error": "Bad request: expected a JSON object."}
         op = request.get("op", "")
         args = request.get("args") or {}
         # `screenshot` is GUI-only (needs the scene) — handled here, not in core dispatch.

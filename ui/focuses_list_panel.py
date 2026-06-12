@@ -1,7 +1,7 @@
 """Left sidebar: focus list + warnings summary."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
@@ -55,7 +55,13 @@ class FocusesListPanel(QWidget):
         warn_holder.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout.addWidget(warn_holder, 2)
 
-        self._model.project_changed.connect(self.refresh)
+        # Debounced rebuild: a burst of edits (typing a title) coalesces into
+        # one list rebuild instead of one per keystroke.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(200)
+        self._refresh_timer.timeout.connect(self.refresh)
+        self._model.project_changed.connect(self._refresh_timer.start)
         self._model.selection_changed.connect(self._sync_selection)
         self._model.validation_changed.connect(self._refresh_warnings)
         self.refresh()
@@ -72,6 +78,7 @@ class FocusesListPanel(QWidget):
             item.setHidden(bool(self._query) and self._query not in item.text().lower())
 
     def refresh(self) -> None:
+        scroll = self._list.verticalScrollBar().value()
         self._list.blockSignals(True)
         self._list.clear()
         for f in self._model.project.focuses:
@@ -82,6 +89,7 @@ class FocusesListPanel(QWidget):
                 item.setSelected(True)
         self._list.blockSignals(False)
         self._apply_filter()
+        self._list.verticalScrollBar().setValue(scroll)
 
     def _sync_selection(self, focus_id: str) -> None:
         for i in range(self._list.count()):

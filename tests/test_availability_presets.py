@@ -33,7 +33,7 @@ def test_build_lines_for_key_presets():
     assert build_availability_item_lines(_item("ruling_party", party="western_liberals_are_in_power")) == [
         "western_liberals_are_in_power = yes"]
     assert build_availability_item_lines(_item("country_leader_name", name="Muammar Gaddafi")) == [
-        'has_country_leader = { name = "Muammar Gaddafi" }']
+        'has_country_leader = { name = "Muammar Gaddafi" ruling_only = yes }']
     assert build_availability_item_lines(_item("in_faction_with", tag="RUS")) == [
         "is_in_faction_with = RUS"]
     assert build_availability_item_lines(_item("has_opinion", tag="USA", value=50)) == [

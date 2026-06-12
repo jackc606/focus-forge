@@ -29,11 +29,14 @@ _BLOCK_START = re.compile(r"\bspriteType\b\s*=\s*\{", re.IGNORECASE)
 
 
 def _iter_sprite_blocks(text: str):
-    """Yield the inner text of each ``spriteType = { ... }`` (brace-balanced)."""
+    """Yield the inner text of each ``spriteType = { ... }`` (brace-balanced).
+    A block whose braces never balance (malformed/truncated .gfx) is skipped —
+    yielding the rest of the file would index bogus name/texture pairs."""
     n = len(text)
     for m in _BLOCK_START.finditer(text):
         brace = m.end() - 1  # the "{" of this spriteType
         depth = 0
+        closed = False
         j = brace
         while j < n:
             c = text[j]
@@ -42,9 +45,11 @@ def _iter_sprite_blocks(text: str):
             elif c == "}":
                 depth -= 1
                 if depth == 0:
+                    closed = True
                     break
             j += 1
-        yield text[brace + 1:j]
+        if closed:
+            yield text[brace + 1:j]
 
 
 def parse_gfx_file(path: str) -> dict:

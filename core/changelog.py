@@ -9,6 +9,34 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.1.9",
+        "date": "2026-06-12",
+        "title": "Reliability, speed & a verified reward catalog",
+        "changes": [
+            "Every reward and availability preset was audited against Millennium "
+            "Dawn's actual files. Fixed: equipment ids that no longer exist in MD, "
+            "the Communist-State leader ideology, naval bases/bunkers now take a "
+            "province, hydro dams stack instead of overwriting, the government "
+            "check gained Nationalist, leader checks now mean 'in power', and "
+            "factories grant a free building slot only when MD says they use one.",
+            "New rewards: News Event, Puppet Country, Annex Country — and the "
+            "interest-group picker is now a dropdown of MD's real helpers.",
+            "Dropdown pickers no longer mis-save when you choose a type-ahead "
+            "suggestion, and a missing state id is caught by Validation instead "
+            "of exporting a broken block.",
+            "Saving is now crash-safe: projects and exported mods are written "
+            "atomically, so a crash or full disk can never truncate your work. "
+            "A damaged project file shows a clear message instead of an error dump.",
+            "Much snappier on big projects: typing no longer re-validates and "
+            "re-exports the whole project per keystroke, the canvas only "
+            "re-routes connectors that actually moved, and the game-data "
+            "scans (icons, techs, states, traits) now happen in the background "
+            "at startup instead of freezing the first click.",
+            "Corrupt or truncated mod files (.dds, .gfx, localisation) can no "
+            "longer crash the app or silently mangle accented text.",
+        ],
+    },
+    {
         "version": "0.1.8",
         "date": "2026-06-11",
         "title": "Date-scheduled events & UI polish",

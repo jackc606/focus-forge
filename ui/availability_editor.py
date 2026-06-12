@@ -25,20 +25,10 @@ from .param_widgets import make_param_widget
 
 
 def availability_preview_lines(rule: AvailabilityRule) -> list:
-    lines: list = []
-    if rule is None:
-        return lines
-    for c in (rule.completedFocuses or []):
-        lines.append(f"has_completed_focus = {c}")
-    for f in (rule.flagsRequired or []):
-        lines.append(f"has_country_flag = {f}")
-    for f in (rule.flagsBlocked or []):
-        lines.append(f"NOT = {{ has_country_flag = {f} }}")
-    for item in (rule.items or []):
-        lines.extend(build_availability_item_lines(item))
-    for raw in (rule.rawLines or []):
-        lines.append(raw)
-    return lines
+    """The exporter's assembly is the single source of truth — the preview must
+    never drift from what actually lands in the focus file."""
+    from core.exporters import _availability_inner_lines
+    return _availability_inner_lines(rule)
 
 
 class AvailabilityEditor(QWidget):

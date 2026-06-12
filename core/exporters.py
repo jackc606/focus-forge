@@ -143,14 +143,18 @@ def export_country_history(project: FocusForgeProject) -> str:
     return "\n".join(lines) + "\n"
 
 
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+_SAN_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
 def _leader_slug(leader) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", (leader.name or "leader").lower()).strip("_") or "leader"
+    return _SLUG_RE.sub("_", (leader.name or "leader").lower()).strip("_") or "leader"
 
 
 def _san(token: str) -> str:
     """Filesystem/sprite-safe form of a sub-ideology token (keeps the loc key raw,
     but hyphens etc. aren't safe in sprite names / filenames)."""
-    return re.sub(r"[^A-Za-z0-9]+", "_", token or "").strip("_")
+    return _SAN_RE.sub("_", token or "").strip("_")
 
 
 def _party_logo_sprite_name(tag: str, sub: str) -> str:
@@ -396,17 +400,8 @@ def _export_focus(focus: FocusNodeData) -> list:
 
     if focus.available and _has_availability(focus.available):
         lines.append(f"{TAB}{TAB}available = {{")
-        for completed in (focus.available.completedFocuses or []):
-            lines.append(f"{TAB}{TAB}{TAB}has_completed_focus = {completed}")
-        for flag in (focus.available.flagsRequired or []):
-            lines.append(f"{TAB}{TAB}{TAB}has_country_flag = {flag}")
-        for flag in (focus.available.flagsBlocked or []):
-            lines.append(f"{TAB}{TAB}{TAB}NOT = {{ has_country_flag = {flag} }}")
-        for item in (focus.available.items or []):
-            for line in build_availability_item_lines(item):
-                lines.append(f"{TAB}{TAB}{TAB}{line}")
-        for raw in (focus.available.rawLines or []):
-            lines.append(f"{TAB}{TAB}{TAB}{raw}")
+        for line in _availability_inner_lines(focus.available):
+            lines.append(f"{TAB}{TAB}{TAB}{line}")
         lines.append(f"{TAB}{TAB}}}")
 
     if focus.filters:
@@ -440,32 +435,32 @@ def export_completion_reward_lines(reward: CompletionReward) -> list:
     if reward is None:
         return lines
     if reward.politicalPower:
-        lines.append(f"{TAB}{TAB}{TAB}add_political_power = {reward.politicalPower}")
+        lines.append(f"{TAB}{TAB}{TAB}add_political_power = {_format_number(reward.politicalPower)}")
     if reward.stability:
         lines.append(f"{TAB}{TAB}{TAB}add_stability = {_format_number(reward.stability)}")
     if reward.warSupport:
         lines.append(f"{TAB}{TAB}{TAB}add_war_support = {_format_number(reward.warSupport)}")
     if reward.commandPower:
-        lines.append(f"{TAB}{TAB}{TAB}add_command_power = {reward.commandPower}")
+        lines.append(f"{TAB}{TAB}{TAB}add_command_power = {_format_number(reward.commandPower)}")
     if reward.armyExperience:
-        lines.append(f"{TAB}{TAB}{TAB}army_experience = {reward.armyExperience}")
+        lines.append(f"{TAB}{TAB}{TAB}army_experience = {_format_number(reward.armyExperience)}")
     if reward.airExperience:
-        lines.append(f"{TAB}{TAB}{TAB}air_experience = {reward.airExperience}")
+        lines.append(f"{TAB}{TAB}{TAB}air_experience = {_format_number(reward.airExperience)}")
     if reward.navyExperience:
-        lines.append(f"{TAB}{TAB}{TAB}navy_experience = {reward.navyExperience}")
+        lines.append(f"{TAB}{TAB}{TAB}navy_experience = {_format_number(reward.navyExperience)}")
     for idea in (reward.addIdeas or []):
         lines.append(f"{TAB}{TAB}{TAB}add_ideas = {idea}")
     for idea in (reward.removeIdeas or []):
         lines.append(f"{TAB}{TAB}{TAB}remove_ideas = {idea}")
     for event in (reward.events or []):
-        days = "" if (getattr(event, "days", None) is None) else f" days = {event.days}"
+        days = "" if (getattr(event, "days", None) is None) else f" days = {int(event.days)}"
         lines.append(f"{TAB}{TAB}{TAB}country_event = {{ id = {event.id}{days} }}")
     for bonus in (reward.techBonuses or []):
         lines.append(f"{TAB}{TAB}{TAB}add_tech_bonus = {{")
         if getattr(bonus, "name", None):
             lines.append(f"{TAB}{TAB}{TAB}{TAB}name = {bonus.name}")
         lines.append(f"{TAB}{TAB}{TAB}{TAB}bonus = {_format_number(bonus.bonus)}")
-        lines.append(f"{TAB}{TAB}{TAB}{TAB}uses = {bonus.uses}")
+        lines.append(f"{TAB}{TAB}{TAB}{TAB}uses = {int(bonus.uses)}")
         lines.append(f"{TAB}{TAB}{TAB}{TAB}category = {bonus.category}")
         lines.append(f"{TAB}{TAB}{TAB}}}")
     for item in (reward.items or []):
@@ -568,7 +563,9 @@ def export_events(project: FocusForgeProject) -> str:
             schedule = []
             tag = (project.countryTag or "").strip().upper()
             if tag:
-                schedule.append(f"tag = {tag}")
+                # original_tag survives MD tag switches (reformations, civil
+                # wars); plain `tag =` would permanently block the event.
+                schedule.append(f"original_tag = {tag}")
             schedule.append(f"date > {fire_date}")
             event_trigger = schedule + event_trigger
         if event_trigger:

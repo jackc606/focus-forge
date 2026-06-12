@@ -109,7 +109,7 @@ def test_fire_on_date_forces_schedule_flags_and_trigger():
     assert "is_triggered_only = yes" in text          # forced by the schedule
     assert "fire_only_once = yes" in text             # forced by the schedule
     assert "mean_time_to_happen" not in text          # suppressed by the schedule
-    assert "tag = LBA" in text                        # on_daily fires per-country
+    assert "original_tag = LBA" in text               # on_daily fires per-country
     assert "date > 2003.3.20" in text
     # the user's own trigger conditions are kept after the schedule gate
     assert "has_country_flag = lba_ready" in text

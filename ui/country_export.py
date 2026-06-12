@@ -14,6 +14,7 @@ from core.exporters import (
     _leader_slug,
     _party_logo_relpath,
 )
+from core.file_io import atomic_write_bytes
 from core.image_write import dds_bgra32, tga_bgra32
 
 
@@ -40,8 +41,7 @@ def _write_tga(img: QImage, w: int, h: int, path: str) -> None:
     scaled = img.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
     bgra, sw, sh = _argb32_bytes(scaled)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        f.write(tga_bgra32(bgra, sw, sh))
+    atomic_write_bytes(path, tga_bgra32(bgra, sw, sh))
 
 
 def export_country_assets(project, mod_dir: str) -> int:
@@ -74,8 +74,8 @@ def export_country_assets(project, mod_dir: str) -> int:
         bgra, w, h = _argb32_bytes(img)
         ld = os.path.join(mod_dir, "gfx", "leaders", tag)
         os.makedirs(ld, exist_ok=True)
-        with open(os.path.join(ld, f"{_leader_slug(leader)}.dds"), "wb") as f:
-            f.write(dds_bgra32(bgra, w, h))
+        atomic_write_bytes(os.path.join(ld, f"{_leader_slug(leader)}.dds"),
+                           dds_bgra32(bgra, w, h))
         written += 1
 
     for party in c.parties:
@@ -88,8 +88,7 @@ def export_country_assets(project, mod_dir: str) -> int:
         rel = _party_logo_relpath(tag, party.subIdeology)
         path = os.path.join(mod_dir, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(dds_bgra32(bgra, w, h))
+        atomic_write_bytes(path, dds_bgra32(bgra, w, h))
         written += 1
 
     return written
@@ -110,8 +109,7 @@ def export_focus_icon_assets(project, mod_dir: str) -> int:
         rel = _focus_icon_relpath(focus)
         path = os.path.join(mod_dir, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(dds_bgra32(bgra, w, h))
+        atomic_write_bytes(path, dds_bgra32(bgra, w, h))
         written += 1
     return written
 
@@ -131,7 +129,6 @@ def export_event_assets(project, mod_dir: str) -> int:
         rel = _event_picture_relpath(event)
         path = os.path.join(mod_dir, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(dds_bgra32(bgra, w, h))
+        atomic_write_bytes(path, dds_bgra32(bgra, w, h))
         written += 1
     return written

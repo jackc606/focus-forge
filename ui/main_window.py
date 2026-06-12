@@ -158,6 +158,12 @@ class MainWindow(QMainWindow):
         # In-game icon provider: seed roots on first run, repaint when they change.
         provider().changed.connect(self._on_icons_changed)
         provider().ensure_default_roots()
+        # Warm the sprite index and the game-data providers (tech, states,
+        # traits, MD politics) off-thread so the first canvas paint and the
+        # first dropdown open don't scan the game files on the UI thread.
+        provider().warm_index_async()
+        from .provider_warmup import warm_game_data_async
+        warm_game_data_async(self._model.project.countryTag)
 
         # Initial render
         self._on_project_changed()

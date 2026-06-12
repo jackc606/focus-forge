@@ -1,6 +1,7 @@
 """Export preview: combobox of files + monospace preview."""
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
 from core.exporters import export_project_files
@@ -34,10 +35,28 @@ class ExportPanel(QWidget):
         v.addWidget(self._preview, 1)
 
         self._files: list = []
-        self._model.project_changed.connect(self.refresh)
-        self.refresh()
+        # Re-exporting the whole project is the single most expensive listener
+        # on project_changed — only do it when this tab is actually visible,
+        # debounced so edit bursts cost one export.
+        self._stale = True
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(300)
+        self._refresh_timer.timeout.connect(self.refresh)
+        self._model.project_changed.connect(self._on_project_changed)
+
+    def _on_project_changed(self) -> None:
+        self._stale = True
+        if self.isVisible():
+            self._refresh_timer.start()
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        if self._stale:
+            self.refresh()
 
     def refresh(self) -> None:
+        self._stale = False
         self._files = export_project_files(self._model.project)
         self._combo.blockSignals(True)
         self._combo.clear()

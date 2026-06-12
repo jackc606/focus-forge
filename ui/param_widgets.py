@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QCompleter, QLineEdit, QPlainTextEdit
 
 from core.country_tags import MD_COUNTRY_TAGS
 from core.md_parties import MD_PARTIES
+from core.reward_presets import EQUIPMENT_TYPES
 
 from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
@@ -33,9 +34,16 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
     if param.type == "select":
         cb = QComboBox()
         cb.addItems(param.options or [])
-        cb.setCurrentText(str(current))
+        cur = str(current)
+        if cur and cb.findText(cur) < 0:
+            cb.addItem(cur)  # legacy/unknown stored value — keep it selectable
+        cb.setCurrentText(cur)
         cb.currentTextChanged.connect(lambda val: set_value(val))
         return cb
+    if param.type == "equipment":
+        items = [(e, e) for e in EQUIPMENT_TYPES]
+        return _id_combo(items, current, set_value, numeric=False, completer=True,
+                         empty_tip="Type an MD equipment id")
     if param.type == "state":
         states = state_provider().states_for_country(country_tag)
         return _id_combo(states, current, set_value, numeric=True,
@@ -121,7 +129,9 @@ def _id_combo(items, current, set_value, *, numeric: bool, empty_tip: str,
         comp.setCaseSensitivity(Qt.CaseInsensitive)
         comp.setFilterMode(Qt.MatchContains)
         cb.setCompleter(comp)
-    cur = str(current or "").strip()
+    # NB: ``current or ""`` would collapse a legitimate stored 0 (party index 0,
+    # for example) into an empty field.
+    cur = "" if current is None or current == "" else str(current).strip()
     idx = -1
     if cur != "":
         idx = cb.findData(int(cur)) if (numeric and cur.lstrip("-").isdigit()) else cb.findData(cur)
@@ -139,9 +149,16 @@ def _id_combo(items, current, set_value, *, numeric: bool, empty_tip: str,
             set_value(cb.itemData(i))
             return
         text = cb.currentText().strip()
+        # The completer can fill the line edit with a display LABEL without
+        # updating the combo index — map it back to its item value, never store
+        # the decorated label (or 0) in the params.
+        j = cb.findText(text)
+        if j >= 0 and cb.itemData(j) is not None:
+            set_value(cb.itemData(j))
+            return
         if numeric:
-            m = re.match(r"\s*(-?\d+)", text)
-            set_value(int(m.group(1)) if m else 0)
+            m = re.search(r"-?\d+", text)
+            set_value(int(m.group(0)) if m else 0)
         else:
             set_value(text)
 

@@ -44,6 +44,9 @@ _GROUP_ORDER = [
 
 
 def _match_brace(text: str, open_idx: int) -> int:
+    # Best-effort: unbalanced braces (malformed file) return ``n``, so the
+    # caller's slice covers the rest of the file — oversized but never crashes,
+    # and the per-line regex extraction still finds what it can.
     depth = 0
     n = len(text)
     j = open_idx

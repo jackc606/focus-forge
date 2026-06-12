@@ -32,7 +32,9 @@ _DONE_ROLE = Qt.UserRole + 2   # this item's thumbnail load has been attempted
 # Decoded thumbnails, keyed by absolute path, shared across every picker instance
 # and session — so reopening a picker (or scrolling back) is instant. Values are a
 # QPixmap, or None for a file that failed to decode (so we don't retry it).
+# Capped so browsing thousands of sprites doesn't grow memory for the whole session.
 _THUMB_CACHE: dict = {}
+_THUMB_CACHE_MAX = 2000
 
 
 class IconPickerDialog(QDialog):
@@ -176,6 +178,8 @@ class IconPickerDialog(QDialog):
             if img is not None and not img.isNull():
                 pm = QPixmap.fromImage(img).scaled(
                     _THUMB, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if len(_THUMB_CACHE) >= _THUMB_CACHE_MAX:
+                _THUMB_CACHE.pop(next(iter(_THUMB_CACHE)))  # FIFO eviction
             _THUMB_CACHE[path] = pm
         if pm is not None and not pm.isNull():
             item.setIcon(QIcon(pm))

@@ -2,14 +2,18 @@
 replaces a directory (e.g. Millennium Dawn replaces `common/technologies`)."""
 from __future__ import annotations
 
+import functools
 import os
 import re
 
 _REPLACE = re.compile(r'replace_path\s*=\s*"([^"]+)"')
 
 
+@functools.lru_cache(maxsize=64)
 def read_replace_paths(root: str) -> set:
-    """The set of paths a mod root declares it replaces (forward-slash, no trailing /)."""
+    """The set of paths a mod root declares it replaces (forward-slash, no
+    trailing /). Memoized — every index build queries this for every root, and
+    descriptor.mod doesn't change within a session."""
     out = set()
     desc = os.path.join(root, "descriptor.mod")
     if not os.path.isfile(desc):

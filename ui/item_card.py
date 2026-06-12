@@ -62,8 +62,12 @@ class PresetItemCard(QFrame):
         v.addLayout(form)
         if preset:
             for param in preset.params:
+                # Back-fill missing keys (older project files) so the widget and
+                # the builder see the same value — without this, the widget shows
+                # the preset default while the builder uses its own fallback.
+                item.params.setdefault(param.key, param.defaultValue)
                 widget = make_widget(
-                    param, item.params.get(param.key, param.defaultValue),
+                    param, item.params[param.key],
                     lambda val, k=param.key: self._set_param(k, val))
                 widget.setToolTip(param.helpText or "")
                 form.addRow(param.label, widget)

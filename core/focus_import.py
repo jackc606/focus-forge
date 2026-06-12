@@ -52,12 +52,16 @@ def _match_brace(text: str, open_idx: int) -> int:
     return n
 
 
+_KEY_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+_NONSPACE_RE = re.compile(r"\S+")
+
+
 def _statements(text: str):
     """Yield (key, kind, body) for each top-level ``key = value`` / ``key = { }``.
     kind is 'block' or 'scalar'. Comments must already be stripped."""
     i = 0
     n = len(text)
-    key_re = re.compile(r"[A-Za-z0-9_.\-]+")
+    key_re = _KEY_RE
     while i < n:
         while i < n and text[i].isspace():
             i += 1
@@ -89,7 +93,7 @@ def _statements(text: str):
             yield key, "scalar", text[i + 1:end]
             i = end + 1
         else:
-            m2 = re.compile(r"\S+").match(text, i)
+            m2 = _NONSPACE_RE.match(text, i)
             yield key, "scalar", m2.group(0)
             i = m2.end()
 
@@ -325,8 +329,18 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
     # resolves from the browsed folder; configured-root refs leave it empty.
     if ref.roots:
         roots = list(ref.roots)
-    with open(ref.file, "r", encoding="utf-8-sig", errors="replace") as f:
-        text = _COMMENT.sub("", f.read())
+    # UTF-8-BOM per HOI4 spec, with a cp1252 fallback for legacy files — so
+    # accented characters survive instead of being silently mangled to U+FFFD.
+    raw = open(ref.file, "rb").read()
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            decoded = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        decoded = raw.decode("utf-8-sig", errors="replace")
+    text = _COMMENT.sub("", decoded)
 
     block = ""
     for m in _TREE_START.finditer(text):

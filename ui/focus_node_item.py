@@ -37,6 +37,36 @@ PORT_PAD = 12                     # boundingRect padding so ports paint/hit full
 GLOW_PAD = 5                      # horizontal padding so the selection glow paints fully
 
 
+# Paint-time colors and pens, built once at import — paint() runs per node per
+# frame, and per-call QColor/QPen construction adds up on dense trees. (QColor/
+# QPen are QtGui value types, safe to create before the QApplication.)
+_C_ACCENT = QColor(T.ACCENT)
+_C_ACCENT_HOVER = QColor(T.ACCENT_HOVER)
+_C_ACCENT_DIM = QColor(T.ACCENT_DIM)
+_C_BORDER_HOVER = QColor(T.BORDER_HOVER)
+_C_TEXT_PRIMARY = QColor(T.TEXT_PRIMARY)
+_C_TEXT_SECONDARY = QColor(T.TEXT_SECONDARY)
+_C_TEXT_MUTED = QColor(T.TEXT_MUTED)
+_C_FOCUS_FRAME = QColor(T.FOCUS_FRAME)
+_C_FOCUS_BRACKET = QColor(T.FOCUS_BRACKET)
+_C_FOCUS_PLATE = QColor(T.FOCUS_PLATE)
+_C_BG_BASE = QColor(T.BG_BASE)
+_C_BG_INSET = QColor(T.BG_INSET)
+_C_BG_ELEVATED = QColor(T.BG_ELEVATED)
+_C_SEARCH_HL = QColor(T.SEARCH_HL)
+
+
+def _glow_pens():
+    pens = []
+    for i, alpha in enumerate((120, 60, 26)):
+        c = QColor(T.ACCENT)
+        c.setAlpha(alpha)
+        pens.append(QPen(c, 2 + i * 2))
+    return pens
+
+
+_GLOW_PENS = _glow_pens()
+
 # Memoized — paint() asks for the same few fonts every frame for every visible
 # node, and QFont construction is not free. Built lazily so no QFont exists
 # before the QApplication does.
@@ -161,10 +191,8 @@ class FocusNodeItem(QGraphicsObject):
             return
         body = QRectF(2, ICON_Y - 2, NODE_W - 4, (ID_Y + ID_H) - ICON_Y + 4)
         painter.setBrush(Qt.NoBrush)
-        for i, alpha in enumerate((120, 60, 26)):
-            c = QColor(T.ACCENT)
-            c.setAlpha(alpha)
-            painter.setPen(QPen(c, 2 + i * 2))
+        for i, pen in enumerate(_GLOW_PENS):
+            painter.setPen(pen)
             painter.drawRoundedRect(body.adjusted(-i * 2, -i * 2, i * 2, i * 2), 9, 9)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
@@ -173,14 +201,11 @@ class FocusNodeItem(QGraphicsObject):
         self._paint_glow(painter, selected)
 
         if selected:
-            frame = QColor(T.ACCENT)
-            bracket = QColor(T.ACCENT_HOVER)
+            frame, bracket = _C_ACCENT, _C_ACCENT_HOVER
         elif self._hover:
-            frame = QColor(T.BORDER_HOVER)
-            bracket = QColor(T.TEXT_SECONDARY)
+            frame, bracket = _C_BORDER_HOVER, _C_TEXT_SECONDARY
         else:
-            frame = QColor(T.FOCUS_FRAME)
-            bracket = QColor(T.FOCUS_BRACKET)
+            frame, bracket = _C_FOCUS_FRAME, _C_FOCUS_BRACKET
 
         icon_rect = QRectF(ICON_X, ICON_Y, ICON, ICON)
         pm = self._icon_pixmap()
@@ -203,14 +228,14 @@ class FocusNodeItem(QGraphicsObject):
                 painter.drawRoundedRect(ring, 4, 4)
         else:
             # Fallback: synthetic bracket-framed square with the icon abbreviation.
-            painter.fillRect(icon_rect, QColor(T.BG_INSET))
-            painter.setPen(QPen(QColor(T.BG_ELEVATED), 1))
+            painter.fillRect(icon_rect, _C_BG_INSET)
+            painter.setPen(QPen(_C_BG_ELEVATED, 1))
             painter.drawRect(icon_rect.adjusted(1.5, 1.5, -1.5, -1.5))
             painter.setPen(QPen(frame, 2 if selected else 1.5))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(icon_rect)
             self._draw_brackets(painter, icon_rect, bracket)
-            painter.setPen(QColor(T.TEXT_SECONDARY))
+            painter.setPen(_C_TEXT_SECONDARY)
             painter.setFont(_mono_font(T.TEXT_LABEL, T.WEIGHT_BOLD))
             painter.drawText(icon_rect, Qt.AlignCenter, self._icon[:4].upper())
 
@@ -218,19 +243,19 @@ class FocusNodeItem(QGraphicsObject):
         plate = QRectF(2, PLATE_Y, NODE_W - 4, PLATE_H)
         path = QPainterPath()
         path.addRoundedRect(plate, 3, 3)
-        painter.fillPath(path, QColor(T.FOCUS_PLATE))
+        painter.fillPath(path, _C_FOCUS_PLATE)
         if selected:
-            painter.setPen(QPen(QColor(T.ACCENT_DIM), 1))
+            painter.setPen(QPen(_C_ACCENT_DIM, 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(path)
-        painter.setPen(QColor(T.TEXT_PRIMARY))
+        painter.setPen(_C_TEXT_PRIMARY)
         painter.setFont(_ui_font(T.TEXT_BODY, T.WEIGHT_SEMIBOLD))
         painter.drawText(plate.adjusted(3, 1, -3, -1),
                          Qt.AlignHCenter | Qt.AlignVCenter | Qt.TextWordWrap,
                          self._title)
 
         # ---- focus id (editor affordance, kept subtle) ----
-        painter.setPen(QColor(T.TEXT_MUTED))
+        painter.setPen(_C_TEXT_MUTED)
         painter.setFont(_mono_font(10))
         id_rect = QRectF(2, ID_Y, NODE_W - 4, ID_H)
         fm = painter.fontMetrics()
@@ -238,7 +263,7 @@ class FocusNodeItem(QGraphicsObject):
         painter.drawText(id_rect, Qt.AlignHCenter | Qt.AlignVCenter, eid)
 
         if self._search_match is True:
-            painter.setPen(QPen(QColor(T.SEARCH_HL), 3))
+            painter.setPen(QPen(_C_SEARCH_HL, 3))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(QRectF(1, 1, NODE_W - 2, NODE_H - 2), 6, 6)
 
@@ -256,14 +281,14 @@ class FocusNodeItem(QGraphicsObject):
             return
         bottom = QPointF(NODE_W / 2, NODE_H)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(T.ACCENT))
+        painter.setBrush(_C_ACCENT)
         painter.drawEllipse(bottom, PORT_R, PORT_R)
-        painter.setPen(QPen(QColor(T.BG_BASE), 1))
+        painter.setPen(QPen(_C_BG_BASE, 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(bottom, PORT_R, PORT_R)
         # top (input) — subtle
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(T.BORDER_HOVER))
+        painter.setBrush(_C_BORDER_HOVER)
         painter.drawEllipse(QPointF(NODE_W / 2, 0), PORT_R - 1, PORT_R - 1)
 
     def _in_bottom_port(self, pos: QPointF) -> bool:
@@ -339,7 +364,8 @@ class FocusNodeItem(QGraphicsObject):
         if self._connecting:
             self._connecting = False
             target_id = ""
-            for it in self.scene().items(event.scenePos()):
+            scene = self.scene()  # may be None if the item was torn down mid-drag
+            for it in scene.items(event.scenePos()) if scene else ():
                 if isinstance(it, FocusNodeItem) and it is not self:
                     target_id = it.focus_id
                     break

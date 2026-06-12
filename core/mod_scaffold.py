@@ -10,6 +10,8 @@ import os
 import re
 from pathlib import Path
 
+from .file_io import atomic_write_text
+
 MD_DEPENDENCY = "Millennium Dawn: A Modern Day Mod"
 DEFAULT_TAGS = ["Gameplay", "National Focuses"]
 DEFAULT_SUPPORTED_VERSION = "1.17.*"
@@ -109,15 +111,15 @@ def scaffold_submod(mod_root, folder: str, name: str, *,
     for d in SKELETON_DIRS:
         (mod_dir / d).mkdir(parents=True, exist_ok=True)
 
-    descriptor_path.write_text(
-        build_descriptor(name, version, tags, dependencies, supported_version),
-        encoding="utf-8")
+    atomic_write_text(
+        descriptor_path,
+        build_descriptor(name, version, tags, dependencies, supported_version))
 
     abs_path = os.path.abspath(str(mod_dir)).replace("\\", "/")
     outer_path = mod_root / f"{folder}.mod"
-    outer_path.write_text(
-        build_descriptor(name, version, tags, dependencies, supported_version, path=abs_path),
-        encoding="utf-8")
+    atomic_write_text(
+        outer_path,
+        build_descriptor(name, version, tags, dependencies, supported_version, path=abs_path))
 
     return {
         "mod_dir": str(mod_dir),

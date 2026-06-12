@@ -22,6 +22,7 @@ class GraphScene(QGraphicsScene):
         self.setBackgroundBrush(QColor(T.BG_BASE))
         self._nodes: dict = {}  # focus_id -> FocusNodeItem
         self._edges: dict = {}  # (src_id, dst_id) -> EdgeItem
+        self._last_positions: dict = {}  # focus_id -> (x, y) at last reconcile
         self._temp_line = None
         self._connect_anchor = None
 
@@ -85,24 +86,32 @@ class GraphScene(QGraphicsScene):
                 del self._edges[stale_key]
 
         for key, (src_id, dst_id) in desired_edges.items():
-            if key in self._edges:
-                self._edges[key].refresh()
-                continue
-            edge = EdgeItem(self._nodes[src_id], self._nodes[dst_id], kind=key[0])
-            self.addItem(edge)
-            self._edges[key] = edge
+            if key not in self._edges:
+                # EdgeItem builds its path in __init__, no refresh needed here.
+                edge = EdgeItem(self._nodes[src_id], self._nodes[dst_id], kind=key[0])
+                self.addItem(edge)
+                self._edges[key] = edge
 
-        # Refresh edge endpoints if their nodes moved
-        for edge in self._edges.values():
-            edge.refresh()
+        # Rebuild edge paths only for edges whose endpoints actually moved —
+        # a title edit on a 500-focus tree shouldn't re-route every connector.
+        positions = {fid: (node.x(), node.y()) for fid, node in self._nodes.items()}
+        moved = {fid for fid, pos in positions.items()
+                 if self._last_positions.get(fid) != pos}
+        self._last_positions = positions
+        if moved:
+            for (kind, a, b), edge in self._edges.items():
+                if a in moved or b in moved:
+                    edge.refresh()
 
         if project.focuses:
             xs = [n.scenePos().x() for n in self._nodes.values()]
             ys = [n.scenePos().y() for n in self._nodes.values()]
             margin = 200
-            self.setSceneRect(min(xs) - margin, min(ys) - margin,
+            new_rect = QRectF(min(xs) - margin, min(ys) - margin,
                               max(xs) - min(xs) + margin * 2 + 240,
                               max(ys) - min(ys) + margin * 2 + 100)
+            if new_rect != self.sceneRect():
+                self.setSceneRect(new_rect)
 
     def select_node(self, focus_id: str) -> None:
         for fid, item in self._nodes.items():
