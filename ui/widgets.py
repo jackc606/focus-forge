@@ -46,6 +46,15 @@ class ClickableFrame(QFrame):
         super().mouseReleaseEvent(event)
 
 
+def add_combo_item(combo, label: str, data, tooltip: str = "") -> None:
+    """Append an item to a QComboBox with an optional hover tooltip — the
+    description shows in the dropdown popup so a modder knows what each entry
+    does before picking it."""
+    combo.addItem(label, data)
+    if tooltip:
+        combo.setItemData(combo.count() - 1, tooltip, Qt.ToolTipRole)
+
+
 def mono_font(size: int = T.TEXT_BODY) -> QFont:
     """Cascadia Mono (with fallback) at a pixel size — for code/preview panes."""
     f = QFont(T.FONT_MONO_FAMILY)

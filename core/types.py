@@ -73,6 +73,8 @@ class FocusNodeData:
     mutuallyExclusive: list = field(default_factory=list)
     completionReward: CompletionReward = field(default_factory=CompletionReward)
     available: Optional[AvailabilityRule] = None
+    bypass: Optional[AvailabilityRule] = None  # conditions that SKIP the focus
+    aiWillDo: Optional[float] = None           # AI priority; None = HOI4-default 10
     notes: Optional[str] = None
 
 
@@ -154,6 +156,45 @@ class ExportSettings:
     includeIdeas: bool = False
     includeEvents: bool = False
     includeCountry: bool = False
+    includeDecisions: bool = False
+
+
+@dataclass
+class DecisionCategory:
+    """A decisions-panel category authored by this project. Decisions can also
+    target an existing MD category by id instead."""
+    id: str = ""
+    title: str = ""
+    description: str = ""
+    icon: str = "GFX_decision_category_generic_political_actions"
+    priority: Optional[int] = None         # panel sort order; None = omit
+    visible: Optional[AvailabilityRule] = None
+    rawLines: list = field(default_factory=list)   # extra category fields, verbatim
+
+
+@dataclass
+class DecisionData:
+    id: str = ""
+    title: str = ""
+    description: str = ""
+    category: str = ""                     # custom category id, or an MD one
+    icon: str = ""                         # GFX_decision_* sprite
+    iconData: str = ""                     # base64 PNG of a custom imported icon (overrides icon)
+    cost: Optional[float] = 25             # political power; None = omit
+    fireOnlyOnce: bool = False
+    isGood: Optional[bool] = None          # mission tint (green/red); None = omit
+    daysRemove: Optional[int] = None       # active-timer days → remove_effect
+    daysReEnable: Optional[int] = None     # cooldown before it can be retaken
+    daysMissionTimeout: Optional[int] = None  # mission countdown → timeout_effect
+    aiWillDo: Optional[float] = None       # AI base weighting; None = omit
+    priority: Optional[int] = None         # sort within the category; None = omit
+    visible: Optional[AvailabilityRule] = None    # shown in the panel
+    available: Optional[AvailabilityRule] = None  # selectable
+    completeEffect: Optional[CompletionReward] = None  # on select
+    removeEffect: Optional[CompletionReward] = None    # when days_remove ends
+    timeoutEffect: Optional[CompletionReward] = None   # when a mission times out
+    modifierRawLines: list = field(default_factory=list)  # modifier = { … } lines
+    rawLines: list = field(default_factory=list)   # any extra decision fields, verbatim
 
 
 @dataclass
@@ -165,6 +206,8 @@ class FocusForgeProject:
     focuses: list = field(default_factory=list)
     ideas: list = field(default_factory=list)
     events: list = field(default_factory=list)
+    decisions: list = field(default_factory=list)
+    decisionCategories: list = field(default_factory=list)
     exportSettings: ExportSettings = field(default_factory=ExportSettings)
     country: Optional["CountryData"] = None
     # Where "Export to Mod" publishes (absolute HOI4 mod folder) and the

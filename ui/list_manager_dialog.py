@@ -63,6 +63,8 @@ class ListManagerDialog(QDialog):
         row.addWidget(self._new_btn)
         row.addWidget(self._edit_btn)
         row.addWidget(self._del_btn)
+        for btn in self._extra_buttons():
+            row.addWidget(btn)
         row.addStretch(1)
         close = QPushButton("Close")
         close.setDefault(True)
@@ -73,6 +75,10 @@ class ListManagerDialog(QDialog):
         self._refresh()
 
     # ----- hooks for subclasses -----
+    def _extra_buttons(self) -> list:
+        """Extra QPushButtons inserted after Delete (e.g. 'Categories…')."""
+        return []
+
     def _items(self):
         """The project's entities, each with an ``.id``."""
         raise NotImplementedError

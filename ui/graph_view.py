@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QWheelEvent
-from PySide6.QtWidgets import QGraphicsView, QMenu
+from PySide6.QtGui import QCursor, QKeyEvent, QMouseEvent, QPainter, QWheelEvent
+from PySide6.QtWidgets import QApplication, QGraphicsView, QMenu
 
 from .edge_item import EdgeItem
-from .focus_node_item import FocusNodeItem
+from .focus_node_item import GRID_X, GRID_Y, NODE_H, NODE_W, FocusNodeItem
 
 # Zoom-in is clamped to a sensible upper bound; zoom-out floor is computed
 # dynamically from the focus tree's bounding rect so the entire tree is
@@ -22,6 +22,7 @@ class GraphView(QGraphicsView):
     delete_focuses_requested = Signal(list)    # focus ids (Delete key on selection)
     add_child_requested = Signal(str)          # parent focus id
     delete_link_requested = Signal(str, str, str)  # source_id, target_id, kind
+    paste_requested = Signal(QPointF)          # scene pos to paste copied focuses at
 
     def __init__(self, scene, parent=None) -> None:
         super().__init__(scene, parent)
@@ -124,6 +125,29 @@ class GraphView(QGraphicsView):
                 return it
         return None
 
+    # ----- paste-position helpers -----
+    @staticmethod
+    def scene_to_grid(scene_pos) -> tuple:
+        """Snap a scene point to the focus grid cell whose node would be CENTRED
+        on the point (matches right-click 'New Focus Here')."""
+        gx = round((scene_pos.x() - NODE_W / 2) / GRID_X)
+        gy = round((scene_pos.y() - NODE_H / 2) / GRID_Y)
+        return int(gx), int(gy)
+
+    def paste_anchor_scene(self) -> QPointF:
+        """Scene point to anchor a Ctrl+V paste at: under the cursor when it's
+        over this view, otherwise the centre of the visible area."""
+        vp = self.viewport()
+        local = vp.mapFromGlobal(QCursor.pos())
+        if not vp.rect().contains(local):
+            local = vp.rect().center()
+        return self.mapToScene(local)
+
+    @staticmethod
+    def _clipboard_has_focuses() -> bool:
+        # Cheap peek — avoid a full JSON parse just to decide the menu item.
+        return '"focuses"' in (QApplication.clipboard().text() or "")
+
     def contextMenuEvent(self, event) -> None:
         scene_pos = self.mapToScene(event.pos())
         node = self._node_at(event.pos())
@@ -144,6 +168,7 @@ class GraphView(QGraphicsView):
             return
 
         new_act = menu.addAction("New Focus Here")
+        paste_act = menu.addAction("Paste Here") if self._clipboard_has_focuses() else None
         unlink_act = None
         if edge is not None:
             verb = "mutual exclusivity" if edge.kind == "mutex" else "connection"
@@ -151,6 +176,8 @@ class GraphView(QGraphicsView):
         chosen = menu.exec(event.globalPos())
         if chosen is new_act:
             self.create_focus_requested.emit(scene_pos)
+        elif paste_act is not None and chosen is paste_act:
+            self.paste_requested.emit(scene_pos)
         elif unlink_act is not None and chosen is unlink_act:
             self.delete_link_requested.emit(edge.source_id, edge.target_id, edge.kind)
 

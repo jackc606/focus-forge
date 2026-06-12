@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,9 @@ from core.validation import validate_project
 
 _VALID_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 
+_UNDO_LIMIT = 50          # snapshots kept; a full project dict is cheap (KBs)
+_UNDO_COALESCE_S = 0.8    # mutations closer together than this = one gesture
+
 
 class ProjectModel(QObject):
     project_changed = Signal()
@@ -40,6 +44,23 @@ class ProjectModel(QObject):
         self._selected_id: str = ""
         self._dirty = False  # unsaved changes since last load/save
         self._focus_index: dict = {f.id: f for f in self._project.focuses}
+        # Snapshot-based undo: _current_state mirrors the project as a plain
+        # dict; every change pushes the PREVIOUS state (per gesture — rapid
+        # keystroke bursts coalesce into one step).
+        self._undo_stack: list = []
+        self._redo_stack: list = []
+        self._current_state: dict = project_to_dict(self._project)
+        self._state_stale = False      # _current_state lags the project mid-burst
+        self._undo_skip = False        # suppress capture during undo/redo/load
+        self._last_mutation = 0.0
+        self._undo_coalesce_s = _UNDO_COALESCE_S
+        # Mid-burst mutations skip the O(project) serialization; this timer
+        # materializes the post-burst state once the burst goes quiet, so a
+        # node drag costs nothing per grid cell.
+        self._materialize_timer = QTimer(self)
+        self._materialize_timer.setSingleShot(True)
+        self._materialize_timer.setInterval(int(_UNDO_COALESCE_S * 1000))
+        self._materialize_timer.timeout.connect(self._materialize_state_now)
         # Validation walks the whole project — debounce it so a burst of
         # keystrokes in the inspector costs one pass, not one per character.
         self._validation_timer = QTimer(self)
@@ -80,14 +101,91 @@ class ProjectModel(QObject):
         return None
 
     def issues(self) -> list:
-        return validate_project(self._project)
+        return validate_project(self._project, icon_exists=self._icon_exists(),
+                                known_decision_categories=self._known_decision_categories())
+
+    @staticmethod
+    def _icon_exists():
+        """Icon resolver for validation — returns None (no checker) until the
+        sprite index is ready, so validation never blocks on an index build."""
+        from .icon_provider import provider
+        p = provider()
+        return p.sprite_exists if p.is_indexed() else None
+
+    @staticmethod
+    def _known_decision_categories():
+        """Set of existing game/MD category ids if already indexed, else None
+        (validation then skips the unknown-category warning)."""
+        from .tech_provider import tech_provider
+        cats = tech_provider().md_decision_categories_cached()
+        return set(cats) if cats else None
+
+    # ----- undo / redo -----
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    def can_redo(self) -> bool:
+        return bool(self._redo_stack)
+
+    def undo(self) -> bool:
+        if not self._undo_stack:
+            return False
+        self._materialize_state_now()
+        self._redo_stack.append(self._current_state)
+        self._restore_state(self._undo_stack.pop())
+        return True
+
+    def redo(self) -> bool:
+        if not self._redo_stack:
+            return False
+        self._materialize_state_now()
+        self._undo_stack.append(self._current_state)
+        self._restore_state(self._redo_stack.pop())
+        return True
+
+    def _materialize_state_now(self) -> None:
+        if self._state_stale:
+            self._current_state = project_to_dict(self._project)
+            self._state_stale = False
+
+    def _force_undo_boundary(self) -> None:
+        """Structural operations (add/delete/paste/rename, dialog saves) always
+        start their own undo step, even inside the time-coalescing window."""
+        self._last_mutation = 0.0
+
+    def _restore_state(self, state: dict) -> None:
+        self._project = project_from_dict(state)
+        self._current_state = state
+        self._state_stale = False
+        # Fix the selection before any signal fires — listeners read selected_id
+        # during project_changed.
+        ids = {f.id for f in self._project.focuses}
+        if self._selected_id and self._selected_id not in ids:
+            self._selected_id = self._project.focuses[0].id if self._project.focuses else ""
+        self._undo_skip = True
+        try:
+            self._emit_all()
+        finally:
+            self._undo_skip = False
+        # The restored project is a NEW object graph — re-announce the selection
+        # so the inspector and editors rebuild from it instead of keeping stale
+        # references into the discarded one.
+        self.selection_changed.emit(self._selected_id)
+        self._last_mutation = 0.0  # the next edit starts a fresh gesture
 
     # ----- mutation -----
     def replace_project(self, project: FocusForgeProject, path: Optional[Path] = None) -> None:
         self._project = project
         self._path = path
         self._selected_id = project.focuses[0].id if project.focuses else ""
-        self._emit_all()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._current_state = project_to_dict(project)
+        self._undo_skip = True
+        try:
+            self._emit_all()
+        finally:
+            self._undo_skip = False
         self._set_dirty(False)  # a freshly loaded/created project is clean
         self.project_path_changed.emit(str(path) if path else "")
 
@@ -109,6 +207,7 @@ class ProjectModel(QObject):
             return ""
         if self._depends_on(prereq_id, target_id):
             return f"Skipped: {prereq_id} → {target_id} would create a cycle."
+        self._force_undo_boundary()
         target.prerequisites = list(target.prerequisites) + [prereq_id]
         self._emit_all()
         return f"Linked {prereq_id} → {target_id}"
@@ -180,6 +279,7 @@ class ProjectModel(QObject):
         return re.sub(r"[^A-Za-z0-9]", "", (self._project.countryTag or "")).upper()
 
     def add_focus_at(self, grid_x: int, grid_y: int, prerequisites=None) -> str:
+        self._force_undo_boundary()
         """Create a new blank focus at a grid cell, optionally pre-linked.
         IDs are auto-prefixed with the country tag (e.g. LBY_new_focus_001)."""
         n = len(self._project.focuses) + 1
@@ -207,24 +307,119 @@ class ProjectModel(QObject):
     def delete_focus(self, focus_id: str) -> None:
         self.delete_focuses([focus_id])
 
+    # ----- focus-reference upkeep (availability + bypass rules) -----
+    @staticmethod
+    def _focus_ref_params(item) -> list:
+        """Param keys of an availability item that hold a focus id."""
+        from core.availability_presets import get_availability_preset
+        preset = get_availability_preset(getattr(item, "kind", ""))
+        if not preset:
+            return []
+        return [p.key for p in preset.params if p.type == "focus"]
+
+    @staticmethod
+    def _focus_rules(focus) -> list:
+        return [r for r in (focus.available, getattr(focus, "bypass", None)) if r]
+
+    def _strip_focus_refs(self, focus, ids: set) -> None:
+        for rule in self._focus_rules(focus):
+            if rule.completedFocuses:
+                rule.completedFocuses = [c for c in rule.completedFocuses if c not in ids]
+            for item in (rule.items or []):
+                for key in self._focus_ref_params(item):
+                    if (item.params or {}).get(key) in ids:
+                        item.params[key] = ""
+
+    def _rewrite_focus_refs(self, focus, mapping: dict) -> None:
+        for rule in self._focus_rules(focus):
+            if rule.completedFocuses:
+                rule.completedFocuses = [mapping.get(c, c) for c in rule.completedFocuses]
+            for item in (rule.items or []):
+                for key in self._focus_ref_params(item):
+                    val = (item.params or {}).get(key)
+                    if val in mapping:
+                        item.params[key] = mapping[val]
+
     def delete_focuses(self, focus_ids) -> None:
         """Delete one or more focuses in a single update, stripping every
-        reference (prerequisites / mutually exclusive / completed-focus checks)."""
+        reference (prerequisites / mutually exclusive / availability + bypass
+        completed-focus checks and condition items)."""
         present = {f.id for f in self._project.focuses}
         ids = {fid for fid in focus_ids if fid in present}
         if not ids:
             return
+        self._force_undo_boundary()
         self._project.focuses = [f for f in self._project.focuses if f.id not in ids]
         # Strip references
         for f in self._project.focuses:
             f.prerequisites = [p for p in f.prerequisites if p not in ids]
             f.mutuallyExclusive = [m for m in f.mutuallyExclusive if m not in ids]
-            if f.available and f.available.completedFocuses:
-                f.available.completedFocuses = [c for c in f.available.completedFocuses if c not in ids]
+            self._strip_focus_refs(f, ids)
         if self._selected_id in ids:
             self._selected_id = self._project.focuses[0].id if self._project.focuses else ""
             self.selection_changed.emit(self._selected_id)
         self._emit_all()
+
+    # ----- copy / paste / duplicate -----
+    def copy_payload(self, focus_ids) -> dict:
+        """Clipboard payload (plain JSON-able dict) for the given focuses."""
+        from core.serialization import focus_to_dict
+        focuses = [self.find_focus(fid) for fid in focus_ids]
+        return {"focusforge": 1,
+                "focuses": [focus_to_dict(f) for f in focuses if f is not None]}
+
+    def paste_focuses(self, payload, at=None) -> list:
+        """Insert copied focuses with fresh unique ids. Links BETWEEN pasted
+        focuses are remapped to the new ids; links to other focuses are kept
+        when the target exists in this project and dropped otherwise.
+
+        ``at`` is an optional ``(grid_x, grid_y)`` target: the copied group is
+        translated so its TOP-LEFT focus lands there (preserving the relative
+        layout) — i.e. paste-at-cursor. Without it, the group lands one cell
+        down-right of the originals. Returns the new ids (first → selection)."""
+        from core.serialization import focus_from_dict
+        raw = payload.get("focuses") if isinstance(payload, dict) else None
+        if not raw:
+            return []
+        copies = [focus_from_dict(d) for d in raw]
+        old_ids = {f.id for f in copies}
+        self._force_undo_boundary()
+        if at is not None:
+            min_x = min(int(f.position.x) for f in copies)
+            min_y = min(int(f.position.y) for f in copies)
+            dx, dy = int(at[0]) - min_x, int(at[1]) - min_y
+        else:
+            dx, dy = 1, 1  # nudge down-right so the copy doesn't sit on the original
+        id_map: dict = {}
+        for f in copies:
+            new_id = self._unique_id(f.id or "pasted_focus")
+            id_map[f.id] = new_id
+            f.id = new_id
+            f.position = FocusPosition(x=int(f.position.x) + dx, y=int(f.position.y) + dy)
+            self._project.focuses.append(f)
+        present = {f.id for f in self._project.focuses}
+        for f in copies:
+            f.prerequisites = [id_map.get(p, p) for p in f.prerequisites
+                               if p in old_ids or p in present]
+            f.mutuallyExclusive = [id_map.get(m, m) for m in f.mutuallyExclusive
+                                   if m in old_ids or m in present]
+            # Mutex is symmetric in the model — give kept external targets the
+            # back-reference so validation doesn't flag a one-sided link.
+            for m in f.mutuallyExclusive:
+                if m not in id_map.values():
+                    other = self.find_focus(m)
+                    if other is not None and f.id not in other.mutuallyExclusive:
+                        other.mutuallyExclusive = list(other.mutuallyExclusive) + [f.id]
+            # Remap focus references inside availability AND bypass rules —
+            # both the legacy completedFocuses list and condition-item params.
+            self._rewrite_focus_refs(f, id_map)
+        self._selected_id = copies[0].id
+        self.selection_changed.emit(self._selected_id)
+        self._emit_all()
+        return [f.id for f in copies]
+
+    def duplicate_focuses(self, focus_ids) -> list:
+        return self.paste_focuses(self.copy_payload(focus_ids))
 
     def rename_focus(self, old_id: str, new_id: str) -> str:
         """Rename a focus (de-duping the new id) and rewrite every reference —
@@ -234,14 +429,14 @@ class ProjectModel(QObject):
         new_id = (new_id or "").strip()
         if not focus or not new_id or new_id == old_id:
             return old_id
+        self._force_undo_boundary()
         new_id = self._unique_id(new_id)
         focus.id = new_id
+        mapping = {old_id: new_id}
         for other in self._project.focuses:
             other.prerequisites = [new_id if p == old_id else p for p in other.prerequisites]
             other.mutuallyExclusive = [new_id if m == old_id else m for m in other.mutuallyExclusive]
-            if other.available and other.available.completedFocuses:
-                other.available.completedFocuses = [new_id if c == old_id else c
-                                                    for c in other.available.completedFocuses]
+            self._rewrite_focus_refs(other, mapping)
         if self._selected_id == old_id:
             self.set_selection(new_id)
         self._emit_all()
@@ -276,6 +471,7 @@ class ProjectModel(QObject):
         return f"{base}_{n}"
 
     def add_idea(self, idea) -> str:
+        self._force_undo_boundary()
         """Append a new idea (de-duping its id) and return the final id."""
         idea.id = self._unique_idea_id(idea.id)
         self._project.ideas.append(idea)
@@ -284,6 +480,7 @@ class ProjectModel(QObject):
         return idea.id
 
     def update_idea(self, old_id: str, new_idea) -> str:
+        self._force_undo_boundary()
         """Replace the idea identified by old_id with new_idea. If the id changed,
         de-dupe it and rewrite every focus reward that referenced the old id."""
         idx = next((i for i, it in enumerate(self._project.ideas) if it.id == old_id), -1)
@@ -298,6 +495,7 @@ class ProjectModel(QObject):
         return new_idea.id
 
     def delete_idea(self, idea_id: str) -> None:
+        self._force_undo_boundary()
         before = len(self._project.ideas)
         self._project.ideas = [i for i in self._project.ideas if i.id != idea_id]
         if len(self._project.ideas) == before:
@@ -351,6 +549,7 @@ class ProjectModel(QObject):
         return f"{base}_{n}"
 
     def add_event(self, event) -> str:
+        self._force_undo_boundary()
         """Append a new event (de-duping its id) and return the final id."""
         event.id = self._unique_event_id(event.id)
         self._project.events.append(event)
@@ -359,6 +558,7 @@ class ProjectModel(QObject):
         return event.id
 
     def update_event(self, old_id: str, new_event) -> str:
+        self._force_undo_boundary()
         """Replace the event identified by old_id. If the id changed, de-dupe it
         and rewrite every focus reward that referenced the old id."""
         idx = next((i for i, ev in enumerate(self._project.events) if ev.id == old_id), -1)
@@ -373,6 +573,7 @@ class ProjectModel(QObject):
         return new_event.id
 
     def delete_event(self, event_id: str) -> None:
+        self._force_undo_boundary()
         before = len(self._project.events)
         self._project.events = [e for e in self._project.events if e.id != event_id]
         if len(self._project.events) == before:
@@ -428,6 +629,86 @@ class ProjectModel(QObject):
                     if p.type == "event_ref" and item.params.get(p.key) == old_id:
                         item.params[p.key] = new_id
 
+    # ----- decisions -----
+    def _unique_decision_id(self, base: str, ignore: str = "") -> str:
+        existing = {x.id for x in self._project.decisions if x.id != ignore}
+        if base and base not in existing:
+            return base
+        n = 2
+        while f"{base}_{n}" in existing:
+            n += 1
+        return f"{base}_{n}"
+
+    def add_decision(self, decision) -> str:
+        self._force_undo_boundary()
+        decision.id = self._unique_decision_id(decision.id)
+        self._project.decisions.append(decision)
+        self._project.exportSettings.includeDecisions = True
+        self._emit_all()
+        return decision.id
+
+    def update_decision(self, old_id: str, new_decision) -> str:
+        self._force_undo_boundary()
+        idx = next((i for i, x in enumerate(self._project.decisions) if x.id == old_id), -1)
+        if idx < 0:
+            return self.add_decision(new_decision)
+        if new_decision.id != old_id:
+            new_decision.id = self._unique_decision_id(new_decision.id, ignore=old_id)
+        self._project.decisions[idx] = new_decision
+        self._project.exportSettings.includeDecisions = True
+        self._emit_all()
+        return new_decision.id
+
+    def delete_decision(self, decision_id: str) -> None:
+        self._force_undo_boundary()
+        before = len(self._project.decisions)
+        self._project.decisions = [x for x in self._project.decisions if x.id != decision_id]
+        if len(self._project.decisions) != before:
+            self._emit_all()
+
+    def _unique_decision_category_id(self, base: str, ignore: str = "") -> str:
+        existing = {c.id for c in self._project.decisionCategories if c.id != ignore}
+        if base and base not in existing:
+            return base
+        n = 2
+        while f"{base}_{n}" in existing:
+            n += 1
+        return f"{base}_{n}"
+
+    def add_decision_category(self, category) -> str:
+        self._force_undo_boundary()
+        category.id = self._unique_decision_category_id(category.id)
+        self._project.decisionCategories.append(category)
+        self._project.exportSettings.includeDecisions = True
+        self._emit_all()
+        return category.id
+
+    def update_decision_category(self, old_id: str, new_category) -> str:
+        self._force_undo_boundary()
+        idx = next((i for i, c in enumerate(self._project.decisionCategories)
+                    if c.id == old_id), -1)
+        if idx < 0:
+            return self.add_decision_category(new_category)
+        if new_category.id != old_id:
+            new_category.id = self._unique_decision_category_id(new_category.id, ignore=old_id)
+            for d in self._project.decisions:   # keep decisions pointing at it
+                if d.category == old_id:
+                    d.category = new_category.id
+        self._project.decisionCategories[idx] = new_category
+        self._emit_all()
+        return new_category.id
+
+    def delete_decision_category(self, category_id: str) -> None:
+        self._force_undo_boundary()
+        before = len(self._project.decisionCategories)
+        self._project.decisionCategories = [c for c in self._project.decisionCategories
+                                            if c.id != category_id]
+        if len(self._project.decisionCategories) != before:
+            self._emit_all()
+
+    def decision_category_reference_count(self, category_id: str) -> int:
+        return sum(1 for d in self._project.decisions if d.category == category_id)
+
     def _unique_id(self, base: str) -> str:
         existing = {f.id for f in self._project.focuses}
         if base not in existing:
@@ -480,6 +761,8 @@ class ProjectModel(QObject):
     # ----- emit helpers -----
     def _emit_all(self) -> None:
         self._focus_index = {f.id: f for f in self._project.focuses}
+        if not self._undo_skip:
+            self._capture_undo_state()
         self._set_dirty(True)
         self.project_changed.emit()
         if QCoreApplication.instance() is not None:
@@ -487,5 +770,34 @@ class ProjectModel(QObject):
         else:  # headless (tests): no event loop to fire the timer
             self._emit_validation()
 
+    def _capture_undo_state(self) -> None:
+        now = time.monotonic()
+        if now - self._last_mutation <= self._undo_coalesce_s:
+            # Mid-burst (typing, dragging): the pre-burst snapshot already sits
+            # on the stack; skip the O(project) serialization entirely and let
+            # the idle timer materialize the post-burst state.
+            self._redo_stack.clear()
+            self._state_stale = True
+            self._last_mutation = now
+            if QCoreApplication.instance() is not None:
+                self._materialize_timer.start()
+            else:
+                self._materialize_state_now()
+            return
+        # Gesture boundary: settle any stale burst first, then push the state
+        # BEFORE this change as the undoable step.
+        self._materialize_state_now()
+        new_state = project_to_dict(self._project)
+        if new_state == self._current_state:
+            return  # no-op change — don't burn an undo step
+        self._undo_stack.append(self._current_state)
+        if len(self._undo_stack) > _UNDO_LIMIT:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+        self._current_state = new_state
+        self._last_mutation = now
+
     def _emit_validation(self) -> None:
-        self.validation_changed.emit(validate_project(self._project))
+        self.validation_changed.emit(
+            validate_project(self._project, icon_exists=self._icon_exists(),
+                             known_decision_categories=self._known_decision_categories()))

@@ -10,7 +10,9 @@ response ``{"ok": bool, "result"|"error": …, "id"?: any}``.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import secrets
 
 from PySide6.QtCore import QObject, QRectF, Signal
 from PySide6.QtGui import QColor, QImage, QPainter
@@ -28,6 +30,11 @@ except Exception:  # pragma: no cover
 
 # Grid → scene mapping (mirrors ui/focus_node_item.py).
 _GRID_X, _GRID_Y = 124, 158
+
+# Refuse a single request line larger than this (no newline terminator) so a
+# misbehaving local client can't exhaust memory. Generous: a project/event
+# payload can carry base64-encoded art, but never tens of MB on one line.
+_MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Read-only ops aren't narrated to the status bar (too chatty).
 _QUIET_OPS = {
@@ -49,6 +56,8 @@ class AgentBridge(QObject):
         self._server: QTcpServer | None = None
         self._buffers: dict = {}   # socket -> bytearray
         self._clients = 0
+        self._token = ""           # shared secret; only a process that can read
+                                   # the per-user discovery file knows it
 
     # ----- lifecycle -----
     def is_listening(self) -> bool:
@@ -66,7 +75,11 @@ class AgentBridge(QObject):
         server.newConnection.connect(self._on_new_connection)
         self._server = server
         port = server.serverPort()
-        write_bridge_info(port, version=_APP_VERSION)
+        # Per-session secret. It's published only in the per-user discovery file
+        # (private appdata), so connecting requires read access to that file —
+        # a blind port scanner or a web page can't authenticate.
+        self._token = secrets.token_hex(32)
+        write_bridge_info(port, version=_APP_VERSION, token=self._token)
         self.state_changed.emit(True, port)
         return True
 
@@ -82,6 +95,7 @@ class AgentBridge(QObject):
             self._server.deleteLater()
             self._server = None
         self._clients = 0
+        self._token = ""
         clear_bridge_info()
         self.state_changed.emit(False, 0)
         self.client_changed.emit(False)
@@ -105,11 +119,24 @@ class AgentBridge(QObject):
         self._clients = max(0, self._clients - 1)
         self.client_changed.emit(self._clients > 0)
 
+    def _drop(self, socket, error: str) -> None:
+        try:
+            socket.write((json.dumps({"ok": False, "error": error}) + "\n").encode("utf-8"))
+            socket.flush()
+            socket.close()
+        except RuntimeError:
+            pass
+        self._buffers.pop(socket, None)
+
     def _on_ready_read(self, socket) -> None:
         buf = self._buffers.get(socket)
         if buf is None:
             return
         buf += bytes(socket.readAll().data())
+        if len(buf) > _MAX_REQUEST_BYTES and b"\n" not in buf:
+            # One oversized, unterminated line — refuse and drop the client.
+            self._drop(socket, "Request too large.")
+            return
         while b"\n" in buf:
             line, _, rest = buf.partition(b"\n")
             buf[:] = rest
@@ -120,6 +147,12 @@ class AgentBridge(QObject):
             socket.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
             socket.flush()
 
+    def _authorized(self, token) -> bool:
+        # Constant-time compare; a bridge with no token (shouldn't happen while
+        # listening) authorizes nothing.
+        return (bool(self._token) and isinstance(token, str)
+                and hmac.compare_digest(token, self._token))
+
     def _handle_line(self, line: bytes) -> dict:
         try:
             request = json.loads(line.decode("utf-8"))
@@ -127,6 +160,11 @@ class AgentBridge(QObject):
             return {"ok": False, "error": f"Bad JSON: {exc}"}
         if not isinstance(request, dict):
             return {"ok": False, "error": "Bad request: expected a JSON object."}
+        if not self._authorized(request.get("token")):
+            resp = {"ok": False, "error": "Unauthorized: missing or invalid bridge token."}
+            if "id" in request:
+                resp["id"] = request["id"]
+            return resp
         op = request.get("op", "")
         args = request.get("args") or {}
         # `screenshot` is GUI-only (needs the scene) — handled here, not in core dispatch.
@@ -177,7 +215,10 @@ class AgentBridge(QObject):
             scene.render(painter, QRectF(0, 0, iw, ih), src)
             painter.end()
 
-            path = args.get("path") or str(bridge_info_path().with_name("canvas.png"))
+            # App-owned, fixed location only — never a client-supplied path, so
+            # the screenshot op can't be turned into an arbitrary-file-write
+            # primitive. The agent reads the returned path to view the image.
+            path = str(bridge_info_path().with_name("canvas.png"))
             img.save(path, "PNG")
             in_view = {
                 fid: [round(n.scenePos().x() / _GRID_X), round(n.scenePos().y() / _GRID_Y)]

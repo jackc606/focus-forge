@@ -176,3 +176,22 @@ def test_event_reference_counts_bulk_matches_single():
     counts = m.event_reference_counts()
     assert counts["ns.1"] == m.event_reference_count("ns.1") == 2
     assert counts["ns.2"] == m.event_reference_count("ns.2") == 1
+
+
+# ----- state-population reward (state-scoped add_manpower) -----
+def test_state_population_is_state_scoped_add_manpower():
+    from core.reward_presets import build_reward_item_lines, validate_reward_item, create_reward_item
+    from core.types import RewardItem
+    lines = build_reward_item_lines(RewardItem(
+        kind="state_population", enabled=True, params={"state": 447, "amount": 50000}))
+    text = "\n".join(lines)
+    assert "447 = {" in text
+    assert "add_manpower = 50000" in text
+    # state-scoped, NOT the bare national add_manpower
+    assert text.strip().startswith("447 = {")
+    # a missing/zero state id is rejected like the other state rewards
+    bad = create_reward_item("state_population")
+    bad["params"]["state"] = 0
+    assert any("state id" in i for i in validate_reward_item(bad))
+    bad["params"]["state"] = 447
+    assert not any("state id" in i for i in validate_reward_item(bad))

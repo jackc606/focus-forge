@@ -8,6 +8,8 @@ from .types import (
     AvailabilityRule,
     CompletionReward,
     CountryData,
+    DecisionCategory,
+    DecisionData,
     EventData,
     EventOption,
     EventReward,
@@ -26,7 +28,7 @@ from .types import (
 
 # Optional fields that should be omitted from JSON when None.
 _OPTIONAL_FIELDS = {
-    FocusNodeData: {"available", "notes"},
+    FocusNodeData: {"available", "bypass", "aiWillDo", "notes"},
     CompletionReward: {
         "politicalPower", "stability", "warSupport", "commandPower",
         "armyExperience", "airExperience", "navyExperience",
@@ -38,6 +40,10 @@ _OPTIONAL_FIELDS = {
     EventData: {"meanTimeToHappen", "fireOnDate", "trigger"},
     TechBonusReward: {"name"},
     RewardItem: {"enabled"},
+    DecisionCategory: {"priority", "visible"},
+    DecisionData: {"cost", "isGood", "daysRemove", "daysReEnable",
+                   "daysMissionTimeout", "aiWillDo", "priority", "visible",
+                   "available", "completeEffect", "removeEffect", "timeoutEffect"},
     FocusForgeProject: {"country"},
 }
 
@@ -63,6 +69,15 @@ def _to_plain(value: Any) -> Any:
 
 def project_to_dict(project: FocusForgeProject) -> dict:
     return _to_plain(project)
+
+
+def focus_to_dict(focus: FocusNodeData) -> dict:
+    """One focus as a plain dict — used by the clipboard copy/paste payload."""
+    return _to_plain(focus)
+
+
+def focus_from_dict(d: dict) -> FocusNodeData:
+    return _focus_from_dict(d)
 
 
 # ----- Deserialize -------------------------------------------------------------
@@ -171,6 +186,8 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         mutuallyExclusive=list(d.get("mutuallyExclusive") or []),
         completionReward=_completion_reward_from_dict(d.get("completionReward") or {}),
         available=_availability_from_dict(d["available"]) if d.get("available") else None,
+        bypass=_availability_from_dict(d["bypass"]) if d.get("bypass") else None,
+        aiWillDo=d.get("aiWillDo"),
         notes=d.get("notes"),
     )
 
@@ -183,6 +200,7 @@ def _export_settings_from_dict(d: dict) -> ExportSettings:
         includeIdeas=bool(d.get("includeIdeas", False)),
         includeEvents=bool(d.get("includeEvents", False)),
         includeCountry=bool(d.get("includeCountry", False)),
+        includeDecisions=bool(d.get("includeDecisions", False)),
     )
 
 
@@ -215,6 +233,58 @@ def _country_from_dict(d: dict) -> CountryData:
     )
 
 
+def _decision_category_from_dict(d: dict) -> DecisionCategory:
+    return DecisionCategory(
+        id=d.get("id", ""),
+        title=d.get("title", ""),
+        description=d.get("description", ""),
+        icon=d.get("icon", "GFX_decision_category_generic_political_actions"),
+        priority=_num_or_none(d.get("priority"), int),
+        visible=_availability_from_dict(d["visible"]) if d.get("visible") else None,
+        rawLines=list(d.get("rawLines") or []),
+    )
+
+
+def _num_or_none(value, cast):
+    """Coerce a possibly bridge-supplied value ('90', '90.5', 90) or fall back
+    to None — downstream int()/float()/format calls must never crash the GUI."""
+    if value is None or value == "":
+        return None
+    try:
+        return cast(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _decision_from_dict(d: dict) -> DecisionData:
+    def _reward(key):
+        return _completion_reward_from_dict(d[key]) if d.get(key) else None
+
+    return DecisionData(
+        id=d.get("id", ""),
+        title=d.get("title", ""),
+        description=d.get("description", ""),
+        category=d.get("category", ""),
+        icon=d.get("icon", ""),
+        iconData=d.get("iconData", ""),
+        cost=_num_or_none(d.get("cost"), float),
+        fireOnlyOnce=bool(d.get("fireOnlyOnce", False)),
+        isGood=d.get("isGood"),
+        daysRemove=_num_or_none(d.get("daysRemove"), int),
+        daysReEnable=_num_or_none(d.get("daysReEnable"), int),
+        daysMissionTimeout=_num_or_none(d.get("daysMissionTimeout"), int),
+        aiWillDo=_num_or_none(d.get("aiWillDo"), float),
+        priority=_num_or_none(d.get("priority"), int),
+        visible=_availability_from_dict(d["visible"]) if d.get("visible") else None,
+        available=_availability_from_dict(d["available"]) if d.get("available") else None,
+        completeEffect=_reward("completeEffect"),
+        removeEffect=_reward("removeEffect"),
+        timeoutEffect=_reward("timeoutEffect"),
+        modifierRawLines=list(d.get("modifierRawLines") or []),
+        rawLines=list(d.get("rawLines") or []),
+    )
+
+
 def project_from_dict(d: dict) -> FocusForgeProject:
     cfp = d.get("continuousFocusPosition") or {}
     return FocusForgeProject(
@@ -225,6 +295,9 @@ def project_from_dict(d: dict) -> FocusForgeProject:
         focuses=[_focus_from_dict(f) for f in (d.get("focuses") or [])],
         ideas=[_idea_from_dict(i) for i in (d.get("ideas") or [])],
         events=[_event_from_dict(e) for e in (d.get("events") or [])],
+        decisions=[_decision_from_dict(x) for x in (d.get("decisions") or [])],
+        decisionCategories=[_decision_category_from_dict(x)
+                            for x in (d.get("decisionCategories") or [])],
         exportSettings=_export_settings_from_dict(d.get("exportSettings") or {}),
         country=_country_from_dict(d["country"]) if d.get("country") else None,
         exportDir=d.get("exportDir", ""),

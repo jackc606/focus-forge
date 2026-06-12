@@ -9,6 +9,37 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.2.0",
+        "date": "2026-06-12",
+        "title": "Decisions, undo, and a lot of polish",
+        "changes": [
+            "Full decision creator — toolbar → Decisions. Author decisions with "
+            "cost, timers, cooldowns, missions, visible/available conditions, "
+            "complete/remove/timeout effects, active modifiers, AI weighting, and "
+            "custom categories. Drop them into your own category or any Millennium "
+            "Dawn one. Import a custom decision icon or pick from the in-game grid.",
+            "Undo & redo (Ctrl+Z / Ctrl+Y) across everything — up to 50 steps, with "
+            "Undo/Redo buttons on the toolbar.",
+            "Copy, paste and duplicate focuses (Ctrl+C / V / D). Paste lands where "
+            "your cursor is and keeps the branch's layout and internal links; "
+            "right-click → Paste Here drops it at an exact spot.",
+            "New Stats tab — branch lengths in days, political-power economy, tree "
+            "depth and size at a glance.",
+            "Add an exact-date or bypass to focuses, set per-focus AI priority, and "
+            "a new State Population reward (adds people to one state).",
+            "Hover tooltips on every reward and condition, on idea modifiers (from "
+            "the game's own text), plus a Common modifier category of the 20 "
+            "most-used. Multi-line descriptions now export cleanly.",
+            "Smarter validation: it now catches broken availability conditions, "
+            "references to missing ideas/events, unresolved icons, and layout slips "
+            "— all before you export.",
+            "AI Bridge security hardening: every connection now needs a one-time "
+            "secret only your own machine can read, so nothing else can drive it.",
+            "Saving is crash-safe, big trees stay snappy while typing, and the game "
+            "data (icons, techs, states) loads in the background at startup.",
+        ],
+    },
+    {
         "version": "0.1.9",
         "date": "2026-06-12",
         "title": "Reliability, speed & a verified reward catalog",

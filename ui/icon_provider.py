@@ -164,6 +164,8 @@ class IconProvider(QObject):
         self._focus_sprites = None  # cached [(name, path)] under interface/goals
         self._idea_sprites = None   # cached [(name, path)] for GFX_idea_*
         self._event_sprites = None  # cached [(name, path)] under gfx/event_pictures
+        self._decision_sprites = None       # cached GFX_decision_* (icons)
+        self._decision_cat_sprites = None   # cached GFX_decision_category_*
         self._leader_portraits: dict = {}  # tag -> [(relpath, abspath, label)]
         self._portrait_cache: dict = {}    # relpath(lower) -> QPixmap or None
         self._party_logos: dict = {}       # tag -> [(GFX_name, abspath)]
@@ -189,6 +191,8 @@ class IconProvider(QObject):
         self._focus_sprites = None
         self._idea_sprites = None
         self._event_sprites = None
+        self._decision_sprites = None
+        self._decision_cat_sprites = None
         self._leader_portraits = {}
         self._portrait_cache = {}
         self._party_logos = {}
@@ -249,6 +253,13 @@ class IconProvider(QObject):
     def is_indexed(self) -> bool:
         return self._index_built
 
+    def sprite_exists(self, icon_value: str):
+        """True/False once the index is built; None while it isn't (validation
+        skips the warning rather than guessing). Never triggers a build."""
+        if not self._index_built or not self._all_roots() or not icon_value:
+            return None
+        return resolve_sprite(self._index, icon_value) is not None
+
     def focus_sprites(self) -> list:
         """Sorted [(GFX_name, abs_path)] for sprites under interface/goals — the
         focus-icon subset, not every UI sprite. Cached after first build."""
@@ -280,6 +291,37 @@ class IconProvider(QObject):
             out.sort(key=lambda t: t[0].lower())
             self._idea_sprites = out
         return self._idea_sprites
+
+    def decision_icon_sprites(self) -> list:
+        """Sorted [(GFX_name, abs_path)] for decision icons (GFX_decision_*,
+        excluding the category banners). Cached after first build."""
+        if self._decision_sprites is None:
+            if not self._index_built:
+                self._build_index()
+            out = []
+            for _lower, (name, path) in self._index.items():
+                low = name.lower()
+                if (low.startswith("gfx_decision_")
+                        and not low.startswith("gfx_decision_category_")
+                        and not low.endswith("_shine")):
+                    out.append((name, path))
+            out.sort(key=lambda t: t[0].lower())
+            self._decision_sprites = out
+        return self._decision_sprites
+
+    def decision_category_sprites(self) -> list:
+        """Sorted [(GFX_name, abs_path)] for decision-category icons."""
+        if self._decision_cat_sprites is None:
+            if not self._index_built:
+                self._build_index()
+            out = []
+            for _lower, (name, path) in self._index.items():
+                low = name.lower()
+                if low.startswith("gfx_decision_category_") and not low.endswith("_shine"):
+                    out.append((name, path))
+            out.sort(key=lambda t: t[0].lower())
+            self._decision_cat_sprites = out
+        return self._decision_cat_sprites
 
     def event_picture_sprites(self) -> list:
         """Sorted [(GFX_name, abs_path)] for event pictures (sprites whose texture

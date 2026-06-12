@@ -149,6 +149,14 @@ class InspectorPanel(QWidget):
         self._cost_edit.setDecimals(2)
         form.addRow("Cost", self._cost_edit)
 
+        self._ai_priority = QDoubleSpinBox()
+        self._ai_priority.setRange(0, 9999)
+        self._ai_priority.setDecimals(1)
+        self._ai_priority.setToolTip(
+            "ai_will_do base — how strongly the AI prioritizes this focus. 10 is "
+            "the default; higher means picked sooner, 0 makes the AI avoid it.")
+        form.addRow("AI Priority", self._ai_priority)
+
         self._filters = ChipSelector(MD_FOCUS_FILTERS, "add filter…")
         form.addRow("Filters", self._filters)
 
@@ -195,6 +203,10 @@ class InspectorPanel(QWidget):
         self._pos_x.valueChanged.connect(self._commit_position)
         self._pos_y.valueChanged.connect(self._commit_position)
         self._cost_edit.valueChanged.connect(lambda v: self._commit("cost", v))
+        # 10 is HOI4's effective default — store None so untouched focuses
+        # serialize and export byte-identically to before this field existed.
+        self._ai_priority.valueChanged.connect(
+            lambda v: self._commit("aiWillDo", None if v == 10 else v))
         self._filters.tokens_changed.connect(lambda v: self._commit("filters", v))
         self._prereqs.tokens_changed.connect(lambda v: self._commit("prerequisites", v))
         self._mutex.tokens_changed.connect(lambda v: self._commit("mutuallyExclusive", v))
@@ -260,6 +272,8 @@ class InspectorPanel(QWidget):
         self._pos_x.setValue(int(focus.position.x))
         self._pos_y.setValue(int(focus.position.y))
         self._cost_edit.setValue(float(focus.cost))
+        self._ai_priority.setValue(10.0 if getattr(focus, "aiWillDo", None) is None
+                                   else float(focus.aiWillDo))
         self._filters.set_tokens(focus.filters)
         self._prereqs.set_tokens(focus.prerequisites)
         self._mutex.set_tokens(focus.mutuallyExclusive)

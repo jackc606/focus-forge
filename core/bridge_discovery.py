@@ -31,12 +31,23 @@ def bridge_info_path() -> Path:
 
 
 def write_bridge_info(port: int, **extra) -> Path:
-    """Record the listening port (+ pid/protocol/version) for the proxy to read."""
+    """Record the listening port (+ pid/protocol/version/token) for the proxy.
+
+    The file may carry the bridge auth token, so it must stay private to the
+    user: %LOCALAPPDATA% is already per-user on Windows; on POSIX we tighten the
+    file mode to 0600 (and the dir to 0700) so other local accounts can't read
+    the token from a shared home."""
     path = bridge_info_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     info = {"port": int(port), "pid": os.getpid(), "protocol": PROTOCOL_VERSION}
     info.update(extra)
     path.write_text(json.dumps(info), encoding="utf-8")
+    if os.name != "nt":
+        for target, mode in ((path.parent, 0o700), (path, 0o600)):
+            try:
+                os.chmod(target, mode)
+            except OSError:
+                pass
     return path
 
 

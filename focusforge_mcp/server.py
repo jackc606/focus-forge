@@ -77,10 +77,14 @@ def _call(op: str, args: "dict | None" = None):
     if not info or not info.get("port"):
         raise BridgeError(_EDITOR_OFF)
     port = int(info["port"])
+    # The editor authenticates each request against the token it published in the
+    # (per-user, private) discovery file. Reading that file is what proves this
+    # proxy is running as the same user.
+    request = {"op": op, "args": args or {}, "token": info.get("token", "")}
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=15) as s:
             s.settimeout(15)
-            s.sendall((json.dumps({"op": op, "args": args or {}}) + "\n").encode("utf-8"))
+            s.sendall((json.dumps(request) + "\n").encode("utf-8"))
             buf = b""
             while b"\n" not in buf:
                 chunk = s.recv(65536)

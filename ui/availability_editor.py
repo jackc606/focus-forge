@@ -22,6 +22,8 @@ from core.types import AvailabilityRule, RewardItem
 from . import theme as T
 from .item_card import PresetItemCard
 from .param_widgets import make_param_widget
+from .preset_list import ConditionListWidget
+from .widgets import add_combo_item, hint, section_header
 
 
 def availability_preview_lines(rule: AvailabilityRule) -> list:
@@ -49,7 +51,8 @@ class AvailabilityEditor(QWidget):
             self._combo.addItem(f"-- {group} --", None)
             self._combo.model().item(self._combo.count() - 1).setEnabled(False)
             for preset in presets:
-                self._combo.addItem(f"  {preset.label}", preset.kind)
+                add_combo_item(self._combo, f"  {preset.label}",
+                               preset.kind, preset.description)
         self._combo.activated.connect(self._on_add_preset)
         v.addWidget(self._combo)
 
@@ -63,6 +66,15 @@ class AvailabilityEditor(QWidget):
         self._raw.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw.textChanged.connect(self._commit_raw)
         v.addWidget(self._raw)
+
+        # Bypass: conditions that SKIP the focus entirely (it completes without
+        # being taken — e.g. "already a NATO member").
+        v.addWidget(section_header("Bypass (optional)"))
+        v.addWidget(hint("If these conditions are met the focus is skipped — marked "
+                         "complete without spending its time."))
+        self._bypass_holder = QVBoxLayout()
+        v.addLayout(self._bypass_holder)
+        self._bypass_widget = None
 
         self._preview_label = QLabel("Generated available block")
         v.addWidget(self._preview_label)
@@ -111,6 +123,19 @@ class AvailabilityEditor(QWidget):
                     param, current, set_value,
                     country_tag=tag, focus_ids=focus_ids))
             self._items_box.addWidget(card)
+
+        # Rebuild the bypass condition list for this focus.
+        while self._bypass_holder.count():
+            child = self._bypass_holder.takeAt(0)
+            w = child.widget()
+            if w:
+                w.deleteLater()
+        bypass = getattr(focus, "bypass", None)
+        self._bypass_widget = ConditionListWidget(
+            items=(bypass.items if bypass else None),
+            raw_lines=(bypass.rawLines if bypass else None),
+            country_tag=tag, focus_ids=focus_ids, on_change=self._commit_bypass)
+        self._bypass_holder.addWidget(self._bypass_widget)
         self._raw.blockSignals(True)
         self._raw.setPlainText("\n".join(rule.rawLines or []))
         self._raw.blockSignals(False)
@@ -171,11 +196,27 @@ class AvailabilityEditor(QWidget):
         self._refresh_preview()
         self._model.notify_changed()
 
+    def _commit_bypass(self) -> None:
+        if self._suspend:
+            return
+        focus = self._focus()
+        if not focus or self._bypass_widget is None:
+            return
+        items = self._bypass_widget.items()
+        raw = self._bypass_widget.raw_lines()
+        focus.bypass = AvailabilityRule(items=items, rawLines=raw) if (items or raw) else None
+        self._refresh_preview()
+        self._model.notify_changed()
+
     def _refresh_preview(self) -> None:
         focus = self._focus()
+        blocks = []
         lines = availability_preview_lines(focus.available) if focus else []
         if lines:
             body = "\n".join(f"\t{ln}" for ln in lines)
-            self._preview.setPlainText("available = {\n" + body + "\n}")
-        else:
-            self._preview.setPlainText("(none)")
+            blocks.append("available = {\n" + body + "\n}")
+        bypass_lines = availability_preview_lines(getattr(focus, "bypass", None)) if focus else []
+        if bypass_lines:
+            body = "\n".join(f"\t{ln}" for ln in bypass_lines)
+            blocks.append("bypass = {\n" + body + "\n}")
+        self._preview.setPlainText("\n".join(blocks) if blocks else "(none)")

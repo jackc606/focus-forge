@@ -30,6 +30,7 @@ from . import theme as T
 from .item_card import PresetItemCard
 from .no_scroll import NoScrollComboBox as QComboBox
 from .param_widgets import make_param_widget
+from .widgets import add_combo_item
 
 
 class _PresetListBase(QWidget):
@@ -53,7 +54,8 @@ class _PresetListBase(QWidget):
             self._combo.addItem(f"-- {group} --", None)
             self._combo.model().item(self._combo.count() - 1).setEnabled(False)
             for preset in presets:
-                self._combo.addItem(f"  {preset.label}", preset.kind)
+                add_combo_item(self._combo, f"  {preset.label}",
+                               preset.kind, preset.description)
         self._combo.activated.connect(self._on_add)
         v.addWidget(self._combo)
 

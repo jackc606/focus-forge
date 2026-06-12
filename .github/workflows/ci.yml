@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install PySide6 mcp pytest
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests/ -q
+
+  installer:
+    # Tag a release (git tag v0.1.10 && git push --tags) to get a ready
+    # FocusForge-<version>-setup.exe as a workflow artifact.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install PySide6 mcp pyinstaller
+      - name: Build app
+        run: python -m PyInstaller build.spec --clean --noconfirm
+      - name: Build installer
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: dist/FocusForge-*-setup.exe
+          if-no-files-found: error

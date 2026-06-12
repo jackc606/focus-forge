@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject
 
-from core.modifier_index import build_modifier_groups
+from core.decision_index import build_decision_categories
+from core.modifier_index import build_modifier_groups, build_modifier_tooltips
 from core.tech_index import (
     build_building_list,
     build_building_types,
@@ -25,6 +26,8 @@ class TechProvider(QObject):
         self._building_list = None
         self._opinion_mods = None
         self._idea_mod_groups = None
+        self._idea_mod_tooltips = None
+        self._decision_categories = None
         icon_provider().changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
@@ -34,6 +37,8 @@ class TechProvider(QObject):
         self._building_list = None
         self._opinion_mods = None
         self._idea_mod_groups = None
+        self._idea_mod_tooltips = None
+        self._decision_categories = None
 
     def tech_groups(self) -> list:
         """[(group_label, [(tech_id, display)])]; cached."""
@@ -70,6 +75,24 @@ class TechProvider(QObject):
         if self._idea_mod_groups is None:
             self._idea_mod_groups = build_modifier_groups(icon_provider().roots())
         return self._idea_mod_groups
+
+    def idea_modifier_tooltips(self) -> dict:
+        """{modifier_name(lower): hover tooltip} from the game's MODIFIER_*
+        localisation; cached. Empty if no game files are configured."""
+        if self._idea_mod_tooltips is None:
+            self._idea_mod_tooltips = build_modifier_tooltips(icon_provider().roots())
+        return self._idea_mod_tooltips
+
+    def md_decision_categories(self) -> list:
+        """Existing decision-category ids from the configured roots; cached."""
+        if self._decision_categories is None:
+            self._decision_categories = build_decision_categories(icon_provider().roots())
+        return self._decision_categories
+
+    def md_decision_categories_cached(self):
+        """The cached list, or None if it hasn't been built yet — for callers
+        (validation) that must never trigger a blocking scan."""
+        return self._decision_categories
 
 
 _INSTANCE = None

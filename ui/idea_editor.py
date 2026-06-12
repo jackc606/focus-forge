@@ -45,12 +45,16 @@ def _build_modifier_combo(current: str) -> QComboBox:
     cb.setEditable(True)
     cb.setInsertPolicy(QComboBox.NoInsert)
     cb.setMaxVisibleItems(24)
+    tooltips = tech_provider().idea_modifier_tooltips()
     all_names = []
     for label, names in tech_provider().idea_modifier_groups():
         cb.addItem(f"— {label} —")
         cb.model().item(cb.count() - 1).setEnabled(False)
         for n in names:
             cb.addItem(n)
+            tip = tooltips.get(n.lower())
+            if tip:
+                cb.setItemData(cb.count() - 1, tip, Qt.ToolTipRole)
             all_names.append(n)
     cb.setCurrentText(current)
     if all_names:

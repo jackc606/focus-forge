@@ -1,20 +1,25 @@
 """Main application window."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSettings, QTimer
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QSplitter,
     QStatusBar,
     QTabWidget,
+    QTextEdit,
     QToolBar,
     QWidget,
 )
@@ -36,6 +41,7 @@ from . import theme as T
 from .country_editor import CountryEditorDialog
 from .country_export import (
     export_country_assets,
+    export_decision_assets,
     export_event_assets,
     export_focus_icon_assets,
 )
@@ -46,8 +52,10 @@ from .import_tree_dialog import ImportTreeDialog
 from .new_submod_dialog import NewSubmodDialog
 from .workspace import workspace_dir
 from .focuses_list_panel import FocusesListPanel
+from .focus_node_item import FocusNodeItem
 from .graph_scene import GraphScene
 from .graph_view import GraphView
+from .stats_panel import StatsPanel
 from .agent_bridge import AgentBridge
 from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
@@ -91,18 +99,29 @@ class MainWindow(QMainWindow):
         self._view.delete_focuses_requested.connect(self._on_delete_focuses)
         self._view.add_child_requested.connect(self._on_add_child)
         self._view.delete_link_requested.connect(self._on_delete_link)
+        self._view.paste_requested.connect(self._paste_at_scene)
+
+        # Canvas-only clipboard shortcuts (widget context: they never steal
+        # Ctrl+C/V from text fields elsewhere in the app).
+        for seq, handler in ((QKeySequence.Copy, self._copy_selection),
+                             (QKeySequence.Paste, self._paste_clipboard),
+                             (QKeySequence("Ctrl+D"), self._duplicate_selection)):
+            sc = QShortcut(seq, self._view, activated=handler)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
 
         self._tabs = QTabWidget()
         self._tabs.setMinimumWidth(420)
         self._tabs.setMaximumWidth(520)
         self._inspector = InspectorPanel(self._model)
         self._validation = ValidationPanel(self._model)
+        self._stats_panel = StatsPanel(self._model)
         self._export_panel = ExportPanel(self._model)
         self._llm = LlmPanel(self._model)
         self._settings_panel = SettingsPanel(self._model)
         self._help = HelpPanel()
         self._tabs.addTab(self._inspector, "Inspector")
         self._tabs.addTab(self._validation, "Validation")
+        self._tabs.addTab(self._stats_panel, "Stats")
         self._tabs.addTab(self._export_panel, "Export")
         self._tabs.addTab(self._llm, "LLM")
         self._tabs.addTab(self._settings_panel, "Settings")
@@ -202,6 +221,10 @@ class MainWindow(QMainWindow):
         events_act = QAction("Events", self)
         events_act.triggered.connect(self._manage_events)
         tb.addAction(events_act)
+
+        decisions_act = QAction("Decisions", self)
+        decisions_act.triggered.connect(self._manage_decisions)
+        tb.addAction(decisions_act)
         tb.addSeparator()
 
         open_act = QAction("Open", self)
@@ -217,6 +240,25 @@ class MainWindow(QMainWindow):
         save_as_act = QAction("Save As", self)
         save_as_act.triggered.connect(self._save_as)
         tb.addAction(save_as_act)
+
+        tb.addSeparator()
+
+        # Toolbar buttons always operate on the PROJECT (clicking a button
+        # doesn't move keyboard focus, so a focused text field must not hijack
+        # them); the keyboard shortcuts below keep the text-field guard.
+        undo_act = QAction("Undo", self)
+        undo_act.setToolTip("Undo the last change (Ctrl+Z)")
+        undo_act.triggered.connect(self._undo_project)
+        tb.addAction(undo_act)
+
+        redo_act = QAction("Redo", self)
+        redo_act.setToolTip("Redo (Ctrl+Y)")
+        redo_act.triggered.connect(self._redo_project)
+        tb.addAction(redo_act)
+
+        QShortcut(QKeySequence.Undo, self, activated=self._undo)
+        QShortcut(QKeySequence.Redo, self, activated=self._redo)
+        QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo)
 
         tb.addSeparator()
 
@@ -262,6 +304,85 @@ class MainWindow(QMainWindow):
             "off by default.")
         self._bridge_action.toggled.connect(self._toggle_bridge)
         tb.addAction(self._bridge_action)
+
+    # ----- undo / redo / clipboard -----
+    @staticmethod
+    def _focused_text_widget(for_redo: bool = False):
+        """The focused text widget IF it should consume the undo/redo keystroke:
+        editable, with steps left in its own history. Read-only previews and
+        exhausted fields fall through to project undo."""
+        w = QApplication.focusWidget()
+        if isinstance(w, QLineEdit):
+            if not w.isReadOnly() and (w.isRedoAvailable() if for_redo else w.isUndoAvailable()):
+                return w
+        elif isinstance(w, (QPlainTextEdit, QTextEdit)):
+            doc = w.document()
+            if not w.isReadOnly() and (doc.isRedoAvailable() if for_redo else doc.isUndoAvailable()):
+                return w
+        return None
+
+    def _undo(self) -> None:
+        # A focused text field keeps its own character-level undo.
+        w = self._focused_text_widget()
+        if w is not None:
+            w.undo()
+            return
+        self._undo_project()
+
+    def _redo(self) -> None:
+        w = self._focused_text_widget(for_redo=True)
+        if w is not None:
+            w.redo()
+            return
+        self._redo_project()
+
+    def _undo_project(self) -> None:
+        self._model.status_message.emit(
+            "Undid last change." if self._model.undo() else "Nothing to undo.")
+
+    def _redo_project(self) -> None:
+        self._model.status_message.emit(
+            "Redid change." if self._model.redo() else "Nothing to redo.")
+
+    def _selected_focus_ids(self) -> list:
+        return [it.focus_id for it in self._scene.selectedItems()
+                if isinstance(it, FocusNodeItem)]
+
+    def _copy_selection(self) -> None:
+        ids = self._selected_focus_ids()
+        if not ids:
+            self._model.status_message.emit("Nothing selected to copy.")
+            return
+        payload = self._model.copy_payload(ids)
+        QApplication.clipboard().setText(json.dumps(payload, ensure_ascii=False))
+        self._model.status_message.emit(
+            f"Copied {len(ids)} focus{'es' if len(ids) != 1 else ''}.")
+
+    def _paste_clipboard(self) -> None:
+        # Ctrl+V → paste under the cursor (or the visible centre if it's off-view).
+        self._paste_at_scene(self._view.paste_anchor_scene())
+
+    def _paste_at_scene(self, scene_pos) -> None:
+        try:
+            payload = json.loads(QApplication.clipboard().text() or "")
+        except ValueError:
+            payload = None
+        if not (isinstance(payload, dict) and payload.get("focuses")):
+            self._model.status_message.emit("Clipboard has no copied focuses.")
+            return
+        at = self._view.scene_to_grid(scene_pos) if scene_pos is not None else None
+        new_ids = self._model.paste_focuses(payload, at=at)
+        self._model.status_message.emit(
+            f"Pasted {len(new_ids)} focus{'es' if len(new_ids) != 1 else ''}.")
+
+    def _duplicate_selection(self) -> None:
+        ids = self._selected_focus_ids()
+        if not ids:
+            self._model.status_message.emit("Nothing selected to duplicate.")
+            return
+        new_ids = self._model.duplicate_focuses(ids)
+        self._model.status_message.emit(
+            f"Duplicated {len(new_ids)} focus{'es' if len(new_ids) != 1 else ''}.")
 
     # ----- handlers -----
     def _open(self) -> None:
@@ -518,6 +639,10 @@ class MainWindow(QMainWindow):
         from .events_dialog import EventsManagerDialog
         EventsManagerDialog(self._model, self).exec()
 
+    def _manage_decisions(self) -> None:
+        from .decisions_dialog import DecisionsManagerDialog
+        DecisionsManagerDialog(self._model, self).exec()
+
     def _show_devlog(self) -> None:
         from .devlog_dialog import DevLogDialog
         DevLogDialog(self).exec()
@@ -652,6 +777,9 @@ class MainWindow(QMainWindow):
             # Custom event-picture DDS (events are their own export section).
             if self._model.project.exportSettings.includeEvents and self._model.project.events:
                 export_event_assets(self._model.project, str(directory))
+            # Custom decision-icon DDS (decisions are their own export section).
+            if self._model.project.exportSettings.includeDecisions and self._model.project.decisions:
+                export_decision_assets(self._model.project, str(directory))
             return True
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))

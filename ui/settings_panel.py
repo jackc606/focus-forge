@@ -102,6 +102,8 @@ class SettingsPanel(QWidget):
         export_form.addRow(self._include_ideas)
         self._include_events = QCheckBox("Include events in export")
         export_form.addRow(self._include_events)
+        self._include_decisions = QCheckBox("Include decisions in export")
+        export_form.addRow(self._include_decisions)
 
         # ----- Autosave -----
         v.addWidget(section_header("Autosave"))
@@ -177,6 +179,7 @@ class SettingsPanel(QWidget):
         self._cfp_y.valueChanged.connect(self._commit_cfp)
         self._include_ideas.toggled.connect(lambda v: self._commit_export("includeIdeas", v))
         self._include_events.toggled.connect(lambda v: self._commit_export("includeEvents", v))
+        self._include_decisions.toggled.connect(lambda v: self._commit_export("includeDecisions", v))
 
         self._model.project_changed.connect(self.refresh)
         self.refresh()
@@ -194,6 +197,7 @@ class SettingsPanel(QWidget):
         self._cfp_y.setValue(int(p.continuousFocusPosition.y))
         self._include_ideas.setChecked(p.exportSettings.includeIdeas)
         self._include_events.setChecked(p.exportSettings.includeEvents)
+        self._include_decisions.setChecked(p.exportSettings.includeDecisions)
         self._suspend = False
 
     def _commit(self, attr: str, value) -> None:

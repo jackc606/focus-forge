@@ -68,6 +68,28 @@ def export_project_files(project: FocusForgeProject) -> list:
                 relativePath=f"common/on_actions/{settings.localisationPrefix}_on_actions.txt",
                 content=export_on_actions(project),
             ))
+    if settings.includeDecisions and (project.decisions or project.decisionCategories):
+        if project.decisionCategories:
+            files.append(ExportedFile(
+                relativePath=f"common/decisions/categories/{settings.localisationPrefix}_decision_categories.txt",
+                content=export_decision_categories(project),
+            ))
+        if project.decisions:
+            files.append(ExportedFile(
+                relativePath=f"common/decisions/{settings.localisationPrefix}_decisions.txt",
+                content=export_decisions(project),
+            ))
+        files.append(ExportedFile(
+            relativePath=f"localisation/english/{settings.localisationPrefix}_decisions_l_english.yml",
+            content=export_decision_localisation(project),
+            bom=True,
+        ))
+        decision_icon_gfx = export_decision_icon_sprites(project)
+        if decision_icon_gfx:
+            files.append(ExportedFile(
+                relativePath=f"interface/{settings.localisationPrefix}_decision_icons.gfx",
+                content=decision_icon_gfx,
+            ))
     if settings.includeCountry and project.country:
         files.append(ExportedFile(
             relativePath=f"history/countries/{project.countryTag} - {project.projectName or project.countryTag}.txt",
@@ -404,6 +426,13 @@ def _export_focus(focus: FocusNodeData) -> list:
             lines.append(f"{TAB}{TAB}{TAB}{line}")
         lines.append(f"{TAB}{TAB}}}")
 
+    bypass = getattr(focus, "bypass", None)
+    if bypass and _has_availability(bypass):
+        lines.append(f"{TAB}{TAB}bypass = {{")
+        for line in _availability_inner_lines(bypass):
+            lines.append(f"{TAB}{TAB}{TAB}{line}")
+        lines.append(f"{TAB}{TAB}}}")
+
     if focus.filters:
         lines.append(f"{TAB}{TAB}search_filters = {{ {' '.join(focus.filters)} }}")
 
@@ -413,8 +442,9 @@ def _export_focus(focus: FocusNodeData) -> list:
     lines.extend(export_completion_reward_lines(focus.completionReward))
     lines.append(f"{TAB}{TAB}}}")
     lines.append("")
+    ai_base = getattr(focus, "aiWillDo", None)
     lines.append(f"{TAB}{TAB}ai_will_do = {{")
-    lines.append(f"{TAB}{TAB}{TAB}base = 10")
+    lines.append(f"{TAB}{TAB}{TAB}base = {_format_number(ai_base) if ai_base is not None else 10}")
     lines.append(f"{TAB}{TAB}}}")
     lines.append(f"{TAB}}}")
     return lines
@@ -595,6 +625,154 @@ def export_events(project: FocusForgeProject) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _decision_icon_relpath(decision) -> str:
+    """Posix relpath of a custom decision-icon .dds (under the mod's decisions
+    folder, where HOI4/MD keep decision art)."""
+    return f"gfx/interface/decisions/{_san(decision.id)}.dds"
+
+
+def _decision_icon_sprite_name(decision) -> str:
+    """Generated sprite name for a CUSTOM decision icon (``_decision_icon`` suffix
+    so it never collides with a vanilla/MD GFX_decision_… sprite)."""
+    return f"GFX_{_san(decision.id)}_decision_icon"
+
+
+def _decision_icon_value(decision) -> str:
+    """The ``icon = …`` GFX name for a decision: the generated sprite for a custom
+    imported image, else the chosen/typed sprite name."""
+    if getattr(decision, "iconData", ""):
+        return _decision_icon_sprite_name(decision)
+    return (decision.icon or "").strip()
+
+
+def export_decision_icon_sprites(project) -> "str | None":
+    """interface/*.gfx spriteTypes wrapping each CUSTOM decision icon (imported
+    image), so the generated ``GFX_<id>_decision_icon`` reference resolves. None
+    if no decision uses a custom icon (named icons reference existing sprites)."""
+    entries = [(_decision_icon_sprite_name(d), _decision_icon_relpath(d))
+               for d in project.decisions if getattr(d, "iconData", "")]
+    if not entries:
+        return None
+    lines = ["spriteTypes = {"]
+    for name, tex in entries:
+        lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def _decision_lines(decision, tag: str) -> list:
+    """One decision block at category depth (indent 1)."""
+    d = decision
+    lines = [f"{TAB}{d.id} = {{"]
+    icon = _decision_icon_value(d)
+    if icon:
+        lines.append(f"{TAB}{TAB}icon = {icon}")
+    if tag:
+        # Per-decision gate so a decision dropped into a SHARED (MD) category
+        # never shows for other countries.
+        lines.append(f"{TAB}{TAB}allowed = {{ original_tag = {tag} }}")
+    if d.cost is not None:
+        lines.append(f"{TAB}{TAB}cost = {_format_number(d.cost)}")
+    if d.fireOnlyOnce:
+        lines.append(f"{TAB}{TAB}fire_only_once = yes")
+    if d.isGood is not None:
+        lines.append(f"{TAB}{TAB}is_good = {'yes' if d.isGood else 'no'}")
+    if d.daysRemove is not None:
+        lines.append(f"{TAB}{TAB}days_remove = {int(d.daysRemove)}")
+    if d.daysReEnable is not None:
+        lines.append(f"{TAB}{TAB}days_re_enable = {int(d.daysReEnable)}")
+    if d.daysMissionTimeout is not None:
+        lines.append(f"{TAB}{TAB}days_mission_timeout = {int(d.daysMissionTimeout)}")
+    if d.priority is not None:
+        lines.append(f"{TAB}{TAB}priority = {int(d.priority)}")
+    for rule, key in ((d.visible, "visible"), (d.available, "available")):
+        inner = _availability_inner_lines(rule)
+        if inner:
+            lines.append(f"{TAB}{TAB}{key} = {{")
+            lines.extend(f"{TAB}{TAB}{TAB}{ln}" for ln in inner)
+            lines.append(f"{TAB}{TAB}}}")
+    for reward, key, log in (
+            (d.completeEffect, "complete_effect", True),
+            (d.removeEffect, "remove_effect", True),
+            (d.timeoutEffect, "timeout_effect", False)):
+        body = export_completion_reward_lines(reward)  # emits at indent 3 already
+        if not body and key != "complete_effect":
+            continue  # optional effects are omitted when empty
+        lines.append(f"{TAB}{TAB}{key} = {{")
+        if log:
+            stem = "Decision" if key == "complete_effect" else "Decision remove"
+            lines.append(f'{TAB}{TAB}{TAB}log = "[GetDateText]: [Root.GetName]: {stem} {d.id}"')
+        lines.extend(body)
+        lines.append(f"{TAB}{TAB}}}")
+    for raw in (d.modifierRawLines or []):
+        lines.append(f"{TAB}{TAB}{raw}")
+    if d.aiWillDo is not None:
+        lines.append(f"{TAB}{TAB}ai_will_do = {{ base = {_format_number(d.aiWillDo)} }}")
+    for raw in (d.rawLines or []):
+        lines.append(f"{TAB}{TAB}{raw}")
+    lines.append(f"{TAB}}}")
+    return lines
+
+
+def export_decisions(project: FocusForgeProject) -> str:
+    """common/decisions file: decisions grouped under their category ids (a
+    category block may be a custom category from this project or an existing
+    MD category — HOI4 merges blocks for the same category across files)."""
+    tag = (project.countryTag or "").strip().upper()
+    by_category: dict = {}
+    for d in project.decisions:
+        # Strip BEFORE the fallback so a whitespace-only category can't emit a
+        # malformed nameless block; validation flags the missing category too.
+        category = (d.category or "").strip() or "uncategorized_decisions"
+        by_category.setdefault(category, []).append(d)
+    lines: list = []
+    for category, decisions in by_category.items():
+        lines.append(f"{category} = {{")
+        for i, d in enumerate(decisions):
+            if i:
+                lines.append("")
+            lines.extend(_decision_lines(d, tag))
+        lines.append("}")
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def export_decision_categories(project: FocusForgeProject) -> str:
+    tag = (project.countryTag or "").strip().upper()
+    lines: list = []
+    for cat in project.decisionCategories:
+        lines.append(f"{cat.id} = {{")
+        if (cat.icon or "").strip():
+            lines.append(f"{TAB}icon = {cat.icon.strip()}")
+        if tag:
+            lines.append(f"{TAB}allowed = {{ original_tag = {tag} }}")
+        if cat.priority is not None:
+            lines.append(f"{TAB}priority = {int(cat.priority)}")
+        inner = _availability_inner_lines(cat.visible)
+        if inner:
+            lines.append(f"{TAB}visible = {{")
+            lines.extend(f"{TAB}{TAB}{ln}" for ln in inner)
+            lines.append(f"{TAB}}}")
+        for raw in (cat.rawLines or []):
+            lines.append(f"{TAB}{raw}")
+        lines.append("}")
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def export_decision_localisation(project: FocusForgeProject) -> str:
+    lines = ["l_english:"]
+    for cat in project.decisionCategories:
+        lines.append(f' {cat.id}:0 "{_escape_loc(cat.title or cat.id)}"')
+        if (cat.description or "").strip():
+            lines.append(f' {cat.id}_desc:0 "{_escape_loc(cat.description)}"')
+    for d in project.decisions:
+        lines.append(f' {d.id}:0 "{_escape_loc(d.title or d.id)}"')
+        if (d.description or "").strip():
+            lines.append(f' {d.id}_desc:0 "{_escape_loc(d.description)}"')
+    return "\n".join(lines) + "\n"
+
+
 def export_on_actions(project: FocusForgeProject) -> str:
     """on_daily attempts every date-scheduled event once per day; each event's
     own ``date >`` trigger + fire_only_once make it land exactly once on its
@@ -637,4 +815,7 @@ def export_llm_markdown(project: FocusForgeProject) -> str:
 
 
 def _escape_loc(value: str) -> str:
-    return (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    # Literal newlines inside a quoted loc value corrupt the .yml for HOI4 —
+    # the game wants the two-character sequence \n instead.
+    return ((value or "").replace("\\", "\\\\").replace('"', '\\"')
+            .replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n"))

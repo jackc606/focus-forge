@@ -28,6 +28,8 @@ from .reward_presets import (
 from .serialization import (
     _availability_from_dict,
     _completion_reward_from_dict,
+    _decision_category_from_dict,
+    _decision_from_dict,
     _event_from_dict,
     _idea_from_dict,
     _to_plain,
@@ -309,6 +311,46 @@ def _op_delete_event(model, args):
     return {"deleted": args["id"]}
 
 
+# ----- decisions -----------------------------------------------------------------
+
+def _op_add_decision(model, args):
+    _require(args, "decision")
+    return {"id": model.add_decision(_decision_from_dict(args["decision"]))}
+
+
+def _op_update_decision(model, args):
+    _require(args, "id", "decision")
+    return {"id": model.update_decision(args["id"], _decision_from_dict(args["decision"]))}
+
+
+def _op_delete_decision(model, args):
+    _require(args, "id")
+    model.delete_decision(args["id"])
+    return {"deleted": args["id"]}
+
+
+def _op_add_decision_category(model, args):
+    _require(args, "category")
+    return {"id": model.add_decision_category(_decision_category_from_dict(args["category"]))}
+
+
+def _op_update_decision_category(model, args):
+    _require(args, "id", "category")
+    return {"id": model.update_decision_category(
+        args["id"], _decision_category_from_dict(args["category"]))}
+
+
+def _op_delete_decision_category(model, args):
+    _require(args, "id")
+    model.delete_decision_category(args["id"])
+    return {"deleted": args["id"]}
+
+
+def _op_list_decisions(model, args):
+    return {"decisions": [_to_plain(d) for d in model.project.decisions],
+            "categories": [_to_plain(c) for c in model.project.decisionCategories]}
+
+
 # ----- IO ----------------------------------------------------------------------
 
 def _op_load_project(model, args):
@@ -365,6 +407,13 @@ _OPS = {
     "add_event": _op_add_event,
     "update_event": _op_update_event,
     "delete_event": _op_delete_event,
+    "add_decision": _op_add_decision,
+    "update_decision": _op_update_decision,
+    "delete_decision": _op_delete_decision,
+    "add_decision_category": _op_add_decision_category,
+    "update_decision_category": _op_update_decision_category,
+    "delete_decision_category": _op_delete_decision_category,
+    "list_decisions": _op_list_decisions,
     "load_project": _op_load_project,
     "save": _op_save,
     "export": _op_export,

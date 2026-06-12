@@ -1,17 +1,54 @@
 """Focus Forge — native Windows entry point."""
 from __future__ import annotations
 
+import datetime
+import os
 import sys
+import traceback
+from pathlib import Path
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
+from core.version import version_label
 from ui import theme as T
 from ui.main_window import MainWindow
 from ui.style import build_qss
 
+CRASH_LOG = Path(os.getenv("APPDATA") or ".") / "FocusForge" / "crash.log"
+
+
+def _install_crash_handler() -> None:
+    """Log any unhandled exception to a file and tell the user where it is —
+    pre-alpha users hit edge cases we can't reproduce without a traceback."""
+
+    def hook(etype, value, tb):
+        try:
+            CRASH_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(CRASH_LOG, "a", encoding="utf-8") as f:
+                f.write(f"\n--- {datetime.datetime.now().isoformat(timespec='seconds')} "
+                        f"{version_label()} ---\n")
+                traceback.print_exception(etype, value, tb, file=f)
+        except OSError:
+            pass
+        traceback.print_exception(etype, value, tb)  # keep stderr output too
+        try:
+            from PySide6.QtWidgets import QMessageBox
+            if QApplication.instance() is not None:
+                QMessageBox.critical(
+                    None, "Focus Forge hit an error",
+                    f"Something went wrong:\n\n{value}\n\n"
+                    f"A detailed report was written to:\n{CRASH_LOG}\n\n"
+                    f"Your project file on disk is untouched — if the app is "
+                    f"unstable, save a copy now and restart.")
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+
 
 def main() -> int:
+    _install_crash_handler()
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     # App-wide font so non-QSS surfaces (completer popups, native menus) inherit

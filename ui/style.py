@@ -258,8 +258,10 @@ QLabel#warningText {{ color: {T.STATUS_WARN}; }}
 
 /* ----- Help tab cards ----- */
 QFrame#helpCard {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_CARD}px; }}
+QFrame#helpQuickStart {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.ACCENT_DIM}; border-radius: {T.RADIUS_CARD}px; }}
 QLabel#helpTitle {{ color: {T.TEXT_PRIMARY}; font-weight: {T.WEIGHT_SEMIBOLD}; font-size: {T.TEXT_LABEL}px; }}
 QLabel#helpBody {{ color: {T.TEXT_SECONDARY}; font-size: {T.TEXT_BODY}px; }}
+QLabel#helpChevron {{ color: {T.ACCENT}; font-weight: {T.WEIGHT_BOLD}; font-size: {T.TEXT_LABEL}px; }}
 QLabel#iconPreview {{ background-color: {T.BG_INSET}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_INPUT}px; }}
 
 /* ----- Event editor ----- */

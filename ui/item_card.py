@@ -40,7 +40,10 @@ class PresetItemCard(QFrame):
         v.setSpacing(T.SPACE_SM)
 
         header = QHBoxLayout()
-        header.addWidget(QLabel(f"<b>{preset.label if preset else item.kind}</b>"))
+        title = QLabel(f"<b>{preset.label if preset else item.kind}</b>")
+        if preset and preset.description:
+            title.setToolTip(preset.description)
+        header.addWidget(title)
         header.addStretch(1)
         self._enabled_chk = QCheckBox("enabled")
         self._enabled_chk.setChecked(item.enabled is not False)

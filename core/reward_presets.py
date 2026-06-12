@@ -167,6 +167,9 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "timed_resource.amount": "Amount of the resource granted while the deal lasts.",
     "timed_resource.state": "One of YOUR state IDs that receives the resource.",
     "timed_resource.days": "How many days the resource lasts before it expires (e.g. 730 = 2 years).",
+    "state_population.state": "Numeric HOI4 state ID whose population grows.",
+    "state_population.amount": "People (manpower) added to that one state. MD focuses "
+                              "use anywhere from a few hundred to hundreds of thousands.",
     "state_building.state": "Numeric HOI4 state ID where construction is added.",
     "state_building.building": "Building type to construct instantly in the selected state "
                                "— infrastructure, factories, air bases, or any MD building id. "
@@ -451,6 +454,14 @@ def _b_interest_group_opinion(p):
 def _b_add_manpower(p): return [f"add_manpower = {_number_value(p, 'amount')}"]
 
 
+def _b_state_population(p):
+    # add_manpower is state-scoped inside a state block ("locally on a state if
+    # in state scope" — vanilla effects doc); MD's state_population_k is derived
+    # from a state's manpower, so this is how MD adds population to one state.
+    return _block(f"{_number_value(p, 'state')}",
+                  [f"add_manpower = {_number_value(p, 'amount')}"])
+
+
 def _b_add_resource(p):
     return [
         f"add_resource = {{ type = {_value(p, 'type')} amount = {_number_value(p, 'amount')} state = {_number_value(p, 'state')} }}"
@@ -654,8 +665,15 @@ _RAW_PRESETS = [
                  [RewardParamDef("amount", "Opinion Change", "number", 5, required=True),
                   RewardParamDef("effect", "Interest Group", "select", "change_farmers_opinion",
                                  required=True, options=INTEREST_GROUP_EFFECTS)], _b_interest_group_opinion),
-    RewardPreset("add_manpower", "State and Material", "Manpower", "Adds manpower.",
+    RewardPreset("add_manpower", "State and Material", "Manpower", "Adds manpower to the national pool.",
                  [RewardParamDef("amount", "Amount", "number", 10000, required=True)], _b_add_manpower),
+    RewardPreset("state_population", "State and Material", "State Population",
+                 "Adds population (manpower) to ONE state. In Millennium Dawn the "
+                 "state's population (state_population_k) is derived from its manpower, "
+                 "so this grows that specific state.",
+                 [RewardParamDef("state", "State", "state", "", required=True),
+                  RewardParamDef("amount", "Population", "number", 10000, required=True, step=1000)],
+                 _b_state_population),
     RewardPreset("add_resource", "State and Material", "State Resource", "Adds resources to a state.",
                  [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("type", "Resource", "select", "steel", required=True, options=RESOURCE_TYPES),

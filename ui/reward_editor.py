@@ -25,6 +25,7 @@ from core.types import CompletionReward, RewardItem
 from . import theme as T
 from .item_card import PresetItemCard
 from .param_widgets import make_param_widget
+from .widgets import add_combo_item
 
 
 class RewardEditor(QWidget):
@@ -60,9 +61,12 @@ class RewardEditor(QWidget):
             idx = self._preset_combo.count() - 1
             self._preset_combo.model().item(idx).setEnabled(False)
             for preset in presets:
-                self._preset_combo.addItem(f"  {preset.label}", preset.kind)
+                add_combo_item(self._preset_combo, f"  {preset.label}",
+                               preset.kind, preset.description)
                 if group == "Ideas" and preset.kind == "add_idea":
-                    self._preset_combo.addItem("  ✎ New Idea…", "__new_idea__")
+                    add_combo_item(self._preset_combo, "  ✎ New Idea…", "__new_idea__",
+                                   "Author a brand-new national spirit and grant it "
+                                   "from this focus in one step.")
         self._preset_combo.activated.connect(self._on_add_preset)
         h.addWidget(self._preset_combo, 1)
         v.addLayout(h)

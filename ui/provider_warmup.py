@@ -44,6 +44,8 @@ def warm_game_data_async(country_tag: str = "") -> None:
             tech.building_types()
             tech.opinion_modifiers()
             tech.idea_modifier_groups()
+            tech.idea_modifier_tooltips()
+            tech.md_decision_categories()
             traits.trait_tooltips()  # builds the trait index too
             if tag:
                 traits.trait_groups(tag)

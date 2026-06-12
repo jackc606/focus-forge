@@ -9,6 +9,7 @@ from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QImage
 
 from core.exporters import (
+    _decision_icon_relpath,
     _event_picture_relpath,
     _focus_icon_relpath,
     _leader_slug,
@@ -127,6 +128,25 @@ def export_event_assets(project, mod_dir: str) -> int:
             continue
         bgra, w, h = _argb32_bytes(img)
         rel = _event_picture_relpath(event)
+        path = os.path.join(mod_dir, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        atomic_write_bytes(path, dds_bgra32(bgra, w, h))
+        written += 1
+    return written
+
+
+def export_decision_assets(project, mod_dir: str) -> int:
+    """Write the .dds for each decision that uses a CUSTOM imported icon. Returns
+    the number of files written. Independent (decisions are their own section)."""
+    written = 0
+    for decision in getattr(project, "decisions", None) or []:
+        if not getattr(decision, "iconData", ""):
+            continue
+        img = _qimage_from_b64(decision.iconData)
+        if img is None:
+            continue
+        bgra, w, h = _argb32_bytes(img)
+        rel = _decision_icon_relpath(decision)
         path = os.path.join(mod_dir, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         atomic_write_bytes(path, dds_bgra32(bgra, w, h))

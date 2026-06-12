@@ -15,8 +15,10 @@ from __future__ import annotations
 import glob
 import os
 import re
+from collections import Counter
 
 from .mod_paths import effective_roots_for_path
+from .pdx_loc import _read_loc_lines
 from .presets import COMMON_IDEA_MODIFIERS
 from .tech_index import _COMMENT, _match_brace
 
@@ -113,12 +115,10 @@ def build_base_modifier_names(roots) -> set:
     return names
 
 
-def build_md_idea_modifier_keys(roots) -> set:
-    """Modifier keys harvested from common/ideas/*.txt — only the keys declared
-    inside brace-matched modifier/targeted_modifier blocks (so we never pick up
-    picture/allowed/name/cost/etc). The targeted_modifier `tag` target is dropped.
-    """
-    keys = set()
+def _iter_md_idea_modifier_keys(roots):
+    """Yield every modifier key (WITH repeats) declared inside brace-matched
+    modifier/targeted_modifier blocks in common/ideas/*.txt — so callers can
+    either collect a set or count usage frequency."""
     for root in effective_roots_for_path(roots, "common/ideas"):
         idir = os.path.join(root, "common", "ideas")
         if not os.path.isdir(idir):
@@ -132,9 +132,80 @@ def build_md_idea_modifier_keys(roots) -> set:
             for bm in _MOD_BLOCK.finditer(text):
                 brace = text.index("{", bm.start())
                 body = text[brace + 1:_match_brace(text, brace)]
-                keys.update(_MOD_KEY.findall(body))
-    keys.discard("tag")
-    return keys
+                for key in _MOD_KEY.findall(body):
+                    if key != "tag":  # the targeted_modifier `tag` target, not a modifier
+                        yield key
+
+
+def build_md_idea_modifier_keys(roots) -> set:
+    """Distinct modifier keys harvested from common/ideas/*.txt."""
+    return set(_iter_md_idea_modifier_keys(roots))
+
+
+def build_common_modifiers(roots, limit: int = 20) -> list:
+    """The ``limit`` most-frequently-used modifier keys across MD's own ideas —
+    the genuinely common ones a modder reaches for. Falls back to the curated
+    ``COMMON_IDEA_MODIFIERS`` when no game files are configured. Ordered
+    most-used first."""
+    counts = Counter(_iter_md_idea_modifier_keys(roots))
+    if not counts:
+        return list(COMMON_IDEA_MODIFIERS[:limit])
+    return [name for name, _ in counts.most_common(limit)]
+
+
+# ---------------------------------------------------------------------------
+# Human-readable tooltips from the game's MODIFIER_* localisation
+# ---------------------------------------------------------------------------
+# `[ MODIFIER_<NAME>(_DESC)?:<ver> "text"`  — _DESC is the long sentence form;
+# the bare key is the short display name.
+_MODIFIER_LOC = re.compile(r'^\s*MODIFIER_([A-Z0-9_]+?)(_DESC)?:\d*\s*"(.*)"\s*$')
+# HOI4 loc markup we strip for a clean tooltip: §Y..§! colour codes, £icon
+# sprite refs, $VAR$ references, [scripted] segments.
+_LOC_MARKUP = re.compile(r"§.|£\w+|\$[^$]*\$|\[[^\]]*\]")
+
+
+def _clean_loc(text: str) -> str:
+    return " ".join(_LOC_MARKUP.sub("", text).split()).strip()
+
+
+def build_modifier_tooltips(roots) -> dict:
+    """{modifier_name(lower): tooltip} from each root's English localisation.
+
+    Prefers the long ``MODIFIER_<NAME>_DESC`` sentence, combined with the short
+    display name; falls back to whichever is present. Later roots win (mod load
+    order), so a mod's override of a base-game modifier's text takes precedence.
+    """
+    names: dict = {}
+    descs: dict = {}
+    for root in roots:
+        loc = os.path.join(root, "localisation")
+        if not os.path.isdir(loc):
+            continue
+        for dirpath, _d, files in os.walk(loc):
+            for fn in files:
+                if not fn.lower().endswith("_l_english.yml"):
+                    continue
+                for line in _read_loc_lines(os.path.join(dirpath, fn)):
+                    m = _MODIFIER_LOC.match(line)
+                    if not m:
+                        continue
+                    key = m.group(1).lower()
+                    if key.endswith("_prefix"):
+                        continue  # £icon prefixes, not real modifiers
+                    value = _clean_loc(m.group(3))
+                    if not value:
+                        continue
+                    (descs if m.group(2) else names)[key] = value
+
+    out: dict = {}
+    for key in set(names) | set(descs):
+        name = names.get(key)
+        desc = descs.get(key)
+        if name and desc and desc != name:
+            out[key] = f"{name} — {desc}"
+        else:
+            out[key] = desc or name
+    return out
 
 
 def build_modifier_names(roots) -> set:
@@ -145,12 +216,19 @@ def build_modifier_names(roots) -> set:
 
 
 def build_modifier_groups(roots) -> list:
-    """[(group_label, [modifier_name])] in GROUP_ORDER, non-empty groups only,
-    names sorted case-insensitively. This is what the provider/editor consume."""
+    """[(group_label, [modifier_name])] consumed by the provider/editor.
+
+    A ``Common`` group of the 20 most-used modifiers leads (ordered by usage,
+    a quick-pick shortcut); the functional-theme groups in GROUP_ORDER follow,
+    each sorted case-insensitively. Common modifiers still also appear in their
+    theme group, so nothing is hidden."""
     buckets: dict = {}
     for name in build_modifier_names(roots):
         buckets.setdefault(classify_modifier(name), []).append(name)
     out = []
+    common = build_common_modifiers(roots)
+    if common:
+        out.append(("Common", common))
     for label in GROUP_ORDER:
         if label in buckets:
             out.append((label, sorted(buckets[label], key=str.lower)))
