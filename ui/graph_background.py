@@ -44,11 +44,19 @@ def _label_font() -> QFont:
     return _LABEL_FONT
 
 
-def draw_strategic_background(painter: QPainter, rect: QRectF) -> None:
+def draw_strategic_background(painter: QPainter, rect: QRectF,
+                             vignette_radius: float = 0.0) -> None:
+    """Paint the canvas backdrop over ``rect`` (the dirty patch).
+
+    ``vignette_radius`` sizes the centre→edge gradient. It must be a STABLE value
+    (derived from the scene extent, not the dirty rect) so every scene point maps
+    to the same colour regardless of which patch triggers the repaint — that's
+    what lets the view repaint only changed regions instead of the whole tree."""
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing, True)
 
-    _paint_vignette(painter, rect)
+    radius = vignette_radius or max(rect.width(), rect.height())
+    _paint_vignette(painter, rect, radius)
     _paint_minor_grid(painter, rect)
     _paint_major_grid(painter, rect)
     _paint_axes(painter, rect)
@@ -59,8 +67,9 @@ def draw_strategic_background(painter: QPainter, rect: QRectF) -> None:
 
 # ---- layers ------------------------------------------------------------------
 
-def _paint_vignette(painter: QPainter, rect: QRectF) -> None:
-    radius = max(rect.width(), rect.height())
+def _paint_vignette(painter: QPainter, rect: QRectF, radius: float) -> None:
+    # Gradient is in scene coordinates centred at the origin, so a given scene
+    # point gets the same colour in any dirty patch (scroll-safe / partial-safe).
     g = QRadialGradient(QPointF(0, 0), radius * 1.1)
     g.setColorAt(0.0, COLOR_BG_INNER)
     g.setColorAt(0.45, COLOR_BG_MID)

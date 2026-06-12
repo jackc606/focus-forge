@@ -27,14 +27,14 @@ class GraphScene(QGraphicsScene):
         self._connect_anchor = None
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802 — Qt API
-        # Always paint over the union of every view's visible scene rect: the
-        # vignette gradient is sized from the painted rect, so painting only the
-        # dirty patch would render a visibly different gradient per patch.
-        full_rect = QRectF(rect)
-        for view in self.views():
-            visible = view.mapToScene(view.viewport().rect()).boundingRect()
-            full_rect = full_rect.united(visible)
-        draw_strategic_background(painter, full_rect)
+        # Paint ONLY the dirty patch (`rect`). The vignette radius comes from the
+        # stable scene extent, not the patch, so each scene point is coloured
+        # consistently — letting the view repaint only changed item regions
+        # instead of the whole tree on every hover/select (huge on big trees).
+        sr = self.sceneRect()
+        extent = max(abs(sr.left()), abs(sr.right()),
+                     abs(sr.top()), abs(sr.bottom()), 1.0)
+        draw_strategic_background(painter, rect, extent)
 
     def reconcile(self, project, selected_id: str = "") -> None:
         # Track desired state

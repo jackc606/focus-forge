@@ -32,9 +32,11 @@ class GraphView(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # Repaint the whole viewport on any change: the background vignette is
-        # sized from the painted rect, so partial repaints would seam.
-        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        # Repaint only the bounding rect of what changed — NOT the whole
+        # viewport. With a 700+ focus tree fitted on screen, full-viewport
+        # repaints (one per hover/select/drag-cell) made the canvas unusable;
+        # the background is now scene-consistent so per-region updates are safe.
+        self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
         self._panning = False
         self._pan_start = QPoint()
 

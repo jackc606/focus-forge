@@ -877,6 +877,9 @@ class MainWindow(QMainWindow):
         self._scene.reconcile(self._model.project, self._model.selected_id)
         self._delete_action.setEnabled(bool(self._model.selected_id))
         self._apply_search_highlight()  # re-apply after nodes are rebuilt
+        # Pre-decode this project's focus icons off-thread so a big imported tree
+        # doesn't freeze on its first paint (no-op once they're all cached).
+        provider().warm_focus_icons_async([f.icon for f in self._model.project.focuses])
 
     def _on_search(self, query: str) -> None:
         self._search_query = (query or "").strip()

@@ -161,6 +161,12 @@ class IconProvider(QObject):
         self._extra_roots: list = []
         self._index: dict = {}
         self._cache: dict = {}      # icon_value(lower) -> QPixmap or None
+        # Decoded DDS images (the slow, pure-Python part) keyed icon_value(lower)
+        # -> QImage or None. A background thread fills this so the GUI thread only
+        # does the cheap QImage→QPixmap conversion instead of decoding inline.
+        self._qimage_cache: dict = {}
+        self._warming_icons = False
+        self._icon_warm_thread = None
         self._focus_sprites = None  # cached [(name, path)] under interface/goals
         self._idea_sprites = None   # cached [(name, path)] for GFX_idea_*
         self._event_sprites = None  # cached [(name, path)] under gfx/event_pictures
@@ -188,6 +194,8 @@ class IconProvider(QObject):
         self._index_built = False
         self._index = {}
         self._cache = {}
+        self._qimage_cache = {}
+        self._warming_icons = False
         self._focus_sprites = None
         self._idea_sprites = None
         self._event_sprites = None
@@ -393,23 +401,72 @@ class IconProvider(QObject):
             self._build_index()
         return len(self._index)
 
+    def _decode_qimage(self, icon_value: str):
+        """Resolve + decode an icon's .dds to a QImage (the slow part). Safe to
+        call off the GUI thread — QImage isn't GUI-affine; only QPixmap is."""
+        if not self._index_built:
+            self._build_index()
+        path = resolve_sprite(self._index, icon_value)
+        if path and os.path.isfile(path):
+            img = load_dds_qimage(path)
+            if img is not None and not img.isNull():
+                return img
+        return None
+
+    def _pixmap_from_qimage(self, key: str, img):
+        pm = QPixmap.fromImage(img) if (img is not None and not img.isNull()) else None
+        _cache_put(self._cache, key, pm, _PIXMAP_CACHE_MAX)
+        return pm
+
     def pixmap(self, icon_value: str):
-        """Return a QPixmap for the focus icon, or None if unavailable."""
+        """Return a QPixmap for the focus icon, or None if unavailable.
+
+        While a background icon warm is running, an icon that isn't decoded yet
+        returns None (the node shows its abbreviation fallback) rather than
+        blocking the GUI thread on a pure-Python DDS decode; ``changed`` fires
+        when the warm finishes so the canvas repaints with the real icons."""
         if not icon_value or not self._all_roots():
             return None
         key = icon_value.lower()
         if key in self._cache:
             return self._cache[key]
-        if not self._index_built:
-            self._build_index()
-        path = resolve_sprite(self._index, icon_value)
-        pm = None
-        if path and os.path.isfile(path):
-            img = load_dds_qimage(path)
-            if img is not None and not img.isNull():
-                pm = QPixmap.fromImage(img)
-        _cache_put(self._cache, key, pm, _PIXMAP_CACHE_MAX)
-        return pm
+        if key in self._qimage_cache:
+            return self._pixmap_from_qimage(key, self._qimage_cache[key])
+        if self._warming_icons:
+            return None  # defer to the background warm — don't freeze the UI
+        img = self._decode_qimage(icon_value)
+        self._qimage_cache[key] = img
+        return self._pixmap_from_qimage(key, img)
+
+    def warm_focus_icons_async(self, icon_values) -> None:
+        """Pre-decode a project's focus icons on a background thread so the first
+        canvas paint of a large tree doesn't decode hundreds of .dds files inline
+        (a multi-second freeze). No-op once they're all cached, so it's cheap to
+        call on every project change."""
+        if self._warming_icons or not self._all_roots():
+            return
+        pending = [v for v in dict.fromkeys(icon_values)
+                   if v and v.lower() not in self._qimage_cache and v.lower() not in self._cache]
+        if not pending:
+            return
+        self._warming_icons = True
+        gen = self._index_gen
+
+        def work():
+            try:
+                for v in pending:
+                    if gen != self._index_gen:
+                        return  # roots changed — abandon this stale warm
+                    key = v.lower()
+                    if key not in self._qimage_cache:
+                        self._qimage_cache[key] = self._decode_qimage(v)
+            finally:
+                self._warming_icons = False
+                self.changed.emit()  # GUI repaints; deferred icons now resolve
+
+        self._icon_warm_thread = threading.Thread(
+            target=work, name="focusforge-icon-warm", daemon=True)
+        self._icon_warm_thread.start()
 
 
 _INSTANCE = None

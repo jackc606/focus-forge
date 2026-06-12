@@ -9,6 +9,19 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.2.1",
+        "date": "2026-06-12",
+        "title": "Big-tree performance fix",
+        "changes": [
+            "Large trees (USA, China, and other 700+ focus trees) are now smooth. "
+            "The canvas only redraws what actually changes instead of the whole "
+            "tree on every hover or click, so editing a big tree no longer crawls.",
+            "Opening a large tree no longer freezes while it loads icons — the "
+            "focus art now decodes in the background and fills in as it's ready, "
+            "and the app stays responsive the whole time.",
+        ],
+    },
+    {
         "version": "0.2.0",
         "date": "2026-06-12",
         "title": "Decisions, undo, and a lot of polish",
