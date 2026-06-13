@@ -105,3 +105,29 @@ def test_cycle_detected() -> None:
     b.prerequisites = [a.id]
     c.prerequisites = [b.id]
     assert "focus.graph.cycle" in _codes(project)
+
+
+def test_normalize_id_list_flattens_nested() -> None:
+    """Regression for the v0.2.1 'unhashable type: list' crash — a nested
+    prerequisite element (e.g. from a malformed AI-bridge command or an older
+    project file) must be flattened to plain string ids before it reaches any
+    `x in set` check in validation / graph reconcile / chip rendering."""
+    from core.types import normalize_id_list
+
+    assert normalize_id_list([["A"]]) == ["A"]
+    assert normalize_id_list(["A", ["B", "C"], "A"]) == ["A", "B", "C"]
+    assert normalize_id_list(None) == []
+    assert normalize_id_list("X") == ["X"]
+    assert normalize_id_list([None, "", "  Y  "]) == ["Y"]
+
+
+def test_validate_survives_nested_prerequisite() -> None:
+    project = make_sample_project()
+    # Simulate the corrupted-on-disk shape that crashed validate_project.
+    project.focuses[1].prerequisites = [[project.focuses[0].id]]  # type: ignore[list-item]
+    from core.serialization import project_from_dict, project_to_dict
+
+    healed = project_from_dict(project_to_dict(project))
+    assert healed.focuses[1].prerequisites == [project.focuses[0].id]
+    # Must not raise TypeError: unhashable type: 'list'.
+    validate_project(healed)

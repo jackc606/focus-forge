@@ -10,6 +10,7 @@ from .types import (
     CountryData,
     DecisionCategory,
     DecisionData,
+    ElectionLeaderAssignment,
     EventData,
     EventOption,
     EventReward,
@@ -22,6 +23,7 @@ from .types import (
     PartyData,
     RewardItem,
     TechBonusReward,
+    normalize_id_list,
 )
 
 # ----- Serialize ---------------------------------------------------------------
@@ -182,8 +184,8 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         position=FocusPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
         cost=d.get("cost", 5),
         filters=list(d.get("filters") or []),
-        prerequisites=list(d.get("prerequisites") or []),
-        mutuallyExclusive=list(d.get("mutuallyExclusive") or []),
+        prerequisites=normalize_id_list(d.get("prerequisites")),
+        mutuallyExclusive=normalize_id_list(d.get("mutuallyExclusive")),
         completionReward=_completion_reward_from_dict(d.get("completionReward") or {}),
         available=_availability_from_dict(d["available"]) if d.get("available") else None,
         bypass=_availability_from_dict(d["bypass"]) if d.get("bypass") else None,
@@ -219,6 +221,18 @@ def _leader_from_dict(d: dict) -> LeaderData:
         pictureRef=d.get("pictureRef", ""), pictureData=d.get("pictureData", ""))
 
 
+def _election_leader_from_dict(d: dict) -> ElectionLeaderAssignment:
+    try:
+        party_index = int(float(d.get("partyIndex", 14)))
+    except (TypeError, ValueError):
+        party_index = 14
+    return ElectionLeaderAssignment(
+        partyIndex=party_index,
+        startDate=d.get("startDate", "") or "",
+        leader=_leader_from_dict(d.get("leader") or {}),
+    )
+
+
 def _country_from_dict(d: dict) -> CountryData:
     return CountryData(
         popularities=dict(d.get("popularities") or {}),
@@ -228,6 +242,8 @@ def _country_from_dict(d: dict) -> CountryData:
         electionsAllowed=bool(d.get("electionsAllowed", True)),
         parties=[_party_from_dict(p) for p in (d.get("parties") or [])],
         leaders=[_leader_from_dict(le) for le in (d.get("leaders") or [])],
+        electionLeaders=[_election_leader_from_dict(le)
+                         for le in (d.get("electionLeaders") or [])],
         flagMain=d.get("flagMain", ""),
         flagVariants=dict(d.get("flagVariants") or {}),
     )

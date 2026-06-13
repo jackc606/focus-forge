@@ -9,6 +9,18 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.2.2",
+        "date": "2026-06-12",
+        "title": "Crash fix: focus prerequisites",
+        "changes": [
+            "Fixed a crash that could make a project unopenable — opening or "
+            "editing it threw an error and the canvas, inspector, and validation "
+            "all stopped working. It was caused by a malformed prerequisite link "
+            "(most often written by the AI bridge). Affected projects now repair "
+            "themselves automatically the next time you open them.",
+        ],
+    },
+    {
         "version": "0.2.1",
         "date": "2026-06-12",
         "title": "Big-tree performance fix",

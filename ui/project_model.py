@@ -19,6 +19,7 @@ from core.types import (
     FocusForgeProject,
     FocusNodeData,
     FocusPosition,
+    normalize_id_list,
 )
 from core.validation import validate_project
 
@@ -294,7 +295,7 @@ class ProjectModel(QObject):
             position=FocusPosition(x=int(grid_x), y=int(grid_y)),
             cost=5,
             filters=[],
-            prerequisites=list(prerequisites or []),
+            prerequisites=normalize_id_list(prerequisites),
             mutuallyExclusive=[],
             completionReward=CompletionReward(),
         )

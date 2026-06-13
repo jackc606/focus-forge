@@ -6,6 +6,36 @@ from typing import Optional, Union
 RewardParamValue = Union[str, int, float, bool]
 
 
+def normalize_id_list(value) -> list:
+    """Coerce a focus-id list (prerequisites / mutuallyExclusive) into a flat
+    list of non-empty, de-duplicated strings.
+
+    Defends against malformed input — most importantly nested lists like
+    ``[["focus_a"]]`` that an AI-bridge client (or a hand-edited / older project
+    file) can produce. An un-flattened list element is unhashable, which blows
+    up every ``x in some_set`` check downstream (graph reconcile, validation,
+    chip rendering). Flattening keeps every referenced id; order is preserved."""
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)):
+        value = [value]
+    out: list = []
+    seen: set = set()
+
+    def _walk(v):
+        if isinstance(v, (list, tuple, set)):
+            for item in v:
+                _walk(item)
+            return
+        s = ("" if v is None else str(v)).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+
+    _walk(value)
+    return out
+
+
 @dataclass
 class FocusPosition:
     x: float = 0
@@ -136,6 +166,13 @@ class LeaderData:
 
 
 @dataclass
+class ElectionLeaderAssignment:
+    partyIndex: int = 14       # MD's global party/ruling_party array index
+    startDate: str = ""        # year.month.day; first date this leader can apply
+    leader: LeaderData = field(default_factory=LeaderData)
+
+
+@dataclass
 class CountryData:
     popularities: dict = field(default_factory=dict)   # {top_ideology: float}
     rulingParty: str = "neutrality"                     # a top ideology
@@ -144,6 +181,7 @@ class CountryData:
     electionsAllowed: bool = True
     parties: list = field(default_factory=list)         # list[PartyData]
     leaders: list = field(default_factory=list)         # list[LeaderData]
+    electionLeaders: list = field(default_factory=list) # list[ElectionLeaderAssignment]
     flagMain: str = ""                                  # base64 PNG
     flagVariants: dict = field(default_factory=dict)    # {top_ideology: base64 PNG}
 
