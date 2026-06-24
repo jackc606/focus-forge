@@ -21,6 +21,7 @@ from .types import (
     FocusForgeProject,
     FocusNodeData,
     FocusPosition,
+    map_prereq_groups,
 )
 from .mod_paths import effective_roots_for_path
 from .pdx_loc import load_english_localisation
@@ -147,7 +148,15 @@ def _parse_focus(body: str) -> _PFocus:
                 pf.rel = val
         else:  # block
             if k == "prerequisite":
-                pf.prereqs.extend(f for _, kk, f in _statements(val) if kk == "scalar")
+                # One prerequisite BLOCK -> one group. Several focus= inside the
+                # same block are an OR choice; keep them together (don't flatten
+                # across blocks, which would silently turn OR into AND).
+                block = [f for key2, kk, f in _statements(val)
+                         if kk == "scalar" and key2.lower() == "focus"]
+                if len(block) == 1:
+                    pf.prereqs.append(block[0])
+                elif block:
+                    pf.prereqs.append(block)
             elif k == "mutually_exclusive":
                 pf.mutex.extend(f for _, kk, f in _statements(val) if kk == "scalar")
             elif k == "search_filters":
@@ -408,7 +417,7 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
         rename = {f.id: (f.id if f.id.startswith(pref) else pref + f.id) for f in focuses}
         for f in focuses:
             f.id = rename.get(f.id, f.id)
-            f.prerequisites = [rename.get(p, p) for p in f.prerequisites]
+            f.prerequisites = map_prereq_groups(f.prerequisites, lambda p: rename.get(p, p))
             f.mutuallyExclusive = [rename.get(m, m) for m in f.mutuallyExclusive]
             if f.available and f.available.completedFocuses:
                 f.available.completedFocuses = [rename.get(c, c) for c in f.available.completedFocuses]

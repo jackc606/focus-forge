@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .availability_presets import build_availability_item_lines
+from .md_parties import MD_PARTY_LABEL_BY_INDEX, MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import build_reward_item_lines
 from .types import (
     AvailabilityRule,
@@ -112,11 +113,48 @@ def export_project_files(project: FocusForgeProject) -> list:
                 relativePath=f"interface/{settings.localisationPrefix}_party_logos.gfx",
                 content=party_logo_gfx,
             ))
+        if country_election_leader_assignments(project):
+            election_base = _election_leader_base(project)
+            files.append(ExportedFile(
+                relativePath=f"common/scripted_effects/{election_base}_election_leaders.txt",
+                content=export_country_election_leader_effects(project),
+            ))
+            files.append(ExportedFile(
+                relativePath=f"events/{election_base}_election_leaders.txt",
+                content=export_country_election_leader_events(project),
+            ))
+            files.append(ExportedFile(
+                relativePath=f"common/on_actions/{election_base}_election_leaders_on_actions.txt",
+                content=export_country_election_leader_on_actions(project),
+            ))
     return files
 
 
 def _party_key(tag: str, ideology: str) -> str:
     return f"{tag}_{ideology}_party"
+
+
+def _leader_picture_value(tag: str, leader) -> str:
+    if leader.pictureData:
+        return f"{_leader_slug(leader)}.dds"
+    if _is_portrait_path(leader.pictureRef):
+        return _portrait_sprite_name(tag, leader)
+    return leader.pictureRef or ""
+
+
+def _leader_block_lines(leader, tag: str, depth: int = 0) -> list:
+    prefix = TAB * depth
+    inner = TAB * (depth + 1)
+    picture = _leader_picture_value(tag, leader)
+    lines = [f"{prefix}create_country_leader = {{"]
+    lines.append(f'{inner}name = "{_escape_loc(leader.name)}"')
+    if picture:
+        lines.append(f'{inner}picture = "{picture}"')
+    lines.append(f"{inner}ideology = {leader.ideology}")
+    if leader.traits:
+        lines.append(f"{inner}traits = {{ {' '.join(leader.traits)} }}")
+    lines.append(f"{prefix}}}")
+    return lines
 
 
 def export_country_history(project: FocusForgeProject) -> str:
@@ -148,20 +186,7 @@ def export_country_history(project: FocusForgeProject) -> str:
         lines.append(f"{TAB}name = {key}")
         lines.append("}")
     for leader in c.leaders:
-        if leader.pictureData:
-            picture = f"{_leader_slug(leader)}.dds"
-        elif _is_portrait_path(leader.pictureRef):
-            picture = _portrait_sprite_name(tag, leader)  # generated sprite (see below)
-        else:
-            picture = leader.pictureRef or ""
-        lines.append("create_country_leader = {")
-        lines.append(f'{TAB}name = "{_escape_loc(leader.name)}"')
-        if picture:
-            lines.append(f'{TAB}picture = "{picture}"')
-        lines.append(f"{TAB}ideology = {leader.ideology}")
-        if leader.traits:
-            lines.append(f"{TAB}traits = {{ {' '.join(leader.traits)} }}")
-        lines.append("}")
+        lines.extend(_leader_block_lines(leader, tag))
     return "\n".join(lines) + "\n"
 
 
@@ -313,6 +338,15 @@ def _portrait_sprite_name(tag, leader) -> str:
     return f"GFX_{(tag or '').upper()}_{_leader_slug(leader)}"
 
 
+def _country_leaders_for_assets(country) -> list:
+    leaders = list(getattr(country, "leaders", None) or [])
+    for assignment in getattr(country, "electionLeaders", None) or []:
+        leader = getattr(assignment, "leader", None)
+        if leader is not None:
+            leaders.append(leader)
+    return leaders
+
+
 def export_leader_portrait_sprites(project) -> "str | None":
     """interface/*.gfx spriteTypes wrapping each MD-image portrait a leader picked,
     so ``create_country_leader { picture = GFX_… }`` resolves. None if there are
@@ -322,12 +356,14 @@ def export_leader_portrait_sprites(project) -> "str | None":
     if not c:
         return None
     tag = project.countryTag
-    entries = [(_portrait_sprite_name(tag, ld), ld.pictureRef.replace("\\", "/"))
-               for ld in c.leaders if _is_portrait_path(ld.pictureRef)]
+    entries = {}
+    for ld in _country_leaders_for_assets(c):
+        if _is_portrait_path(ld.pictureRef):
+            entries[_portrait_sprite_name(tag, ld)] = ld.pictureRef.replace("\\", "/")
     if not entries:
         return None
     lines = ["spriteTypes = {"]
-    for name, tex in entries:
+    for name, tex in entries.items():
         lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -348,6 +384,134 @@ def export_party_logo_sprites(project) -> "str | None":
     lines = ["spriteTypes = {"]
     for name, tex in entries:
         lines.append(f'{TAB}spriteType = {{ name = "{name}" texturefile = "{tex}" }}')
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def _assignment_party_index(assignment) -> int:
+    try:
+        return int(getattr(assignment, "partyIndex", 14))
+    except (TypeError, ValueError):
+        return 14
+
+
+def _assignment_start_date(assignment) -> str:
+    return (getattr(assignment, "startDate", "") or "").strip()
+
+
+def _date_key(value: str) -> tuple:
+    m = re.match(r"^\s*(\d{1,4})\.(\d{1,2})\.(\d{1,2})\s*$", value or "")
+    if not m:
+        return (0, 0, 0)
+    return tuple(int(part) for part in m.groups())
+
+
+def _election_leader_base(project) -> str:
+    settings = getattr(project, "exportSettings", None)
+    prefix = getattr(settings, "localisationPrefix", "") if settings else ""
+    return _san(prefix or getattr(project, "countryTag", "") or "ffg") or "ffg"
+
+
+def _election_leader_namespace(project) -> str:
+    return f"{_election_leader_base(project)}_election_leaders"
+
+
+def _election_leader_effect_name(project) -> str:
+    return f"{_election_leader_base(project)}_set_election_leader"
+
+
+def country_election_leader_assignments(project) -> list:
+    c = getattr(project, "country", None)
+    if not c:
+        return []
+    rows = []
+    for assignment in getattr(c, "electionLeaders", None) or []:
+        leader = getattr(assignment, "leader", None)
+        party_index = _assignment_party_index(assignment)
+        if party_index not in MD_PARTY_SUBIDEOLOGY_BY_INDEX:
+            continue
+        if not _assignment_start_date(assignment):
+            continue
+        if leader is None or not (getattr(leader, "name", "") or "").strip():
+            continue
+        rows.append(assignment)
+    return rows
+
+
+def export_country_election_leader_effects(project) -> str:
+    """Scripted effect that picks the newest matching dated leader assignment.
+
+    Each hidden event calls this same effect. Sorting newest-first means that if
+    an older event becomes eligible after a newer row's date, it still leaves the
+    country with the newest applicable leader.
+    """
+    tag = (getattr(project, "countryTag", "") or "").strip().upper()
+    rows = sorted(
+        country_election_leader_assignments(project),
+        key=lambda a: (_date_key(_assignment_start_date(a)), _assignment_party_index(a)),
+        reverse=True,
+    )
+    lines = [f"{_election_leader_effect_name(project)} = {{"]
+    for i, assignment in enumerate(rows):
+        party_index = _assignment_party_index(assignment)
+        party_label = MD_PARTY_LABEL_BY_INDEX.get(party_index, "MD party")
+        start_date = _assignment_start_date(assignment)
+        leader = assignment.leader
+        key = "if" if i == 0 else "else_if"
+        lines.append(f"{TAB}{key} = {{")
+        lines.append(f"{TAB}{TAB}limit = {{")
+        if tag:
+            lines.append(f"{TAB}{TAB}{TAB}original_tag = {tag}")
+        lines.append(f"{TAB}{TAB}{TAB}is_in_array = {{ ruling_party = {party_index} }}")
+        lines.append(f"{TAB}{TAB}{TAB}date > {start_date}")
+        lines.append(f"{TAB}{TAB}}}")
+        lines.append(f"{TAB}{TAB}# {party_index}: {party_label}")
+        lines.append(f"{TAB}{TAB}hidden_effect = {{ kill_country_leader = yes }}")
+        lines.extend(_leader_block_lines(leader, tag, 2))
+        lines.append(f"{TAB}}}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def export_country_election_leader_events(project) -> str:
+    namespace = _election_leader_namespace(project)
+    effect = _election_leader_effect_name(project)
+    tag = (getattr(project, "countryTag", "") or "").strip().upper()
+    lines = [f"add_namespace = {namespace}"]
+    for i, assignment in enumerate(country_election_leader_assignments(project), start=1):
+        leader = assignment.leader
+        event_id = f"{namespace}.{i}"
+        lines.append("")
+        lines.append("country_event = {")
+        lines.append(f"{TAB}id = {event_id}")
+        lines.append(f"{TAB}hidden = yes")
+        lines.append(f"{TAB}is_triggered_only = yes")
+        lines.append(f"{TAB}fire_only_once = yes")
+        lines.append(f"{TAB}trigger = {{")
+        if tag:
+            lines.append(f"{TAB}{TAB}original_tag = {tag}")
+        lines.append(f"{TAB}{TAB}date > {_assignment_start_date(assignment)}")
+        lines.append(f"{TAB}{TAB}is_in_array = {{ ruling_party = {_assignment_party_index(assignment)} }}")
+        lines.append(f'{TAB}{TAB}NOT = {{ has_country_leader = {{ name = "{_escape_loc(leader.name)}" ruling_only = yes }} }}')
+        lines.append(f"{TAB}}}")
+        lines.append("")
+        lines.append(f"{TAB}option = {{")
+        lines.append(f"{TAB}{TAB}name = OK")
+        lines.append(f"{TAB}{TAB}{effect} = yes")
+        lines.append(f"{TAB}}}")
+        lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def export_country_election_leader_on_actions(project) -> str:
+    namespace = _election_leader_namespace(project)
+    lines = ["on_actions = {"]
+    lines.append(f"{TAB}on_daily = {{")
+    lines.append(f"{TAB}{TAB}events = {{")
+    for i, _assignment in enumerate(country_election_leader_assignments(project), start=1):
+        lines.append(f"{TAB}{TAB}{TAB}{namespace}.{i}")
+    lines.append(f"{TAB}{TAB}}}")
+    lines.append(f"{TAB}}}")
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -415,8 +579,15 @@ def _export_focus(focus: FocusNodeData) -> list:
         f"{TAB}{TAB}y = {focus.position.y}",
         f"{TAB}{TAB}cost = {focus.cost}",
     ]
+    # Each element of prerequisites is one prerequisite BLOCK. A plain id is a
+    # single-focus block; a list is an OR group (several focus= in one block).
+    # Separate blocks are AND-ed by HOI4; choices within a block are OR-ed.
     for prereq in focus.prerequisites:
-        lines.append(f"{TAB}{TAB}prerequisite = {{ focus = {prereq} }}")
+        if isinstance(prereq, (list, tuple)):
+            inner = " ".join(f"focus = {p}" for p in prereq)
+            lines.append(f"{TAB}{TAB}prerequisite = {{ {inner} }}")
+        else:
+            lines.append(f"{TAB}{TAB}prerequisite = {{ focus = {prereq} }}")
     for exclusive in focus.mutuallyExclusive:
         lines.append(f"{TAB}{TAB}mutually_exclusive = {{ focus = {exclusive} }}")
 

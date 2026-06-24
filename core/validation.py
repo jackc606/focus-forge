@@ -6,8 +6,9 @@ from typing import Iterable
 
 from .availability_presets import validate_availability_item
 from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
+from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import get_reward_preset, validate_reward_item
-from .types import FocusForgeProject, ValidationIssue
+from .types import FocusForgeProject, ValidationIssue, iter_prereq_ids
 
 ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")   # focus_tree id, loc namespace
@@ -56,7 +57,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
 
     by_id = {f.id: f for f in project.focuses}
     for focus in project.focuses:
-        for prereq in focus.prerequisites:
+        for prereq in iter_prereq_ids(focus.prerequisites):
             if prereq not in focus_ids:
                 issues.append(ValidationIssue(severity="error", code="focus.prerequisite.missing", focusId=focus.id, message=f"{focus.id} references missing prerequisite {prereq}."))
             elif prereq == focus.id:
@@ -89,6 +90,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
 
     _validate_reward_references(project, issues)
     _detect_cycles(project, issues)
+    _detect_unreachable(project, issues)
     _validate_metadata(project, issues, known_decision_categories)
     return issues
 
@@ -384,6 +386,32 @@ def _validate_country(country, issues: list) -> None:
             _warn(issues, "country.leader.name", f"Leader {i + 1} has no name.")
         if (leader.ideology or "") not in subs:
             _warn(issues, "country.leader.ideology", f"Leader {i + 1} ({leader.name or '?'}) has an invalid ideology '{leader.ideology}'.")
+    for i, assignment in enumerate(getattr(country, "electionLeaders", None) or []):
+        label = f"Election leader {i + 1}"
+        try:
+            party_index = int(getattr(assignment, "partyIndex", 14))
+        except (TypeError, ValueError):
+            party_index = -1
+        if party_index not in MD_PARTY_SUBIDEOLOGY_BY_INDEX:
+            _err(issues, "country.electionLeader.party",
+                 f"{label} uses invalid MD party index '{getattr(assignment, 'partyIndex', '')}'.")
+        start_date = (getattr(assignment, "startDate", "") or "").strip()
+        m = _HOI4_DATE.match(start_date)
+        if not start_date:
+            _err(issues, "country.electionLeader.date.empty", f"{label} has no start date.")
+        elif not m or not (1 <= int(m.group(1)) <= 12 and 1 <= int(m.group(2)) <= 31):
+            _err(issues, "country.electionLeader.date.invalid",
+                 f"{label} start date '{start_date}' isn't a HOI4 date "
+                 f"(year.month.day, e.g. 2021.1.20).")
+        leader = getattr(assignment, "leader", None)
+        if leader is None:
+            _warn(issues, "country.electionLeader.name", f"{label} has no leader.")
+            continue
+        if not (leader.name or "").strip():
+            _warn(issues, "country.electionLeader.name", f"{label} has no leader name.")
+        if (leader.ideology or "") not in subs:
+            _warn(issues, "country.electionLeader.ideology",
+                  f"{label} ({leader.name or '?'}) has an invalid ideology '{leader.ideology}'.")
 
 
 def _validate_collection(items, issues: list, code: str, label: str, *,
@@ -429,7 +457,7 @@ def _detect_cycles(project: FocusForgeProject, issues: list) -> None:
             return
         visiting.add(node_id)
         focus = by_id.get(node_id)
-        for prereq in (focus.prerequisites if focus else []):
+        for prereq in iter_prereq_ids(focus.prerequisites if focus else []):
             if prereq in by_id:
                 visit(prereq, path + [node_id])
         visiting.discard(node_id)
@@ -437,6 +465,52 @@ def _detect_cycles(project: FocusForgeProject, issues: list) -> None:
 
     for focus in project.focuses:
         visit(focus.id, [])
+
+
+def _detect_unreachable(project: FocusForgeProject, issues: list) -> None:
+    """Flag focuses that can never be completed because their *forced* ancestors
+    include both halves of a mutually-exclusive pair.
+
+    A prerequisite is forced when it's a plain (single-focus) block — you must
+    take it. Members of an OR group are choices, not forced, so they're excluded:
+    that keeps this check *sound* (no false positives). It's deliberately not
+    complete — it won't catch a focus whose every OR branch independently dead-
+    ends — but it precisely catches the common AND-across-mutex mistake (and goes
+    quiet the moment such a node is converted to an OR group)."""
+    by_id = {f.id: f for f in project.focuses}
+    mutex = set()
+    for f in project.focuses:
+        for m in (f.mutuallyExclusive or []):
+            if m in by_id:
+                mutex.add(frozenset((f.id, m)))
+    if not mutex:
+        return
+
+    def forced_ancestors(start_id: str) -> set:
+        result: set = set()
+        stack = [start_id]
+        while stack:
+            cur = stack.pop()
+            focus = by_id.get(cur)
+            if not focus:
+                continue
+            for element in (focus.prerequisites or []):
+                # Only plain (non-group) prerequisites are mandatory.
+                if isinstance(element, str) and element in by_id and element not in result:
+                    result.add(element)
+                    stack.append(element)
+        return result
+
+    for focus in project.focuses:
+        required = forced_ancestors(focus.id) | {focus.id}
+        conflict = next((tuple(sorted(pair)) for pair in mutex
+                         if pair <= required), None)
+        if conflict:
+            issues.append(ValidationIssue(
+                severity="error", code="focus.prerequisite.unreachable", focusId=focus.id,
+                message=f"{focus.id} can never be completed: reaching it forces both "
+                        f"{conflict[0]} and {conflict[1]}, which are mutually exclusive. "
+                        f"Did you mean an OR group instead of separate prerequisites?"))
 
 
 def get_blocking_issues(project: FocusForgeProject) -> list:

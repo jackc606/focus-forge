@@ -24,6 +24,7 @@ from .types import (
     RewardItem,
     TechBonusReward,
     normalize_id_list,
+    normalize_prereq_groups,
 )
 
 # ----- Serialize ---------------------------------------------------------------
@@ -184,7 +185,7 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         position=FocusPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
         cost=d.get("cost", 5),
         filters=list(d.get("filters") or []),
-        prerequisites=normalize_id_list(d.get("prerequisites")),
+        prerequisites=normalize_prereq_groups(d.get("prerequisites")),
         mutuallyExclusive=normalize_id_list(d.get("mutuallyExclusive")),
         completionReward=_completion_reward_from_dict(d.get("completionReward") or {}),
         available=_availability_from_dict(d["available"]) if d.get("available") else None,

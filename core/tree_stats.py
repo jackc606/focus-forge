@@ -6,6 +6,8 @@ days), so day figures here are cost × 7.
 """
 from __future__ import annotations
 
+from .types import iter_prereq_ids
+
 DAYS_PER_COST = 7
 
 
@@ -14,7 +16,7 @@ def compute_stats(project) -> dict:
     by_id = {f.id: f for f in focuses}
 
     roots = [f for f in focuses
-             if not any(p in by_id for p in f.prerequisites)]
+             if not any(p in by_id for p in iter_prereq_ids(f.prerequisites))]
 
     # Longest prerequisite chain (in days and steps), memoized; cycles are
     # guarded (validation reports them separately) by ignoring back-edges.
@@ -27,7 +29,7 @@ def compute_stats(project) -> dict:
         f = by_id[fid]
         best_days = 0.0
         best_steps = 0
-        for p in f.prerequisites:
+        for p in iter_prereq_ids(f.prerequisites):
             if p in by_id and p != fid and p not in stack:
                 d, s = chain(p, stack | {fid})
                 if d > best_days:
@@ -102,7 +104,7 @@ def compute_stats(project) -> dict:
             if fid in roots_memo:
                 return roots_memo[fid]
             f = by_id[fid]
-            preds = [p for p in f.prerequisites if p in by_id and p != fid and p not in seen]
+            preds = [p for p in iter_prereq_ids(f.prerequisites) if p in by_id and p != fid and p not in seen]
             if not preds:
                 out = {fid} if fid in reach else set()
             else:

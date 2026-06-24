@@ -19,7 +19,9 @@ from core.types import (
     FocusForgeProject,
     FocusNodeData,
     FocusPosition,
-    normalize_id_list,
+    iter_prereq_ids,
+    map_prereq_groups,
+    normalize_prereq_groups,
 )
 from core.validation import validate_project
 
@@ -204,7 +206,7 @@ class ProjectModel(QObject):
         target = self.find_focus(target_id)
         if not target or not self.find_focus(prereq_id):
             return ""
-        if prereq_id in target.prerequisites:
+        if prereq_id in iter_prereq_ids(target.prerequisites):
             return ""
         if self._depends_on(prereq_id, target_id):
             return f"Skipped: {prereq_id} → {target_id} would create a cycle."
@@ -215,8 +217,9 @@ class ProjectModel(QObject):
 
     def remove_prerequisite(self, target_id: str, prereq_id: str) -> str:
         target = self.find_focus(target_id)
-        if target and prereq_id in target.prerequisites:
-            target.prerequisites = [p for p in target.prerequisites if p != prereq_id]
+        if target and prereq_id in iter_prereq_ids(target.prerequisites):
+            target.prerequisites = map_prereq_groups(
+                target.prerequisites, lambda p: None if p == prereq_id else p)
             self._emit_all()
             return f"Removed {prereq_id} → {target_id}"
         return ""
@@ -245,7 +248,7 @@ class ProjectModel(QObject):
             focus = self.find_focus(cur)
             if not focus:
                 continue
-            for p in focus.prerequisites:
+            for p in iter_prereq_ids(focus.prerequisites):
                 if p == goal_id:
                     return True
                 if p not in seen:
@@ -295,7 +298,7 @@ class ProjectModel(QObject):
             position=FocusPosition(x=int(grid_x), y=int(grid_y)),
             cost=5,
             filters=[],
-            prerequisites=normalize_id_list(prerequisites),
+            prerequisites=normalize_prereq_groups(prerequisites),
             mutuallyExclusive=[],
             completionReward=CompletionReward(),
         )
@@ -353,7 +356,7 @@ class ProjectModel(QObject):
         self._project.focuses = [f for f in self._project.focuses if f.id not in ids]
         # Strip references
         for f in self._project.focuses:
-            f.prerequisites = [p for p in f.prerequisites if p not in ids]
+            f.prerequisites = map_prereq_groups(f.prerequisites, lambda p: None if p in ids else p)
             f.mutuallyExclusive = [m for m in f.mutuallyExclusive if m not in ids]
             self._strip_focus_refs(f, ids)
         if self._selected_id in ids:
@@ -400,8 +403,9 @@ class ProjectModel(QObject):
             self._project.focuses.append(f)
         present = {f.id for f in self._project.focuses}
         for f in copies:
-            f.prerequisites = [id_map.get(p, p) for p in f.prerequisites
-                               if p in old_ids or p in present]
+            f.prerequisites = map_prereq_groups(
+                f.prerequisites,
+                lambda p: id_map.get(p, p) if (p in old_ids or p in present) else None)
             f.mutuallyExclusive = [id_map.get(m, m) for m in f.mutuallyExclusive
                                    if m in old_ids or m in present]
             # Mutex is symmetric in the model — give kept external targets the
@@ -435,7 +439,8 @@ class ProjectModel(QObject):
         focus.id = new_id
         mapping = {old_id: new_id}
         for other in self._project.focuses:
-            other.prerequisites = [new_id if p == old_id else p for p in other.prerequisites]
+            other.prerequisites = map_prereq_groups(
+                other.prerequisites, lambda p: new_id if p == old_id else p)
             other.mutuallyExclusive = [new_id if m == old_id else m for m in other.mutuallyExclusive]
             self._rewrite_focus_refs(other, mapping)
         if self._selected_id == old_id:

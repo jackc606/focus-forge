@@ -29,7 +29,8 @@ from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
 
 from core.ideologies import IDEOLOGY_TREE, TOP_IDEOLOGIES, sub_ideology_groups
-from core.types import CountryData, LeaderData, PartyData
+from core.md_parties import MD_PARTIES, MD_PARTY_SUBIDEOLOGY_BY_INDEX
+from core.types import CountryData, ElectionLeaderAssignment, LeaderData, PartyData
 
 from . import theme as T
 from .chip_selector import ChipSelector
@@ -372,6 +373,73 @@ class _LeaderRow(QFrame):
         )
 
 
+class _ElectionLeaderRow(QFrame):
+    def __init__(self, assignment: ElectionLeaderAssignment, on_delete, tag: str = "") -> None:
+        super().__init__()
+        self.setFrameShape(QFrame.StyledPanel)
+        self._last_party_ideology = ""
+        v = QVBoxLayout(self)
+        v.setContentsMargins(T.SPACE_SM, T.SPACE_XS, T.SPACE_SM, T.SPACE_XS)
+        v.setSpacing(T.SPACE_SM)
+
+        top = QHBoxLayout()
+        top.setSpacing(T.SPACE_SM)
+        self.party = QComboBox()
+        for idx, label in MD_PARTIES:
+            self.party.addItem(f"{idx}: {label}", idx)
+        try:
+            current_party = int(assignment.partyIndex)
+        except (TypeError, ValueError):
+            current_party = 14
+        idx = self.party.findData(current_party)
+        if idx >= 0:
+            self.party.setCurrentIndex(idx)
+        self.party.setToolTip(
+            "Millennium Dawn's global party index. When this party is ruling on or "
+            "after the date, the exported hidden event assigns this leader.")
+        self.date = QLineEdit(assignment.startDate)
+        self.date.setPlaceholderText("2021.1.20")
+        self.date.setToolTip("First HOI4 date this leader can be assigned (year.month.day).")
+        top.addWidget(self.party, 1)
+        top.addWidget(self.date)
+        v.addLayout(top)
+
+        leader = assignment.leader or LeaderData()
+        party_ideology = self._party_ideology()
+        if not leader.ideology and party_ideology:
+            leader = LeaderData(name=leader.name, ideology=party_ideology,
+                                traits=list(leader.traits or []),
+                                pictureRef=leader.pictureRef,
+                                pictureData=leader.pictureData)
+        self._last_party_ideology = party_ideology
+        self._leader = _LeaderRow(leader, lambda _row: on_delete(self), tag)
+        v.addWidget(self._leader)
+        self.party.currentIndexChanged.connect(self._on_party_changed)
+
+    def _party_ideology(self) -> str:
+        data = self.party.currentData()
+        party_index = 14 if data is None else int(data)
+        return MD_PARTY_SUBIDEOLOGY_BY_INDEX.get(party_index, "")
+
+    def _on_party_changed(self) -> None:
+        new_ideology = self._party_ideology()
+        current = self._leader.ideo.currentData() or ""
+        if (not current) or current == self._last_party_ideology:
+            idx = self._leader.ideo.findData(new_ideology)
+            if idx >= 0:
+                self._leader.ideo.setCurrentIndex(idx)
+        self._last_party_ideology = new_ideology
+
+    def value(self) -> ElectionLeaderAssignment:
+        data = self.party.currentData()
+        party_index = 14 if data is None else int(data)
+        return ElectionLeaderAssignment(
+            partyIndex=party_index,
+            startDate=self.date.text().strip(),
+            leader=self._leader.value(),
+        )
+
+
 # ---------------------------------------------------------------------------
 class CountryEditorDialog(QDialog):
     def __init__(self, model, parent=None) -> None:
@@ -631,6 +699,7 @@ class CountryEditorDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setSpacing(T.SPACE_MD)
+        v.addWidget(section_header("Static leaders"))
         v.addWidget(hint("Custom country leaders → create_country_leader in the history file. "
                          "Choose… picks an MD portrait; Import… adds your own (156×210 px .dds/.png)."))
         self._leaders_box = QVBoxLayout()
@@ -639,14 +708,36 @@ class CountryEditorDialog(QDialog):
         add = QPushButton("+ Add leader")
         add.clicked.connect(lambda: self._add_leader(LeaderData(ideology="Neutral_conservatism")))
         v.addWidget(add)
+
+        v.addWidget(section_header("Election leader timeline"))
+        v.addWidget(hint("Assign a leader to an MD party starting on a date. On export, "
+                         "Focus Forge writes hidden country events that check the ruling "
+                         "party index and create the newest matching leader."))
+        self._election_leaders_box = QVBoxLayout()
+        self._election_leaders_box.setSpacing(T.SPACE_SM)
+        v.addLayout(self._election_leaders_box)
+        add_election = QPushButton("+ Add election leader")
+        add_election.clicked.connect(lambda: self._add_election_leader(
+            ElectionLeaderAssignment(
+                partyIndex=14,
+                startDate=self._last_election.text().strip() or "2000.1.1",
+                leader=LeaderData(ideology="Neutral_conservatism"),
+            )))
+        v.addWidget(add_election)
         v.addStretch(1)
         for le in self._country.leaders:
             self._add_leader(le)
+        for assignment in getattr(self._country, "electionLeaders", None) or []:
+            self._add_election_leader(assignment)
         return self._scroll(w)
 
     def _add_leader(self, leader: LeaderData) -> None:
         self._leaders_box.addWidget(
             _LeaderRow(leader, self._del_row, self._model.project.countryTag))
+
+    def _add_election_leader(self, assignment: ElectionLeaderAssignment) -> None:
+        self._election_leaders_box.addWidget(
+            _ElectionLeaderRow(assignment, self._del_row, self._model.project.countryTag))
 
     # ----- Flags -----
     def _flags_tab(self) -> QWidget:
@@ -818,6 +909,8 @@ class CountryEditorDialog(QDialog):
         c.electionsAllowed = self._elections.isChecked()
         c.parties = [r.value() for r in self._rows(self._parties_box) if isinstance(r, _PartyRow)]
         c.leaders = [r.value() for r in self._rows(self._leaders_box) if isinstance(r, _LeaderRow)]
+        c.electionLeaders = [r.value() for r in self._rows(self._election_leaders_box)
+                             if isinstance(r, _ElectionLeaderRow)]
         c.flagMain = self._flag_main
         c.flagVariants = dict(self._flag_variants)
         self._model.project.country = c

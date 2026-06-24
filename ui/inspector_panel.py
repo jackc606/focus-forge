@@ -28,7 +28,7 @@ from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
 
 from core.presets import MD_FOCUS_FILTERS, MD_ICON_PRESETS
-from core.types import CompletionReward, FocusPosition
+from core.types import CompletionReward, FocusPosition, iter_prereq_ids
 
 from . import theme as T
 from .availability_editor import AvailabilityEditor
@@ -275,7 +275,10 @@ class InspectorPanel(QWidget):
         self._ai_priority.setValue(10.0 if getattr(focus, "aiWillDo", None) is None
                                    else float(focus.aiWillDo))
         self._filters.set_tokens(focus.filters)
-        self._prereqs.set_tokens(focus.prerequisites)
+        # OR groups render as flat chips for now (authoring UI is a follow-up).
+        # Editing chips on an OR-group focus flattens it to plain AND prereqs;
+        # author OR groups via the AI bridge until the grouped editor lands.
+        self._prereqs.set_tokens(list(iter_prereq_ids(focus.prerequisites)))
         self._mutex.set_tokens(focus.mutuallyExclusive)
         others = [f.id for f in self._model.project.focuses if f.id != focus.id]
         self._prereqs.update_suggestions(others)

@@ -36,6 +36,100 @@ def normalize_id_list(value) -> list:
     return out
 
 
+def normalize_prereq_groups(value) -> list:
+    """Coerce a focus ``prerequisites`` value into the canonical mixed form: a
+    list whose elements are each either a plain id ``str`` (one required focus =
+    its own AND prerequisite block) or a ``list[str]`` of >=2 ids (an OR group =
+    one prerequisite block listing several ``focus =`` choices).
+
+    This is the OR-aware sibling of :func:`normalize_id_list`. Where that one
+    flattens everything (and so destroys OR structure), this preserves exactly
+    one level of nesting:
+
+      * ``["a", "b"]``        -> ``["a", "b"]``         (a AND b)
+      * ``[["a", "b"]]``      -> ``[["a", "b"]]``       (a OR b)
+      * ``[["a", "b"], "c"]`` -> ``[["a", "b"], "c"]``  ((a OR b) AND c)
+      * ``[["a"]]``           -> ``["a"]``              (singleton group collapses)
+      * ``[["a", "b", "a"]]`` -> ``[["a", "b"]]``       (dedup within a group)
+
+    Ids are de-duplicated *globally* across the whole structure (a focus required
+    twice is still required once), order preserved, blanks dropped. Deeper nesting
+    is flattened down to a single group level so an OR group can't itself contain
+    groups (HOI4 has no such concept)."""
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)):
+        value = [value]
+    out: list = []
+    seen: set = set()
+
+    def _ids(v) -> list:
+        # Flatten an arbitrary value to clean, globally-deduped id strings.
+        collected: list = []
+        if isinstance(v, (list, tuple, set)):
+            for item in v:
+                collected.extend(_ids(item))
+            return collected
+        s = ("" if v is None else str(v)).strip()
+        if s and s not in seen:
+            seen.add(s)
+            collected.append(s)
+        return collected
+
+    for element in value:
+        if isinstance(element, (list, tuple, set)):
+            group = _ids(element)
+            if len(group) == 1:
+                out.append(group[0])          # singleton OR group == plain AND term
+            elif group:
+                out.append(group)             # genuine OR group
+        else:
+            out.extend(_ids(element))         # plain id (already a single-item list)
+    return out
+
+
+def map_prereq_groups(prerequisites, fn):
+    """Rebuild a ``prerequisites`` value applying ``fn`` to every id while keeping
+    OR-group structure intact. ``fn(id)`` returns the replacement id, or ``None``
+    to drop that id. A group reduced to one id collapses to a plain AND term; an
+    emptied group is dropped. Used for rename-remap and delete-strip everywhere
+    the prerequisite graph is rewritten."""
+    out: list = []
+    for element in (prerequisites or []):
+        if isinstance(element, (list, tuple, set)):
+            group: list = []
+            seen: set = set()
+            for pid in element:
+                if not isinstance(pid, str):
+                    continue
+                new = fn(pid)
+                if new and new not in seen:
+                    seen.add(new)
+                    group.append(new)
+            if len(group) == 1:
+                out.append(group[0])
+            elif group:
+                out.append(group)
+        elif isinstance(element, str):
+            new = fn(element)
+            if new:
+                out.append(new)
+    return out
+
+
+def iter_prereq_ids(prerequisites):
+    """Yield every focus id referenced by a ``prerequisites`` value, flattening
+    OR groups. The order-preserving read view used by everything that only needs
+    "what does this point at" (edges, stats, cycle/missing-ref validation)."""
+    for element in (prerequisites or []):
+        if isinstance(element, (list, tuple, set)):
+            for pid in element:
+                if isinstance(pid, str):
+                    yield pid
+        elif isinstance(element, str):
+            yield element
+
+
 @dataclass
 class FocusPosition:
     x: float = 0

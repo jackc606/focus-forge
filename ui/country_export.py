@@ -9,6 +9,7 @@ from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QImage
 
 from core.exporters import (
+    _country_leaders_for_assets,
     _decision_icon_relpath,
     _event_picture_relpath,
     _focus_icon_relpath,
@@ -66,7 +67,7 @@ def export_country_assets(project, mod_dir: str) -> int:
         _write_tga(img, 10, 7, os.path.join(mod_dir, "gfx", "flags", "small", f"{fname}.tga"))
         written += 3
 
-    for leader in c.leaders:
+    for leader in _country_leaders_for_assets(c):
         if not leader.pictureData:
             continue
         img = _qimage_from_b64(leader.pictureData)

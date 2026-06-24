@@ -138,7 +138,7 @@ class NewSubmodDialog(QDialog):
             "name": self._name.text().strip() or self._folder.text().strip(),
             "folder": sanitize_folder(self._folder.text()),
             "mod_root": self._location.text().strip(),
-            "country_tag": self._country.text().strip().upper(),
+            "country_tag": self._country.current_tag(),
             "supported_version": self._supported.text().strip() or DEFAULT_SUPPORTED_VERSION,
             "tags": tags or list(DEFAULT_TAGS),
             "dependencies": deps,

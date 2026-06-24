@@ -46,6 +46,35 @@ MD_PARTIES = [
     (23, "Nationalist Monarchists"),
 ]
 
+MD_PARTY_SUBIDEOLOGY_BY_INDEX = {
+    0: "Western_Autocracy",
+    1: "conservatism",
+    2: "liberalism",
+    3: "socialism",
+    4: "Communist-State",
+    5: "anarchist_communism",
+    6: "Conservative",
+    7: "Autocracy",
+    8: "Mod_Vilayat_e_Faqih",
+    9: "Vilayat_e_Faqih",
+    10: "Kingdom",
+    11: "Caliphate",
+    12: "Neutral_Muslim_Brotherhood",
+    13: "Neutral_Autocracy",
+    14: "Neutral_conservatism",
+    15: "oligarchism",
+    16: "Neutral_Libertarian",
+    17: "Neutral_green",
+    18: "neutral_Social",
+    19: "Neutral_Communism",
+    20: "Nat_Populism",
+    21: "Nat_Fascism",
+    22: "Nat_Autocracy",
+    23: "Monarchist",
+}
+
+MD_PARTY_LABEL_BY_INDEX = dict(MD_PARTIES)
+
 
 # ---------------------------------------------------------------------------
 # Per-country party import

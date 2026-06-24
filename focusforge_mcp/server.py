@@ -49,7 +49,11 @@ focus `filters` list.)
 
 ## Structure (lean into choice)
 - ~⅔ of focuses have an `available` gate; ~⅓ are part of a `mutually_exclusive` fork.
-- Use 2-prerequisite convergences (they're AND) to merge branches.
+- Prerequisites are a list of blocks. A plain id is one required block; several
+  blocks are AND-ed (`["a","b"]` = need both). A nested list is one OR block
+  (`[["a","b"]]` = need either). Use OR to let mutually-exclusive paths reconverge
+  (e.g. a peace-OR-war fork merging back); separate AND blocks of mutex focuses
+  are unreachable.
 - Pay off a `set_country_flag` with a downstream `available = { has_country_flag = X }`.
 
 ## Rewards
@@ -191,7 +195,9 @@ def add_focus(title: str | None = None, x: int | None = None, y: int | None = No
     """Create a focus and return its id. Provide x and y (grid cells) to place it, or omit
     both to auto-place below the tree. Pass focus_id to set the id explicitly (else it's an
     auto placeholder you can rename). completion_reward/available take the JSON shape from
-    get_focus (use list_reward_presets / list_condition_presets to build items)."""
+    get_focus (use list_reward_presets / list_condition_presets to build items).
+    prerequisites is a list of blocks: a plain id is required (AND); a nested list is
+    an OR group, e.g. [["a","b"]] means a OR b, [["a","b"],"c"] means (a OR b) AND c."""
     args = _compact(title=title, x=x, y=y, id=focus_id, icon=icon, cost=cost,
                     description=description, prerequisites=prerequisites,
                     completionReward=completion_reward, available=available)
@@ -206,7 +212,9 @@ def update_focus(focus_id: str, title: str | None = None, description: str | Non
                  notes: str | None = None, completion_reward: dict | None = None,
                  available: dict | None = None) -> dict:
     """Update fields on an existing focus (id stays the same — use rename_focus to change it).
-    To move it, pass BOTH x and y. completion_reward/available replace those blocks entirely."""
+    To move it, pass BOTH x and y. completion_reward/available replace those blocks entirely.
+    prerequisites is a list of blocks: plain ids are AND-ed; a nested list is an OR group
+    (e.g. [["a","b"]] = a OR b). Passing prerequisites replaces the focus's prereqs entirely."""
     args = _compact(id=focus_id, title=title, description=description, icon=icon, cost=cost,
                     filters=filters, prerequisites=prerequisites,
                     mutuallyExclusive=mutually_exclusive, notes=notes,

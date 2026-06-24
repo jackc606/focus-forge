@@ -35,7 +35,7 @@ from .serialization import (
     _to_plain,
     project_to_dict,
 )
-from .types import FocusPosition, normalize_id_list
+from .types import FocusPosition, normalize_id_list, normalize_prereq_groups
 
 try:
     from .version import __version__ as _APP_VERSION
@@ -86,12 +86,13 @@ def _focus_fields_from_args(args: dict) -> dict:
               "prerequisites", "mutuallyExclusive", "notes"):
         if k in args:
             fields[k] = args[k]
-    # An agent can hand us nested lists (e.g. [["focus_a"]]); flatten to plain
-    # string ids so the unhashable elements never reach the model. See
-    # core.types.normalize_id_list.
-    for k in ("prerequisites", "mutuallyExclusive"):
-        if k in fields:
-            fields[k] = normalize_id_list(fields[k])
+    # prerequisites preserve one level of nesting (OR groups: [["a","b"]] = a OR
+    # b); mutuallyExclusive is always a flat id list. Both defend against
+    # malformed/over-nested input. See core.types.normalize_prereq_groups.
+    if "prerequisites" in fields:
+        fields["prerequisites"] = normalize_prereq_groups(fields["prerequisites"])
+    if "mutuallyExclusive" in fields:
+        fields["mutuallyExclusive"] = normalize_id_list(fields["mutuallyExclusive"])
     if args.get("position") is not None:
         p = args["position"]
         fields["position"] = FocusPosition(x=p.get("x", 0), y=p.get("y", 0))
@@ -186,11 +187,11 @@ def _op_reference_data(model, args):
 def _op_add_focus(model, args):
     x, y = args.get("x"), args.get("y")
     if x is not None and y is not None:
-        fid = model.add_focus_at(int(x), int(y), prerequisites=normalize_id_list(args.get("prerequisites")))
+        fid = model.add_focus_at(int(x), int(y), prerequisites=normalize_prereq_groups(args.get("prerequisites")))
     else:
         fid = model.add_focus()
         if args.get("prerequisites"):
-            model.update_focus(fid, prerequisites=normalize_id_list(args["prerequisites"]))
+            model.update_focus(fid, prerequisites=normalize_prereq_groups(args["prerequisites"]))
     fields = _focus_fields_from_args({k: v for k, v in args.items()
                                       if k not in ("x", "y", "id", "prerequisites")})
     if args.get("prerequisites") and (x is None or y is None):

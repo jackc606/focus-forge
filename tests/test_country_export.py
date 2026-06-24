@@ -3,8 +3,12 @@ from __future__ import annotations
 
 from core.dds_decode import decode_dds
 from core.exporters import (
+    export_country_election_leader_effects,
+    export_country_election_leader_events,
+    export_country_election_leader_on_actions,
     export_country_history,
     export_country_localisation,
+    export_leader_portrait_sprites,
     export_party_logo_sprites,
     export_project_files,
 )
@@ -12,11 +16,13 @@ from core.image_write import dds_bgra32, tga_bgra32
 from core.serialization import project_from_dict, project_to_dict
 from core.types import (
     CountryData,
+    ElectionLeaderAssignment,
     ExportSettings,
     FocusForgeProject,
     LeaderData,
     PartyData,
 )
+from core.validation import validate_project
 
 
 def _project():
@@ -74,11 +80,94 @@ def test_export_files_gated_on_include_country():
 
 def test_country_round_trip():
     proj = _project()
+    proj.country.electionLeaders = [
+        ElectionLeaderAssignment(
+            partyIndex=1,
+            startDate="2017.1.20",
+            leader=LeaderData(name="Election Winner", ideology="conservatism"),
+        )
+    ]
     restored = project_from_dict(project_to_dict(proj))
     assert restored.country.rulingParty == "neutrality"
     assert restored.country.parties[0].name == "Liberal Front"
     assert restored.country.leaders[0].ideology == "Neutral_Autocracy"
+    assert restored.country.electionLeaders[0].partyIndex == 1
+    assert restored.country.electionLeaders[0].startDate == "2017.1.20"
+    assert restored.country.electionLeaders[0].leader.name == "Election Winner"
     assert restored.country.popularities["democratic"] == 30
+
+
+def test_election_leader_exports_scripted_effect_events_and_on_actions():
+    p = _project()
+    p.country.electionLeaders = [
+        ElectionLeaderAssignment(
+            partyIndex=1,
+            startDate="2017.1.20",
+            leader=LeaderData(name="Older Conservative", ideology="conservatism",
+                              traits=["western_conservatism"],
+                              pictureRef="gfx/leaders/LBA/older.dds"),
+        ),
+        ElectionLeaderAssignment(
+            partyIndex=1,
+            startDate="2021.1.20",
+            leader=LeaderData(name="Newer Conservative", ideology="conservatism"),
+        ),
+    ]
+
+    effect = export_country_election_leader_effects(p)
+    assert "LBA_set_election_leader = {" in effect
+    assert effect.index("date > 2021.1.20") < effect.index("date > 2017.1.20")
+    assert "is_in_array = { ruling_party = 1 }" in effect
+    assert "# 1: Western Conservatives" in effect
+    assert 'name = "Newer Conservative"' in effect
+    assert 'picture = "GFX_LBA_older_conservative"' in effect
+
+    events = export_country_election_leader_events(p)
+    assert "add_namespace = LBA_election_leaders" in events
+    assert "id = LBA_election_leaders.1" in events
+    assert "fire_only_once = yes" in events
+    assert "original_tag = LBA" in events
+    assert 'NOT = { has_country_leader = { name = "Older Conservative" ruling_only = yes } }' in events
+    assert "LBA_set_election_leader = yes" in events
+
+    on_actions = export_country_election_leader_on_actions(p)
+    assert "on_daily = {" in on_actions
+    assert "LBA_election_leaders.1" in on_actions
+    assert "LBA_election_leaders.2" in on_actions
+
+    files = {f.relativePath for f in export_project_files(p)}
+    assert "common/scripted_effects/LBA_election_leaders.txt" in files
+    assert "events/LBA_election_leaders.txt" in files
+    assert "common/on_actions/LBA_election_leaders_on_actions.txt" in files
+
+
+def test_election_leader_portrait_sprite_export():
+    p = _project()
+    p.country.leaders = []
+    p.country.electionLeaders = [
+        ElectionLeaderAssignment(
+            partyIndex=1,
+            startDate="2017.1.20",
+            leader=LeaderData(name="Election Winner", ideology="conservatism",
+                              pictureRef="gfx/leaders/LBA/Election_Winner.dds"),
+        )
+    ]
+    gfx = export_leader_portrait_sprites(p)
+    assert 'name = "GFX_LBA_election_winner"' in gfx
+    assert 'texturefile = "gfx/leaders/LBA/Election_Winner.dds"' in gfx
+
+
+def test_election_leader_validation():
+    p = _project()
+    p.country.electionLeaders = [
+        ElectionLeaderAssignment(partyIndex=99, startDate="2021.13.1",
+                                 leader=LeaderData(name="", ideology="bad"))
+    ]
+    codes = {issue.code for issue in validate_project(p)}
+    assert "country.electionLeader.party" in codes
+    assert "country.electionLeader.date.invalid" in codes
+    assert "country.electionLeader.name" in codes
+    assert "country.electionLeader.ideology" in codes
 
 
 def test_dds_writer_round_trips_decoder():

@@ -7,6 +7,11 @@ from PySide6.QtWidgets import QCompleter, QLineEdit
 from core.country_tags import MD_COUNTRY_TAGS
 
 
+def clean_country_tag_text(text: str) -> str:
+    candidate = (text or "").split(" - ", 1)[0].strip().upper()
+    return "".join(ch for ch in candidate if ch.isalnum())[:3]
+
+
 class CountryTagPicker(QLineEdit):
     tag_chosen = Signal(str)
 
@@ -31,8 +36,11 @@ class CountryTagPicker(QLineEdit):
                 return
         self.setText(tag)
 
+    def current_tag(self) -> str:
+        return clean_country_tag_text(self.text())
+
     def _on_completer_activated(self, text: str) -> None:
-        tag = text.split(" - ", 1)[0].strip().upper()
+        tag = clean_country_tag_text(text)
         self.tag_chosen.emit(tag)
         self.setText(text)
 
@@ -41,14 +49,14 @@ class CountryTagPicker(QLineEdit):
         if not text:
             return
         # Match exact tag or "TAG - Name"
-        candidate = text.split(" - ", 1)[0].strip().upper()
+        candidate = clean_country_tag_text(text)
         for entry in MD_COUNTRY_TAGS:
             if entry.tag == candidate:
                 self.setText(f"{entry.tag} - {entry.name}")
                 self.tag_chosen.emit(entry.tag)
                 return
         # Free-form: emit whatever they typed (uppercased, alnum-stripped)
-        cleaned = "".join(ch for ch in candidate if ch.isalnum())[:3]
+        cleaned = candidate
         if cleaned:
             self.tag_chosen.emit(cleaned)
             self.setText(cleaned)

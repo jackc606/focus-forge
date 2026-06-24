@@ -481,7 +481,7 @@ MD_COUNTRY_TAGS: list[CountryTagPreset] = [
     CountryTagPreset(tag='UNI', name='UNITA'),
     CountryTagPreset(tag='URA', name='Ural Republic'),
     CountryTagPreset(tag='URG', name='Uruguay'),
-    CountryTagPreset(tag='USA', name='USA'),
+    CountryTagPreset(tag='USA', name='United States of America'),
     CountryTagPreset(tag='USB', name='Free States of America'),
     CountryTagPreset(tag='UZB', name='Uzbekistan'),
     CountryTagPreset(tag='UZI', name='Uzbekistan (Islamist Uprising)'),

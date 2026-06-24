@@ -5,6 +5,8 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsScene
 
+from core.types import iter_prereq_ids
+
 from . import theme as T
 from .edge_item import EdgeItem
 from .focus_node_item import FocusNodeItem
@@ -49,7 +51,7 @@ class GraphScene(QGraphicsScene):
 
         # Add or update nodes
         for f in project.focuses:
-            prereq_count = len(f.prerequisites)
+            prereq_count = sum(1 for _ in iter_prereq_ids(f.prerequisites))
             existing = self._nodes.get(f.id)
             if existing:
                 existing.update_data(f.title, f.icon, int(f.position.x), int(f.position.y),
@@ -72,7 +74,7 @@ class GraphScene(QGraphicsScene):
         # Keys: ("prereq", src, dst) and ("mutex", a, b) with a<b deduped.
         desired_edges: dict = {}
         for f in project.focuses:
-            for prereq in f.prerequisites:
+            for prereq in iter_prereq_ids(f.prerequisites):
                 if prereq in desired_node_keys:
                     desired_edges[("prereq", prereq, f.id)] = (prereq, f.id)
             for mx in f.mutuallyExclusive:

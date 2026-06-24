@@ -289,12 +289,20 @@ class EventEditorDialog(QDialog):
         self._triggered_only.toggled.connect(self._on_triggered_toggle)
         self._hidden = QCheckBox("hidden")
         self._hidden.setChecked(event.hidden if event else False)
+        self._hidden.setToolTip("No popup for the player — the event fires its effects "
+                                "silently. Pair with a hidden option so it can dismiss "
+                                "itself. Good for background scripting.")
         self._hidden.toggled.connect(lambda *_: self._refresh_preview())
         self._major = QCheckBox("major")
         self._major.setChecked(event.major if event else False)
+        self._major.setToolTip("Shows as a large 'major' event with a wide banner and a "
+                               "world-news feel — for big, important moments rather than "
+                               "routine popups.")
         self._major.toggled.connect(lambda *_: self._refresh_preview())
         self._fire_once = QCheckBox("fire_only_once")
         self._fire_once.setChecked(event.fireOnlyOnce if event else False)
+        self._fire_once.setToolTip("Can only ever happen once per game — after it fires the "
+                                   "first time it can never trigger again for this country.")
         self._fire_once.toggled.connect(lambda *_: self._refresh_preview())
         for w in (self._triggered_only, self._hidden, self._major, self._fire_once):
             flags_row.addWidget(w)
@@ -306,6 +314,9 @@ class EventEditorDialog(QDialog):
         self._mtth = NoScrollSpinBox()
         self._mtth.setRange(0, 100000)
         self._mtth.setSpecialValueText("(off)")
+        self._mtth.setToolTip("Average days until the event fires on its own once its "
+                              "trigger is met. Only used when is_triggered_only is OFF "
+                              "(an un-triggered event needs some way to fire).")
         self._mtth.setValue(int(event.meanTimeToHappen) if (event and event.meanTimeToHappen) else 0)
         self._mtth.valueChanged.connect(lambda *_: self._refresh_preview())
         mtth_row.addWidget(self._mtth_label)
@@ -317,11 +328,17 @@ class EventEditorDialog(QDialog):
         # ----- fire on an exact date -----
         date_row = QHBoxLayout()
         self._fire_date_chk = QCheckBox("Fire on exact date")
+        self._fire_date_chk.setToolTip("Fire this event once, on a specific in-game date, "
+                                       "for your country. Focus Forge generates the HOI4 "
+                                       "plumbing (date trigger + on_actions) on export.")
         has_fire_date = bool(event and (event.fireOnDate or "").strip())
         self._fire_date_chk.setChecked(has_fire_date)
         self._fire_date_chk.toggled.connect(self._on_fire_date_toggle)
         self._fire_date = QLineEdit((event.fireOnDate or "").strip() if event else "")
         self._fire_date.setPlaceholderText("year.month.day — e.g. 2003.3.20")
+        self._fire_date.setToolTip("HOI4 date format: year.month.day with NO leading zeros "
+                                   "— e.g. 2003.3.20 (20 March 2003), 2010.1.1. Not "
+                                   "2003-03-20 or any other format.")
         self._fire_date.setMaximumWidth(220)
         self._fire_date.textChanged.connect(lambda *_: self._refresh_preview())
         date_row.addWidget(self._fire_date_chk)
