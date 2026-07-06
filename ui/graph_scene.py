@@ -68,7 +68,12 @@ class GraphScene(QGraphicsScene):
                 node.connect_ended.connect(self._on_connect_ended)
                 self.addItem(node)
                 self._nodes[f.id] = node
-            self._nodes[f.id].setSelected(f.id == selected_id)
+                # Only a NEWLY created item takes the model's selection (add /
+                # paste selects the new node). Existing items keep whatever
+                # selection they have: reconcile runs on EVERY project change
+                # (each grid-step of a drag included), so resetting selection
+                # here destroyed multi-select mid-gesture.
+                node.setSelected(f.id == selected_id)
 
         # Reconcile edges — prerequisite (top-down) + mutually-exclusive (red).
         # Keys: ("prereq", src, dst) and ("mutex", a, b) with a<b deduped.
@@ -116,6 +121,15 @@ class GraphScene(QGraphicsScene):
                 self.setSceneRect(new_rect)
 
     def select_node(self, focus_id: str) -> None:
+        """Sync the canvas to a programmatic selection change (list panel,
+        undo, delete-picks-next). NO-OP when the target is already part of the
+        current selection: every node click round-trips through the model back
+        to here (click → set_selection → selection_changed → select_node), and
+        collapsing to a single node on that echo made Ctrl+click / rubber-band
+        multi-select impossible."""
+        target = self._nodes.get(focus_id)
+        if target is not None and target.isSelected():
+            return
         for fid, item in self._nodes.items():
             item.setSelected(fid == focus_id)
 

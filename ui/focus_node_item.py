@@ -351,7 +351,11 @@ class FocusNodeItem(QGraphicsObject):
             event.accept()
             return
         super().mousePressEvent(event)
-        self.clicked.emit(self._focus_id)
+        # Announce the click only when the press left this node selected: a
+        # Ctrl+click that DEselects must not round-trip through the model —
+        # the sync would immediately re-select the id it announces.
+        if self.isSelected():
+            self.clicked.emit(self._focus_id)
 
     def mouseMoveEvent(self, event) -> None:
         if self._connecting:
@@ -374,3 +378,8 @@ class FocusNodeItem(QGraphicsObject):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        # With Ctrl held, Qt defers the selection toggle to RELEASE — announce
+        # again here so a Ctrl+click extension updates the model's primary
+        # selection. Still guarded: a Ctrl+click that deselected stays silent.
+        if self.isSelected():
+            self.clicked.emit(self._focus_id)

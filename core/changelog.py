@@ -9,6 +9,32 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.3.1",
+        "date": "2026-07-06",
+        "title": "Big bug-fix release — 27 fixes from a full audit",
+        "changes": [
+            "Multi-select works properly now: Ctrl+click to extend, rubber-band "
+            "to select a group, then drag, copy, duplicate or delete them all "
+            "together. Selections no longer collapse after every edit.",
+            "Your work is much harder to lose: Open/Import/New Submod now warn "
+            "about unsaved changes, edits typed right before Ctrl+S are saved, "
+            "Cancel in the event/decision editors really cancels, and editors "
+            "no longer discard an idea or event with a blank ID silently.",
+            "Undo is more precise — deleting a focus or connection right after "
+            "typing no longer merges both into one undo step.",
+            "OR-group prerequisites now survive save and reopen exactly as "
+            "authored (repeated focuses across groups were being rewritten).",
+            "Export fixes: project names with ':' no longer produce an empty "
+            "country file, empty icons can't corrupt the focus block, quotes "
+            "in leader names are escaped, and non-Latin leader names no "
+            "longer overwrite each other's portraits.",
+            "Faster and steadier: the multi-second freeze on the first "
+            "dropdown click after opening a project is gone, and a batch of "
+            "crash bugs (huge trees, unusual .dds icons, corrupt project "
+            "files, quitting with the AI bridge connected) are fixed.",
+        ],
+    },
+    {
         "version": "0.3.0",
         "date": "2026-07-06",
         "title": "Focus Forge now updates itself",
