@@ -1,10 +1,11 @@
 ; Inno Setup script for Focus Forge.
 ; Build the app first:  python -m PyInstaller build.spec --clean --noconfirm
 ; Then compile:         ISCC.exe installer.iss
-; Output:               dist\FocusForge-0.2.2-setup.exe  (per-user install, no admin)
+; Output:               dist\FocusForge-{version}-setup.exe  (per-user install, no admin)
+; packaging\release.py syncs MyAppVersion from core\version.py and publishes.
 
 #define MyAppName "Focus Forge"
-#define MyAppVersion "0.2.2"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "Focus Forge"
 #define MyAppExeName "FocusForge.exe"
 
@@ -25,6 +26,8 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Auto-update: close a running Focus Forge before overwriting its files.
+CloseApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -44,4 +47,5 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; No skipifsilent: a silent auto-update (setup.exe /SILENT) relaunches the app.
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall

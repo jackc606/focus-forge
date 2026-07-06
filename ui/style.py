@@ -300,6 +300,28 @@ QLabel#bridgePill {{
     color: {T.TEXT_MUTED};
 }}
 QLabel#bridgePill[active="true"] {{ background-color: {T.ACCENT_SOFT}; color: {T.STATUS_OK}; }}
+QLabel#updatePill {{
+    border-radius: 9px;
+    padding: 2px 10px;
+    font-size: {T.TEXT_MICRO}px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+    background-color: {T.ACCENT_SOFT};
+    color: {T.ACCENT};
+    border: 1px solid {T.ACCENT_DIM};
+}}
+QLabel#updatePill:hover {{ color: {T.ACCENT_HOVER}; border-color: {T.ACCENT}; }}
+
+/* ----- Progress bar (update download) ----- */
+QProgressBar {{
+    background-color: {T.BG_INSET};
+    border: 1px solid {T.BORDER_STRONG};
+    border-radius: {T.RADIUS_INPUT}px;
+    min-height: 10px;
+}}
+QProgressBar::chunk {{
+    background-color: {T.ACCENT_DIM};
+    border-radius: 3px;
+}}
 
 /* ----- Issue cards ----- */
 QFrame#issueCardError {{ background-color: {T.STATUS_ERROR_BG}; border: 1px solid {T.STATUS_ERROR_BORDER}; border-radius: {T.RADIUS_CARD}px; }}

@@ -1,6 +1,6 @@
 [project]
 name = "hoi4-focus-forge"
-version = "0.1.6"
+version = "0.3.0"
 description = "Native Windows focus tree editor for HOI4 / Millennium Dawn"
 requires-python = ">=3.10"
 dependencies = [

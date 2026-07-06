@@ -35,7 +35,7 @@ from core.mod_scaffold import (
 )
 from core.types import FocusForgeProject
 from core.sample_project import make_blank_project, make_sample_project
-from core.version import version_label
+from core.version import __version__, version_label
 
 from . import theme as T
 from .country_editor import CountryEditorDialog
@@ -61,6 +61,7 @@ from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
 from .project_model import ProjectModel
 from .settings_panel import SettingsPanel
+from .update_worker import UpdateCheckWorker, run_in_thread
 from .validation_panel import ValidationPanel
 from .widgets import ClickableLabel, pill
 
@@ -151,6 +152,15 @@ class MainWindow(QMainWindow):
         self._bridge_pill.setObjectName("bridgePill")
         self._bridge_pill.setAlignment(Qt.AlignCenter)
         self._status_bar.addPermanentWidget(self._bridge_pill)
+        # Unobtrusive "update available" notice — hidden until a check finds
+        # one; clicking reopens the update dialog (covers skip / dismissal).
+        self._update_pill = ClickableLabel("")
+        self._update_pill.setObjectName("updatePill")
+        self._update_pill.setAlignment(Qt.AlignCenter)
+        self._update_pill.setToolTip("A new version is available — click for details")
+        self._update_pill.clicked.connect(self._open_update_dialog)
+        self._update_pill.hide()
+        self._status_bar.addPermanentWidget(self._update_pill)
 
         # In-process AI bridge (opt-in, loopback-only) that lets an MCP agent edit
         # the live project. Mutations run on this (main) thread → canvas repaints.
@@ -165,6 +175,16 @@ class MainWindow(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave_tick)
         self._settings_panel.autosave_changed.connect(self._apply_autosave)
         self._apply_autosave(self._settings.value("autosave_minutes", 0))
+
+        # Auto-update: a silent check shortly after startup, plus a manual
+        # "Check for Updates" button in the Settings tab.
+        self._update_worker = None
+        self._update_thread = None
+        self._update_info = None
+        self._update_check_manual = False
+        self._settings_panel.check_updates_requested.connect(
+            lambda: self._check_for_updates(manual=True))
+        QTimer.singleShot(3000, self._check_for_updates)
 
         # Wire signals
         self._model.project_changed.connect(self._on_project_changed)
@@ -646,6 +666,59 @@ class MainWindow(QMainWindow):
     def _show_devlog(self) -> None:
         from .devlog_dialog import DevLogDialog
         DevLogDialog(self).exec()
+
+    # ----- auto-update -----
+    def _check_for_updates(self, manual: bool = False) -> None:
+        """Kick off a background release check. Silent unless ``manual``
+        (the Settings button), which reports every outcome visibly."""
+        if self._update_thread is not None:
+            if manual:
+                self._status_label.setText("Already checking for updates…")
+            return
+        self._update_check_manual = manual
+        worker = UpdateCheckWorker(__version__)
+        worker.update_available.connect(self._on_update_available)
+        worker.no_update.connect(self._on_no_update)
+        worker.failed.connect(self._on_update_check_failed)
+        worker.finished.connect(self._on_update_check_done)
+        self._update_worker = worker  # keep a ref until finished (GC guard)
+        self._update_thread = run_in_thread(worker, self)
+
+    def _on_update_check_done(self) -> None:
+        self._update_worker = None
+        self._update_thread = None
+
+    def _on_update_available(self, info) -> None:
+        self._update_info = info
+        self._update_pill.setText(f"↑ v{info.version} available")
+        self._update_pill.show()
+        skipped = str(self._settings.value("update/skip_version", "") or "")
+        if not self._update_check_manual and skipped == info.version:
+            return  # user skipped this version — status-bar notice only
+        self._open_update_dialog()
+
+    def _on_no_update(self) -> None:
+        if self._update_check_manual:
+            QMessageBox.information(self, "Check for updates",
+                                    f"You're up to date (v{__version__}).")
+
+    def _on_update_check_failed(self, message: str) -> None:
+        if self._update_check_manual:
+            QMessageBox.warning(self, "Check for updates",
+                                f"Couldn't check for updates:\n{message}")
+
+    def _open_update_dialog(self) -> None:
+        if self._update_info is None:
+            return
+        from .update_dialog import UpdateDialog
+        # request_close=self.close → the dialog asks THIS window to close via
+        # its normal closeEvent (unsaved-changes prompt included) before it
+        # launches the installer; a cancelled close cancels the install.
+        dlg = UpdateDialog(self._update_info, __version__,
+                           request_close=self.close, parent=self)
+        dlg.exec()
+        if dlg.skip_requested():
+            self._settings.setValue("update/skip_version", self._update_info.version)
 
     # ----- AI bridge -----
     def _toggle_bridge(self, on: bool) -> None:

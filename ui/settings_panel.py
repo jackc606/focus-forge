@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
+from core.version import version_label
 
 from . import theme as T
 from .country_tag_picker import CountryTagPicker
@@ -41,6 +42,9 @@ class SettingsPanel(QWidget):
     # Emitted (with the interval in minutes, 0 = off) when the user changes the
     # autosave setting, so the main window can reconfigure its timer.
     autosave_changed = Signal(int)
+    # Emitted when the user clicks "Check for Updates" — the main window owns
+    # the update worker and dialog, so it runs the check and reports back.
+    check_updates_requested = Signal()
 
     def __init__(self, model: ProjectModel, parent=None) -> None:
         super().__init__(parent)
@@ -126,6 +130,19 @@ class SettingsPanel(QWidget):
             "Automatically saves the open project to its .focusforge.json on the chosen "
             "interval — but only after it has been saved once (so it has a file). New, "
             "never-saved projects are left alone."))
+
+        # ----- Updates -----
+        v.addWidget(section_header("Updates"))
+        upd_row = QHBoxLayout()
+        upd_row.setSpacing(T.SPACE_SM)
+        b_update = QPushButton("Check for Updates")
+        b_update.clicked.connect(self.check_updates_requested.emit)
+        upd_row.addWidget(b_update)
+        upd_row.addStretch(1)
+        v.addLayout(upd_row)
+        v.addWidget(hint(
+            f"You're running Focus Forge {version_label()}. New versions are "
+            f"also checked for automatically at startup."))
 
         # ----- Starter Tree -----
         v.addWidget(section_header("Starter Tree"))
