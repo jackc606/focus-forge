@@ -382,7 +382,7 @@ class EventEditorDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Save Event")
         buttons.button(QDialogButtonBox.Ok).setObjectName("primary")
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -558,6 +558,17 @@ class EventEditorDialog(QDialog):
             self._preview.setPlainText(body)
         except Exception as exc:  # never let a preview error block editing
             self._preview.setPlainText(f"(preview unavailable: {exc})")
+
+    # ----- accept -----
+    def _on_accept(self) -> None:
+        """Refuse to close with an empty ID — the browsers can't store an
+        id-less event, so accepting would silently discard everything authored."""
+        if not self._id.text().strip():
+            QMessageBox.warning(self, "Missing ID",
+                                "An event ID is required (e.g. MEX_forge.1). "
+                                "Fill in the ID field before saving.")
+            return
+        self.accept()
 
     # ----- result -----
     def result_event(self) -> EventData:

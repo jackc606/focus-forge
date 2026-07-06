@@ -85,6 +85,53 @@ def focus_from_dict(d: dict) -> FocusNodeData:
 
 # ----- Deserialize -------------------------------------------------------------
 
+def _opt_list(d: dict, key: str):
+    """Optional-list field: JSON ``null`` (or an absent key) -> None, otherwise a
+    real list. ``"key" in d`` + ``list(d["key"])`` crashed on null and made the
+    whole project unloadable."""
+    v = d.get(key)
+    return None if v is None else list(v)
+
+
+def _coerce_int(value, fallback: int = 0) -> int:
+    """Coerce a possibly corrupt value ('9', 9.0) to int; bad value -> fallback.
+    Heals project files poisoned with non-numeric positions on load."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_float(value, fallback: float = 0.0):
+    """Numeric coercion that keeps an already-numeric value exactly as-is (an
+    int stays an int, so re-saving doesn't churn 5 into 5.0)."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_popularity(value):
+    """Popularity values must be numeric or validate/export crash. Keeps ints/
+    floats as-is, heals '40' / '40%' strings, and falls back to 0.0 otherwise."""
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        return float(str(value).strip().rstrip("%").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _idea_from_dict(d: dict) -> IdeaData:
     return IdeaData(
         id=d.get("id", ""),
@@ -126,12 +173,13 @@ def _event_from_dict(d: dict) -> EventData:
 
 
 def _availability_from_dict(d: dict) -> AvailabilityRule:
+    items = _opt_list(d, "items")
     return AvailabilityRule(
-        completedFocuses=list(d["completedFocuses"]) if "completedFocuses" in d else None,
-        flagsRequired=list(d["flagsRequired"]) if "flagsRequired" in d else None,
-        flagsBlocked=list(d["flagsBlocked"]) if "flagsBlocked" in d else None,
-        items=[_reward_item_from_dict(i) for i in d["items"]] if "items" in d else None,
-        rawLines=list(d["rawLines"]) if "rawLines" in d else None,
+        completedFocuses=_opt_list(d, "completedFocuses"),
+        flagsRequired=_opt_list(d, "flagsRequired"),
+        flagsBlocked=_opt_list(d, "flagsBlocked"),
+        items=[_reward_item_from_dict(i) for i in items] if items is not None else None,
+        rawLines=_opt_list(d, "rawLines"),
     )
 
 
@@ -157,6 +205,9 @@ def _tech_bonus_from_dict(d: dict) -> TechBonusReward:
 
 
 def _completion_reward_from_dict(d: dict) -> CompletionReward:
+    events = _opt_list(d, "events")
+    tech_bonuses = _opt_list(d, "techBonuses")
+    items = _opt_list(d, "items")
     return CompletionReward(
         politicalPower=d.get("politicalPower"),
         stability=d.get("stability"),
@@ -165,12 +216,12 @@ def _completion_reward_from_dict(d: dict) -> CompletionReward:
         armyExperience=d.get("armyExperience"),
         airExperience=d.get("airExperience"),
         navyExperience=d.get("navyExperience"),
-        addIdeas=list(d["addIdeas"]) if "addIdeas" in d else None,
-        removeIdeas=list(d["removeIdeas"]) if "removeIdeas" in d else None,
-        events=[_event_reward_from_dict(e) for e in d["events"]] if "events" in d else None,
-        techBonuses=[_tech_bonus_from_dict(b) for b in d["techBonuses"]] if "techBonuses" in d else None,
-        items=[_reward_item_from_dict(i) for i in d["items"]] if "items" in d else None,
-        rawLines=list(d["rawLines"]) if "rawLines" in d else None,
+        addIdeas=_opt_list(d, "addIdeas"),
+        removeIdeas=_opt_list(d, "removeIdeas"),
+        events=[_event_reward_from_dict(e) for e in events] if events is not None else None,
+        techBonuses=[_tech_bonus_from_dict(b) for b in tech_bonuses] if tech_bonuses is not None else None,
+        items=[_reward_item_from_dict(i) for i in items] if items is not None else None,
+        rawLines=_opt_list(d, "rawLines"),
     )
 
 
@@ -182,8 +233,9 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         description=d.get("description", ""),
         icon=d.get("icon", ""),
         iconData=d.get("iconData", ""),
-        position=FocusPosition(x=pos.get("x", 0), y=pos.get("y", 0)),
-        cost=d.get("cost", 5),
+        position=FocusPosition(x=_coerce_int(pos.get("x", 0)),
+                               y=_coerce_int(pos.get("y", 0))),
+        cost=_coerce_float(d.get("cost", 5), 5.0),
         filters=list(d.get("filters") or []),
         prerequisites=normalize_prereq_groups(d.get("prerequisites")),
         mutuallyExclusive=normalize_id_list(d.get("mutuallyExclusive")),
@@ -236,7 +288,8 @@ def _election_leader_from_dict(d: dict) -> ElectionLeaderAssignment:
 
 def _country_from_dict(d: dict) -> CountryData:
     return CountryData(
-        popularities=dict(d.get("popularities") or {}),
+        popularities={k: _coerce_popularity(v)
+                      for k, v in (d.get("popularities") or {}).items()},
         rulingParty=d.get("rulingParty", "neutrality"),
         lastElection=d.get("lastElection", ""),
         electionFrequency=int(d.get("electionFrequency", 48)),
@@ -308,7 +361,8 @@ def project_from_dict(d: dict) -> FocusForgeProject:
         projectName=d.get("projectName", ""),
         countryTag=d.get("countryTag", ""),
         treeId=d.get("treeId", ""),
-        continuousFocusPosition=FocusPosition(x=cfp.get("x", 0), y=cfp.get("y", 0)),
+        continuousFocusPosition=FocusPosition(x=_coerce_int(cfp.get("x", 0)),
+                                              y=_coerce_int(cfp.get("y", 0))),
         focuses=[_focus_from_dict(f) for f in (d.get("focuses") or [])],
         ideas=[_idea_from_dict(i) for i in (d.get("ideas") or [])],
         events=[_event_from_dict(e) for e in (d.get("events") or [])],

@@ -18,6 +18,19 @@ from .types import (
 
 TAB = "\t"
 
+# Characters Windows forbids in file names (plus control chars). A ':' silently
+# writes into an NTFS alternate data stream (visible file empty, HOI4 loads
+# nothing); '<>|' raise OSError.
+_FILENAME_BAD_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_filename_component(name: str, fallback: str = "") -> str:
+    """Make one path component safe for Windows/NTFS: strip forbidden characters
+    and control chars, collapse whitespace, fall back when nothing is left."""
+    cleaned = _FILENAME_BAD_RE.sub("", name or "")
+    cleaned = " ".join(cleaned.split())
+    return cleaned or fallback
+
 
 def export_project_files(project: FocusForgeProject) -> list:
     settings = project.exportSettings
@@ -92,8 +105,10 @@ def export_project_files(project: FocusForgeProject) -> list:
                 content=decision_icon_gfx,
             ))
     if settings.includeCountry and project.country:
+        history_name = sanitize_filename_component(
+            project.projectName, project.countryTag) or project.countryTag
         files.append(ExportedFile(
-            relativePath=f"history/countries/{project.countryTag} - {project.projectName or project.countryTag}.txt",
+            relativePath=f"history/countries/{project.countryTag} - {history_name}.txt",
             content=export_country_history(project),
         ))
         files.append(ExportedFile(
@@ -134,18 +149,18 @@ def _party_key(tag: str, ideology: str) -> str:
     return f"{tag}_{ideology}_party"
 
 
-def _leader_picture_value(tag: str, leader) -> str:
+def _leader_picture_value(tag: str, leader, country=None) -> str:
     if leader.pictureData:
-        return f"{_leader_slug(leader)}.dds"
+        return f"{leader_asset_slug(country, leader)}.dds"
     if _is_portrait_path(leader.pictureRef):
-        return _portrait_sprite_name(tag, leader)
+        return _portrait_sprite_name(tag, leader, country)
     return leader.pictureRef or ""
 
 
-def _leader_block_lines(leader, tag: str, depth: int = 0) -> list:
+def _leader_block_lines(leader, tag: str, depth: int = 0, country=None) -> list:
     prefix = TAB * depth
     inner = TAB * (depth + 1)
-    picture = _leader_picture_value(tag, leader)
+    picture = _leader_picture_value(tag, leader, country)
     lines = [f"{prefix}create_country_leader = {{"]
     lines.append(f'{inner}name = "{_escape_loc(leader.name)}"')
     if picture:
@@ -166,7 +181,11 @@ def export_country_history(project: FocusForgeProject) -> str:
         for ideo in ("democratic", "communism", "fascism", "neutrality", "nationalist"):
             if ideo in c.popularities:
                 v = c.popularities[ideo]
-                n = int(v) if float(v).is_integer() else v  # keep MD's decimals, drop .0
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    continue  # non-numeric (corrupt) value — skip rather than crash
+                n = int(f) if f.is_integer() else v  # keep MD's decimals, drop .0
                 lines.append(f"{TAB}{ideo} = {n}")
         lines.append("}")
     lines.append("set_politics = {")
@@ -186,7 +205,7 @@ def export_country_history(project: FocusForgeProject) -> str:
         lines.append(f"{TAB}name = {key}")
         lines.append("}")
     for leader in c.leaders:
-        lines.extend(_leader_block_lines(leader, tag))
+        lines.extend(_leader_block_lines(leader, tag, country=c))
     return "\n".join(lines) + "\n"
 
 
@@ -196,6 +215,43 @@ _SAN_RE = re.compile(r"[^A-Za-z0-9]+")
 
 def _leader_slug(leader) -> str:
     return _SLUG_RE.sub("_", (leader.name or "leader").lower()).strip("_") or "leader"
+
+
+def leader_asset_slugs(country) -> list:
+    """One UNIQUE filesystem slug per leader, aligned with
+    :func:`_country_leaders_for_assets` order.
+
+    The plain per-leader slug strips non-``[a-z0-9]``, so two all-non-Latin
+    names (Cyrillic, Arabic, …) both slug to the same string and the second
+    leader's .dds silently overwrites the first's. Here an empty slug falls
+    back to ``leader_<index>`` (position in the combined leader list) and
+    duplicates get a deterministic ``_2`` / ``_3`` suffix, so sprite/picture
+    references (exporters) and asset filenames (ui.country_export) always
+    agree AND never collide."""
+    slugs: list = []
+    used: set = set()
+    for i, leader in enumerate(_country_leaders_for_assets(country)):
+        base = (_SLUG_RE.sub("_", (leader.name or "").lower()).strip("_")
+                or f"leader_{i}")
+        slug, n = base, 2
+        while slug in used:
+            slug = f"{base}_{n}"
+            n += 1
+        used.add(slug)
+        slugs.append(slug)
+    return slugs
+
+
+def leader_asset_slug(country, leader) -> str:
+    """The unique slug for one leader (identity lookup in the country's combined
+    leader list). Falls back to the plain slug when the leader isn't part of the
+    country (defensive — e.g. previews of a detached LeaderData)."""
+    if country is not None:
+        for ld, slug in zip(_country_leaders_for_assets(country),
+                            leader_asset_slugs(country)):
+            if ld is leader:
+                return slug
+    return _leader_slug(leader)
 
 
 def _san(token: str) -> str:
@@ -334,8 +390,11 @@ def _is_portrait_path(ref) -> bool:
     return "gfx/leaders" in (ref or "").replace("\\", "/").lower()
 
 
-def _portrait_sprite_name(tag, leader) -> str:
-    return f"GFX_{(tag or '').upper()}_{_leader_slug(leader)}"
+def _portrait_sprite_name(tag, leader, country=None) -> str:
+    # With a country, the unique per-leader slug keeps two same-slugging leaders
+    # from sharing one sprite name (second texture would win for both).
+    slug = leader_asset_slug(country, leader) if country is not None else _leader_slug(leader)
+    return f"GFX_{(tag or '').upper()}_{slug}"
 
 
 def _country_leaders_for_assets(country) -> list:
@@ -359,7 +418,7 @@ def export_leader_portrait_sprites(project) -> "str | None":
     entries = {}
     for ld in _country_leaders_for_assets(c):
         if _is_portrait_path(ld.pictureRef):
-            entries[_portrait_sprite_name(tag, ld)] = ld.pictureRef.replace("\\", "/")
+            entries[_portrait_sprite_name(tag, ld, c)] = ld.pictureRef.replace("\\", "/")
     if not entries:
         return None
     lines = ["spriteTypes = {"]
@@ -467,7 +526,7 @@ def export_country_election_leader_effects(project) -> str:
         lines.append(f"{TAB}{TAB}}}")
         lines.append(f"{TAB}{TAB}# {party_index}: {party_label}")
         lines.append(f"{TAB}{TAB}hidden_effect = {{ kill_country_leader = yes }}")
-        lines.extend(_leader_block_lines(leader, tag, 2))
+        lines.extend(_leader_block_lines(leader, tag, 2, country=project.country))
         lines.append(f"{TAB}}}")
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -574,11 +633,17 @@ def _export_focus(focus: FocusNodeData) -> list:
     lines: list = [
         f"{TAB}focus = {{",
         f"{TAB}{TAB}id = {focus.id}",
-        f"{TAB}{TAB}icon = {_focus_icon_value(focus)}",
+    ]
+    icon = _focus_icon_value(focus)
+    if (icon or "").strip():
+        # `icon = ` with NO value would make the Paradox parser consume the next
+        # token ("x") as the value, corrupting the whole focus block.
+        lines.append(f"{TAB}{TAB}icon = {icon}")
+    lines.extend([
         f"{TAB}{TAB}x = {focus.position.x}",
         f"{TAB}{TAB}y = {focus.position.y}",
         f"{TAB}{TAB}cost = {focus.cost}",
-    ]
+    ])
     # Each element of prerequisites is one prerequisite BLOCK. A plain id is a
     # single-focus block; a list is an OR group (several focus= in one block).
     # Separate blocks are AND-ed by HOI4; choices within a block are OR-ed.
@@ -691,7 +756,9 @@ def export_ideas(project: FocusForgeProject) -> str:
     lines = ["ideas = {", f"{TAB}country = {{"]
     for idea in project.ideas:
         lines.append(f"{TAB}{TAB}{idea.id} = {{")
-        lines.append(f"{TAB}{TAB}{TAB}picture = {idea.picture}")
+        if (idea.picture or "").strip():
+            # a valueless `picture = ` line would swallow the next token
+            lines.append(f"{TAB}{TAB}{TAB}picture = {idea.picture}")
         for raw in idea.modifierRawLines:
             lines.append(f"{TAB}{TAB}{TAB}{raw}")
         lines.append(f"{TAB}{TAB}}}")

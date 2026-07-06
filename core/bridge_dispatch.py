@@ -93,9 +93,33 @@ def _focus_fields_from_args(args: dict) -> dict:
         fields["prerequisites"] = normalize_prereq_groups(fields["prerequisites"])
     if "mutuallyExclusive" in fields:
         fields["mutuallyExclusive"] = normalize_id_list(fields["mutuallyExclusive"])
+    # Coerce/validate loosely-typed JSON before it reaches the model — a client
+    # sending {"x": "9"} or {"cost": "5"} must not poison the project (validation
+    # and export both assume real numbers). Un-coercible input raises ValueError,
+    # which dispatch() turns into a normal {"ok": False, "error": …} response.
+    for key in ("title", "description", "icon", "notes"):
+        if key in fields and fields[key] is not None and not isinstance(fields[key], str):
+            raise ValueError(f"{key} must be a string (got {fields[key]!r}).")
+    if "filters" in fields and fields["filters"] is not None:
+        flt = fields["filters"]
+        if (isinstance(flt, str) or not isinstance(flt, (list, tuple))
+                or not all(isinstance(f, str) for f in flt)):
+            raise ValueError(f"filters must be a list of strings (got {flt!r}).")
+        fields["filters"] = list(flt)
+    if "cost" in fields and fields["cost"] is not None:
+        try:
+            fields["cost"] = float(fields["cost"])
+        except (TypeError, ValueError):
+            raise ValueError(f"cost must be a number (got {fields['cost']!r}).")
     if args.get("position") is not None:
         p = args["position"]
-        fields["position"] = FocusPosition(x=p.get("x", 0), y=p.get("y", 0))
+        if not isinstance(p, dict):
+            raise ValueError(f'position must be an object like {{"x": 3, "y": 5}} (got {p!r}).')
+        try:
+            fields["position"] = FocusPosition(x=int(p.get("x", 0)), y=int(p.get("y", 0)))
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"position x/y must be integers (got x={p.get('x')!r}, y={p.get('y')!r}).")
     if "completionReward" in args:
         fields["completionReward"] = _completion_reward_from_dict(args["completionReward"] or {})
     if "available" in args:

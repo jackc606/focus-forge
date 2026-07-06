@@ -13,8 +13,8 @@ from core.exporters import (
     _decision_icon_relpath,
     _event_picture_relpath,
     _focus_icon_relpath,
-    _leader_slug,
     _party_logo_relpath,
+    leader_asset_slugs,
 )
 from core.file_io import atomic_write_bytes
 from core.image_write import dds_bgra32, tga_bgra32
@@ -67,7 +67,10 @@ def export_country_assets(project, mod_dir: str) -> int:
         _write_tga(img, 10, 7, os.path.join(mod_dir, "gfx", "flags", "small", f"{fname}.tga"))
         written += 3
 
-    for leader in _country_leaders_for_assets(c):
+    # Same unique-slug list the exporter's picture references use — the .dds
+    # filename and the `picture = "<slug>.dds"` in the history file must agree,
+    # and two leaders must never share one filename (second would overwrite).
+    for leader, slug in zip(_country_leaders_for_assets(c), leader_asset_slugs(c)):
         if not leader.pictureData:
             continue
         img = _qimage_from_b64(leader.pictureData)
@@ -76,7 +79,7 @@ def export_country_assets(project, mod_dir: str) -> int:
         bgra, w, h = _argb32_bytes(img)
         ld = os.path.join(mod_dir, "gfx", "leaders", tag)
         os.makedirs(ld, exist_ok=True)
-        atomic_write_bytes(os.path.join(ld, f"{_leader_slug(leader)}.dds"),
+        atomic_write_bytes(os.path.join(ld, f"{slug}.dds"),
                            dds_bgra32(bgra, w, h))
         written += 1
 

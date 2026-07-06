@@ -14,9 +14,9 @@ import hmac
 import json
 import secrets
 
-from PySide6.QtCore import QObject, QRectF, Signal
+from PySide6.QtCore import QObject, QRectF, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtNetwork import QHostAddress, QTcpServer
+from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QTcpServer
 
 from core.bridge_discovery import bridge_info_path, clear_bridge_info, write_bridge_info
 from core.bridge_dispatch import BRIDGE_PROTOCOL, dispatch
@@ -35,6 +35,10 @@ _GRID_X, _GRID_Y = 124, 158
 # misbehaving local client can't exhaust memory. Generous: a project/event
 # payload can carry base64-encoded art, but never tens of MB on one line.
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
+
+# After a graceful drop (error reply + disconnectFromHost), force-close the
+# socket if the peer still hasn't drained the reply by then.
+_DROP_FORCE_CLOSE_MS = 3000
 
 # Read-only ops aren't narrated to the status bar (too chatty).
 _QUIET_OPS = {
@@ -117,16 +121,33 @@ class AgentBridge(QObject):
         except RuntimeError:
             pass  # C++ object already gone (teardown race) — harmless
         self._clients = max(0, self._clients - 1)
-        self.client_changed.emit(self._clients > 0)
+        try:
+            self.client_changed.emit(self._clients > 0)
+        except RuntimeError:
+            pass  # bridge C++ object gone during app teardown — harmless
 
     def _drop(self, socket, error: str) -> None:
+        self._buffers.pop(socket, None)
         try:
             socket.write((json.dumps({"ok": False, "error": error}) + "\n").encode("utf-8"))
             socket.flush()
-            socket.close()
+            # Graceful: disconnectFromHost() lets pending writes drain first, so
+            # the client actually receives the error JSON instead of a bare
+            # connection reset. An immediate close() would discard the reply.
+            socket.disconnectFromHost()
         except RuntimeError:
-            pass
-        self._buffers.pop(socket, None)
+            return  # socket's C++ object already gone
+        # Fallback: if the peer never reads (so the write never drains), force
+        # the socket closed after a grace period.
+        QTimer.singleShot(_DROP_FORCE_CLOSE_MS, lambda: self._force_close(socket))
+
+    @staticmethod
+    def _force_close(socket) -> None:
+        try:
+            if socket.state() != QAbstractSocket.SocketState.UnconnectedState:
+                socket.abort()
+        except RuntimeError:
+            pass  # already deleted — nothing to close
 
     def _on_ready_read(self, socket) -> None:
         buf = self._buffers.get(socket)

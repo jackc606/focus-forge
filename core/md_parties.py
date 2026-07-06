@@ -86,7 +86,9 @@ MD_PARTY_LABEL_BY_INDEX = dict(MD_PARTIES)
 # The name carries a leading "£<sprite> " icon token; the _icon line is just the
 # sprite; _desc is the politics-screen description (often blank in vanilla MD).
 _SUB_TOP = {sub: top for top, subs in IDEOLOGY_TREE.items() for sub in subs}
-_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.]+):\d*\s*"(.*)"\s*$', re.MULTILINE)
+# Value = up to the LAST '"' on the line, tolerating trailing comments /
+# whitespace after the closing quote (same fix as core.pdx_loc._LOC_LINE).
+_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.]+):\d*\s*"(.*)"', re.MULTILINE)
 
 
 def _strip_icon_prefix(value: str) -> str:

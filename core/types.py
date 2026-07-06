@@ -52,23 +52,27 @@ def normalize_prereq_groups(value) -> list:
       * ``[["a"]]``           -> ``["a"]``              (singleton group collapses)
       * ``[["a", "b", "a"]]`` -> ``[["a", "b"]]``       (dedup within a group)
 
-    Ids are de-duplicated *globally* across the whole structure (a focus required
-    twice is still required once), order preserved, blanks dropped. Deeper nesting
-    is flattened down to a single group level so an OR group can't itself contain
-    groups (HOI4 has no such concept)."""
+    Ids are de-duplicated *within* each group only, order preserved, blanks
+    dropped; exact-duplicate groups (same member set) are dropped. An id is NEVER
+    removed just because it also appears in another group — ``[["a","b"], "a"]``
+    means (a OR b) AND a, and both blocks must survive (global dedup used to
+    silently delete the hard requirement on "a"). Deeper nesting is flattened
+    down to a single group level so an OR group can't itself contain groups
+    (HOI4 has no such concept)."""
     if value is None:
         return []
     if isinstance(value, (str, bytes)):
         value = [value]
     out: list = []
-    seen: set = set()
+    seen_groups: set = set()   # member sets of already-emitted groups
 
-    def _ids(v) -> list:
-        # Flatten an arbitrary value to clean, globally-deduped id strings.
+    def _ids(v, seen: set) -> list:
+        # Flatten an arbitrary value to clean id strings, deduped within `seen`
+        # (one group's members) only.
         collected: list = []
         if isinstance(v, (list, tuple, set)):
             for item in v:
-                collected.extend(_ids(item))
+                collected.extend(_ids(item, seen))
             return collected
         s = ("" if v is None else str(v)).strip()
         if s and s not in seen:
@@ -77,14 +81,17 @@ def normalize_prereq_groups(value) -> list:
         return collected
 
     for element in value:
-        if isinstance(element, (list, tuple, set)):
-            group = _ids(element)
-            if len(group) == 1:
-                out.append(group[0])          # singleton OR group == plain AND term
-            elif group:
-                out.append(group)             # genuine OR group
+        group = _ids(element, set())          # a plain id is a group of one
+        if not group:
+            continue                          # empty group / blank id
+        key = frozenset(group)
+        if key in seen_groups:
+            continue                          # exact-duplicate group (same members)
+        seen_groups.add(key)
+        if len(group) == 1:
+            out.append(group[0])              # singleton OR group == plain AND term
         else:
-            out.extend(_ids(element))         # plain id (already a single-item list)
+            out.append(group)                 # genuine OR group
     return out
 
 

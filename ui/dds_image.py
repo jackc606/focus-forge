@@ -17,6 +17,8 @@ def load_dds_qimage(path: str):
     if not res:
         return None
     w, h, bgra = res
+    if bgra is None:  # belt-and-braces: bytes(None) would raise TypeError
+        return None
     # Format_ARGB32 reads each word as 0xAARRGGBB → little-endian bytes B,G,R,A,
     # which is exactly what decode_dds produces. copy() detaches from the buffer.
     return QImage(bytes(bgra), w, h, QImage.Format_ARGB32).copy()

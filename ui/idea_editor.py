@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -131,7 +132,7 @@ class IdeaEditorDialog(QDialog):
         self._buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self._buttons.button(QDialogButtonBox.Ok).setText("Save Idea")
         self._buttons.button(QDialogButtonBox.Ok).setObjectName("primary")
-        self._buttons.accepted.connect(self.accept)
+        self._buttons.accepted.connect(self._on_accept)
         self._buttons.rejected.connect(self.reject)
         v.addWidget(self._buttons)
 
@@ -215,6 +216,17 @@ class IdeaEditorDialog(QDialog):
             if m:
                 out.append((m.group(1), m.group(2)))
         return out
+
+    # ----- accept -----
+    def _on_accept(self) -> None:
+        """Refuse to close with an empty ID — accepting would silently discard
+        the authored idea."""
+        if not self._id.text().strip():
+            QMessageBox.warning(self, "Missing ID",
+                                "An idea ID is required (e.g. MEX_national_pride). "
+                                "Fill in the ID field before saving.")
+            return
+        self.accept()
 
     # ----- result -----
     def result_idea(self) -> IdeaData:

@@ -68,5 +68,7 @@ class LlmPanel(QWidget):
         except Exception as exc:
             QMessageBox.warning(self, "Import failed", f"Could not parse JSON:\n{exc}")
             return
-        self._model.replace_project(project, path=self._model.path)
+        # dirty=True: the imported project only exists in memory — it must be
+        # flagged unsaved so the close prompt / autosave don't silently drop it.
+        self._model.replace_project(project, path=self._model.path, dirty=True)
         self._model.status_message.emit("Imported LLM JSON.")

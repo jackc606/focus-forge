@@ -5,6 +5,7 @@ import re
 from typing import Iterable
 
 from .availability_presets import validate_availability_item
+from .exporters import _FILENAME_BAD_RE, sanitize_filename_component
 from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import get_reward_preset, validate_reward_item
@@ -194,6 +195,12 @@ def _validate_metadata(project: FocusForgeProject, issues: list,
 
     if not (project.projectName or "").strip():
         _warn(issues, "project.name.empty", "Project has no name (used in the history file name).")
+    elif _FILENAME_BAD_RE.search(project.projectName):
+        safe = sanitize_filename_component(project.projectName, project.countryTag or "TAG")
+        _warn(issues, "project.name.filename",
+              f"Project name contains characters Windows can't use in file names "
+              f"(< > : \" / \\ | ? *) — the country history file will be written "
+              f"as '{tag or 'TAG'} - {safe}.txt' instead.")
 
     # ----- export filenames / loc namespace -----
     focus_file = (settings.focusFileName or "").strip()
@@ -345,8 +352,18 @@ def _validate_country(country, issues: list) -> None:
     if not pops:
         _warn(issues, "country.popularities.empty", "Country has no starting popularities set.")
     else:
-        total = sum(float(v) for v in pops.values())
-        if not (98 <= total <= 102):
+        total = 0.0
+        any_invalid = False
+        for key, v in pops.items():
+            try:
+                total += float(v)
+            except (TypeError, ValueError):
+                # A raising float() here made validate_project crash on every
+                # change — the project became uneditable. Report it instead.
+                any_invalid = True
+                _err(issues, "country.popularities.invalid",
+                     f"Popularity for '{key}' is not a number ({v!r}).")
+        if not any_invalid and not (98 <= total <= 102):
             _warn(issues, "country.popularities.sum", f"Starting popularities sum to {total:g}% (should be ~100%).")
     # MD keys each party on its SUB-ideology (a country can run several parties
     # under one top ideology), so collisions are per sub-ideology — or per top
@@ -440,31 +457,48 @@ def _validate_collection(items, issues: list, code: str, label: str, *,
 
 
 def _detect_cycles(project: FocusForgeProject, issues: list) -> None:
+    """Iterative DFS (explicit stack) — a recursive walk hit Python's recursion
+    limit on ~1000-deep prerequisite chains (AI-generated trees) and crashed
+    validation on project load. Output is identical to the old recursive form."""
     visiting: set = set()
     visited: set = set()
     by_id = {focus.id: focus for focus in project.focuses}
 
-    def visit(node_id: str, path: list) -> None:
-        if node_id in visiting:
-            issues.append(ValidationIssue(
-                severity="error",
-                code="focus.graph.cycle",
-                focusId=node_id,
-                message=f"Prerequisite cycle detected: {' -> '.join(path + [node_id])}.",
-            ))
-            return
-        if node_id in visited:
-            return
-        visiting.add(node_id)
+    def _prereqs(node_id: str) -> list:
         focus = by_id.get(node_id)
-        for prereq in iter_prereq_ids(focus.prerequisites if focus else []):
-            if prereq in by_id:
-                visit(prereq, path + [node_id])
-        visiting.discard(node_id)
-        visited.add(node_id)
+        return [p for p in iter_prereq_ids(focus.prerequisites if focus else [])
+                if p in by_id]
 
-    for focus in project.focuses:
-        visit(focus.id, [])
+    for start in project.focuses:
+        if start.id in visited:
+            continue
+        visiting.add(start.id)
+        path = [start.id]                      # mirrors the recursion path
+        stack = [(start.id, iter(_prereqs(start.id)))]
+        while stack:
+            node_id, prereq_iter = stack[-1]
+            descended = False
+            for prereq in prereq_iter:
+                if prereq in visiting:
+                    issues.append(ValidationIssue(
+                        severity="error",
+                        code="focus.graph.cycle",
+                        focusId=prereq,
+                        message=f"Prerequisite cycle detected: {' -> '.join(path + [prereq])}.",
+                    ))
+                    continue
+                if prereq in visited:
+                    continue
+                visiting.add(prereq)
+                path.append(prereq)
+                stack.append((prereq, iter(_prereqs(prereq))))
+                descended = True
+                break
+            if not descended:
+                stack.pop()
+                path.pop()
+                visiting.discard(node_id)
+                visited.add(node_id)
 
 
 def _detect_unreachable(project: FocusForgeProject, issues: list) -> None:

@@ -128,10 +128,21 @@ class ListManagerDialog(QDialog):
                 self._list.setCurrentRow(i)
                 return
 
+    def _warn_missing_id(self) -> None:
+        # Belt-and-braces: the editor dialogs refuse to accept with an empty ID,
+        # but if one slips through, warn instead of silently discarding the work.
+        QMessageBox.warning(
+            self, "Missing ID",
+            f"The {self._kind} has no ID, so it can't be saved. "
+            f"Your changes were discarded.")
+
     # ----- actions -----
     def _new(self) -> None:
         entity = self._edit_entity(None)
-        if entity is None or not entity.id:
+        if entity is None:
+            return
+        if not entity.id:
+            self._warn_missing_id()
             return
         final = self._model_add(entity)
         self._refresh()
@@ -146,7 +157,10 @@ class ListManagerDialog(QDialog):
         if existing is None:
             return
         entity = self._edit_entity(existing)
-        if entity is None or not entity.id:
+        if entity is None:
+            return
+        if not entity.id:
+            self._warn_missing_id()
             return
         final = self._model_update(old_id, entity)
         self._refresh()

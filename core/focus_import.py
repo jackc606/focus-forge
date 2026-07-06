@@ -26,7 +26,6 @@ from .types import (
 from .mod_paths import effective_roots_for_path
 from .pdx_loc import load_english_localisation
 
-_COMMENT = re.compile(r"#.*")
 _TREE_START = re.compile(r"\bfocus_tree\s*=\s*\{", re.IGNORECASE)
 _FOCUS_COUNT = re.compile(r"\bfocus\s*=\s*\{")
 _TAG = re.compile(r"\b(?:original_tag|tag)\s*=\s*([A-Za-z0-9_]+)")
@@ -36,6 +35,26 @@ _ID = re.compile(r"\bid\s*=\s*([A-Za-z0-9_.]+)")
 # ---------------------------------------------------------------------------
 # Generic Paradox-script helpers
 # ---------------------------------------------------------------------------
+def _strip_comments(text: str) -> str:
+    """Remove ``#`` comments, but only OUTSIDE quoted strings.
+
+    A blind ``#.*`` strip truncated lines like ``log = "50% done # half"`` to an
+    unterminated quote, and a ``{``/``}`` after a ``#`` inside a string desynced
+    the brace matcher for the rest of the file. Line structure is preserved."""
+    out: list = []
+    for line in text.split("\n"):
+        if "#" in line:
+            in_string = False
+            for i, ch in enumerate(line):
+                if ch == '"':
+                    in_string = not in_string
+                elif ch == "#" and not in_string:
+                    line = line[:i]
+                    break
+        out.append(line)
+    return "\n".join(out)
+
+
 def _match_brace(text: str, open_idx: int) -> int:
     """Index of the '}' matching the '{' at open_idx."""
     depth = 0
@@ -222,7 +241,7 @@ def _trees_in_file(path: str, roots: tuple = ()) -> list:
             raw = f.read()
     except OSError:
         return []
-    text = _COMMENT.sub("", raw)
+    text = _strip_comments(raw)
     out = []
     for m in _TREE_START.finditer(text):
         brace = m.end() - 1
@@ -349,7 +368,7 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
             continue
     else:
         decoded = raw.decode("utf-8-sig", errors="replace")
-    text = _COMMENT.sub("", decoded)
+    text = _strip_comments(decoded)
 
     block = ""
     for m in _TREE_START.finditer(text):

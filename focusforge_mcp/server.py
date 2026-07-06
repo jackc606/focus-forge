@@ -100,7 +100,13 @@ def _call(op: str, args: "dict | None" = None):
                           "Is the AI Bridge still on?")
     if not buf:
         raise BridgeError("Empty response from the editor.")
-    resp = json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
+    try:
+        resp = json.loads(buf.split(b"\n", 1)[0].decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        # The socket closed mid-reply (e.g. the editor quit while writing) —
+        # surface the same friendly guidance as the other connection failures.
+        raise BridgeError("Focus Forge closed the connection mid-reply — "
+                          "is the AI Bridge still on?")
     if not resp.get("ok"):
         raise BridgeError(resp.get("error", "Unknown bridge error."))
     return resp.get("result")

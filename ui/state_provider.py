@@ -18,7 +18,7 @@ class StateProvider(QObject):
         super().__init__()
         self._index = None
         self._by_tag: dict = {}
-        icon_provider().changed.connect(self._invalidate)
+        icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._index = None

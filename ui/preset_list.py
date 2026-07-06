@@ -7,8 +7,16 @@ draft list and fire an ``on_change`` callback so a host dialog can refresh a
 preview and persist on its own terms. The event editor composes them for option
 effects, option triggers, and the event-level fire trigger. The item cards are
 the same ``PresetItemCard`` the focus editors use.
+
+The draft is a DEEP COPY of whatever list the host passes in: the item cards
+mutate their ``RewardItem`` in place, so without the copy every keystroke would
+leak straight into the model's live objects and Cancel couldn't cancel. Hosts
+must read the edited draft back via ``items()`` / ``raw_lines()`` on accept
+(the editor dialogs do this in their ``result_*()`` builders).
 """
 from __future__ import annotations
+
+import copy
 
 from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
@@ -39,7 +47,10 @@ class _PresetListBase(QWidget):
 
     def __init__(self, items=None, raw_lines=None, *, on_change=None, parent=None) -> None:
         super().__init__(parent)
-        self._items = list(items or [])
+        # Deep-copy: the cards edit RewardItems in place (including a
+        # params.setdefault back-fill on open), so working on the caller's live
+        # objects would bypass Cancel, the dirty flag and undo.
+        self._items = copy.deepcopy(list(items or []))
         self._raw = list(raw_lines or [])
         self._on_change = on_change
 

@@ -17,7 +17,7 @@ class TraitProvider(QObject):
         self._index = None
         self._by_tag: dict = {}
         self._tooltips = None
-        icon_provider().changed.connect(self._invalidate)
+        icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._index = None

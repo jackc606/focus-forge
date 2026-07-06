@@ -154,10 +154,20 @@ class DecisionCategoryEditorDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Save Category")
         buttons.button(QDialogButtonBox.Ok).setObjectName("primary")
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
         self._refresh_icon()
+
+    def _on_accept(self) -> None:
+        """Refuse to close with an empty ID — accepting would silently discard
+        the authored category."""
+        if not self._id.text().strip():
+            QMessageBox.warning(self, "Missing ID",
+                                "A category ID is required (e.g. MEX_reforms_category). "
+                                "Fill in the ID field before saving.")
+            return
+        self.accept()
 
     def _on_title(self, text: str) -> None:
         if not self._id_edited:
@@ -451,7 +461,7 @@ class DecisionEditorDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Save Decision")
         buttons.button(QDialogButtonBox.Ok).setObjectName("primary")
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
@@ -626,6 +636,17 @@ class DecisionEditorDialog(QDialog):
             self._preview.setPlainText(export_decisions(proj).strip("\n"))
         except Exception as exc:  # never let a preview error block editing
             self._preview.setPlainText(f"(preview unavailable: {exc})")
+
+    # ----- accept -----
+    def _on_accept(self) -> None:
+        """Refuse to close with an empty ID — accepting would silently discard
+        the authored decision."""
+        if not self._id.text().strip():
+            QMessageBox.warning(self, "Missing ID",
+                                "A decision ID is required (e.g. MEX_land_reform). "
+                                "Fill in the ID field before saving.")
+            return
+        self.accept()
 
     # ----- result -----
     def result_decision(self) -> DecisionData:

@@ -9,7 +9,11 @@ from __future__ import annotations
 import os
 import re
 
-_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.]+):\d*\s*"(.*)"\s*$')
+# Value = everything up to the LAST '"' on the line (greedy), so a trailing
+# comment / whitespace after the closing quote (`key:0 "Value" # note`) still
+# matches — a `$`-anchored pattern silently dropped those keys and imported
+# focus titles fell back to raw ids.
+_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.]+):\d*\s*"(.*)"')
 
 
 def _read_loc_lines(path: str) -> list:

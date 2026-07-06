@@ -153,7 +153,17 @@ class ProjectModel(QObject):
 
     def _force_undo_boundary(self) -> None:
         """Structural operations (add/delete/paste/rename, dialog saves) always
-        start their own undo step, even inside the time-coalescing window."""
+        start their own undo step, even inside the time-coalescing window.
+
+        MUST be called BEFORE the operation mutates the project: it settles any
+        pending typing/drag burst by materializing the current (still
+        pre-mutation) state, so the burst's end state — not the post-mutation
+        state — is the snapshot this operation gets undone back to. Resetting
+        the clock alone is not enough: ``_capture_undo_state`` runs after the
+        mutation, and materializing a stale burst there would fold the burst
+        and the structural change into a single (empty) diff."""
+        self._materialize_timer.stop()
+        self._materialize_state_now()
         self._last_mutation = 0.0
 
     def _restore_state(self, state: dict) -> None:
@@ -177,19 +187,30 @@ class ProjectModel(QObject):
         self._last_mutation = 0.0  # the next edit starts a fresh gesture
 
     # ----- mutation -----
-    def replace_project(self, project: FocusForgeProject, path: Optional[Path] = None) -> None:
+    def replace_project(self, project: FocusForgeProject, path: Optional[Path] = None,
+                        dirty: bool = False) -> None:
+        """Swap in a whole new project. ``dirty=True`` marks it as having
+        unsaved changes (e.g. an LLM import that only lives in memory)."""
         self._project = project
         self._path = path
         self._selected_id = project.focuses[0].id if project.focuses else ""
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._materialize_timer.stop()
         self._current_state = project_to_dict(project)
+        self._state_stale = False
+        self._last_mutation = 0.0  # the first edit of the new project starts fresh
         self._undo_skip = True
         try:
             self._emit_all()
         finally:
             self._undo_skip = False
-        self._set_dirty(False)  # a freshly loaded/created project is clean
+        # The new project is a NEW object graph — re-announce the selection
+        # (after project_changed, like undo/redo does) so the inspector and
+        # editors rebuild from it instead of writing through stale references
+        # into the discarded project.
+        self.selection_changed.emit(self._selected_id)
+        self._set_dirty(dirty)
         self.project_path_changed.emit(str(path) if path else "")
 
     def set_selection(self, focus_id: str) -> None:
@@ -218,6 +239,7 @@ class ProjectModel(QObject):
     def remove_prerequisite(self, target_id: str, prereq_id: str) -> str:
         target = self.find_focus(target_id)
         if target and prereq_id in iter_prereq_ids(target.prerequisites):
+            self._force_undo_boundary()
             target.prerequisites = map_prereq_groups(
                 target.prerequisites, lambda p: None if p == prereq_id else p)
             self._emit_all()
@@ -227,17 +249,17 @@ class ProjectModel(QObject):
     def remove_mutex(self, a_id: str, b_id: str) -> str:
         a = self.find_focus(a_id)
         b = self.find_focus(b_id)
-        changed = False
-        if a and b_id in a.mutuallyExclusive:
+        change_a = a is not None and b_id in a.mutuallyExclusive
+        change_b = b is not None and a_id in b.mutuallyExclusive
+        if not (change_a or change_b):
+            return ""
+        self._force_undo_boundary()
+        if change_a:
             a.mutuallyExclusive = [x for x in a.mutuallyExclusive if x != b_id]
-            changed = True
-        if b and a_id in b.mutuallyExclusive:
+        if change_b:
             b.mutuallyExclusive = [x for x in b.mutuallyExclusive if x != a_id]
-            changed = True
-        if changed:
-            self._emit_all()
-            return f"Removed mutual exclusivity {a_id} ↔ {b_id}"
-        return ""
+        self._emit_all()
+        return f"Removed mutual exclusivity {a_id} ↔ {b_id}"
 
     def _depends_on(self, start_id: str, goal_id: str) -> bool:
         """Does ``start`` reach ``goal`` by following prerequisites (transitively)?"""
@@ -454,17 +476,17 @@ class ProjectModel(QObject):
         b = self.find_focus(b_id)
         if not a or not b or a_id == b_id:
             return ""
-        changed = False
-        if b_id not in a.mutuallyExclusive:
+        add_to_a = b_id not in a.mutuallyExclusive
+        add_to_b = a_id not in b.mutuallyExclusive
+        if not (add_to_a or add_to_b):
+            return ""
+        self._force_undo_boundary()
+        if add_to_a:
             a.mutuallyExclusive = list(a.mutuallyExclusive) + [b_id]
-            changed = True
-        if a_id not in b.mutuallyExclusive:
+        if add_to_b:
             b.mutuallyExclusive = list(b.mutuallyExclusive) + [a_id]
-            changed = True
-        if changed:
-            self._emit_all()
-            return f"Linked {a_id} ↔ {b_id}"
-        return ""
+        self._emit_all()
+        return f"Linked {a_id} ↔ {b_id}"
 
     # ----- ideas (national spirits) -----
     def _unique_idea_id(self, base: str, ignore: str = "") -> str:

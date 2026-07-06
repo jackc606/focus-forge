@@ -4,8 +4,17 @@ Scans configured HOI4 / mod roots for ``interface/*.gfx`` sprite definitions,
 resolves a focus's ``icon`` value to its ``.dds``, decodes it (pure-Python), and
 hands back a cached ``QPixmap``. Roots persist across sessions via ``QSettings``.
 
-Nodes query the singleton via ``provider()``. When roots change it emits
-``changed`` so the scene can repaint.
+Nodes query the singleton via ``provider()``. Signals:
+
+- ``roots_changed`` — the configured roots (and therefore every derived index)
+  genuinely changed. The lazy game-data providers (tech/trait/state/country)
+  listen to THIS to invalidate their caches.
+- ``icons_warmed`` — a background icon warm finished decoding; caches are intact.
+- ``changed`` — fires for BOTH of the above: "something visual may look
+  different, repaint". The canvas / icon previews listen to this. A warm
+  completion must never invalidate the data providers (it used to, wiping the
+  startup warm-up and freezing the first dropdown click), so they must NOT
+  subscribe to ``changed``.
 """
 from __future__ import annotations
 
@@ -150,7 +159,12 @@ def autodetect_roots() -> list:
 
 
 class IconProvider(QObject):
+    # "Repaint" signal: anything visual may have changed (roots OR warm finish).
     changed = Signal()
+    # Genuine root/index changes only — cache-invalidation for data providers.
+    roots_changed = Signal()
+    # A background icon warm finished decoding (subset of `changed`).
+    icons_warmed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -209,6 +223,7 @@ class IconProvider(QObject):
         self._roots = [r for r in roots if r]
         self._settings.setValue("icon_roots", self._roots)
         self._reset_caches()
+        self.roots_changed.emit()
         self.changed.emit()
 
     def add_extra_roots(self, roots) -> None:
@@ -222,6 +237,7 @@ class IconProvider(QObject):
                 added = True
         if added:
             self._reset_caches()
+            self.roots_changed.emit()
             self.changed.emit()
 
     def ensure_default_roots(self) -> None:
@@ -462,6 +478,9 @@ class IconProvider(QObject):
                         self._qimage_cache[key] = self._decode_qimage(v)
             finally:
                 self._warming_icons = False
+                # NOT roots_changed: warming decodes pixmaps, it invalidates
+                # nothing — the data providers' caches must survive this.
+                self.icons_warmed.emit()
                 self.changed.emit()  # GUI repaints; deferred icons now resolve
 
         self._icon_warm_thread = threading.Thread(

@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QFileDialog,
     QHBoxLayout,
@@ -325,6 +326,37 @@ class MainWindow(QMainWindow):
         self._bridge_action.toggled.connect(self._toggle_bridge)
         tb.addAction(self._bridge_action)
 
+    # ----- pending-edit flush + unsaved-changes guard -----
+    @staticmethod
+    def _flush_focused_editor() -> None:
+        """Commit any in-progress edit in the focused text/spin editor. Those
+        widgets write to the model on editingFinished, which only fires when
+        they lose focus — so Save/Export/autosave must flush them first or the
+        snapshot misses the value still sitting in the widget. Focus is given
+        back afterwards so an autosave mid-typing doesn't steal the caret."""
+        w = QApplication.focusWidget()
+        if isinstance(w, (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)):
+            w.clearFocus()  # fires editingFinished synchronously → model commit
+            w.setFocus()
+
+    def _confirm_discard_changes(self) -> bool:
+        """Guard for every action that replaces or closes the current project
+        (open / import / new submod / sample / close). Returns True when it is
+        safe to proceed: no unsaved changes, or the user chose Discard, or
+        chose Save and the save succeeded. Cancel (including a cancelled
+        Save-As) returns False and the caller must abort the action."""
+        self._flush_focused_editor()  # a pending field edit is unsaved work too
+        if not self._model.is_dirty():
+            return True
+        resp = QMessageBox.question(
+            self, "Unsaved changes",
+            "You have unsaved changes. Save them first?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save)
+        if resp == QMessageBox.Save:
+            return self._save()
+        return resp == QMessageBox.Discard
+
     # ----- undo / redo / clipboard -----
     @staticmethod
     def _focused_text_widget(for_redo: bool = False):
@@ -406,6 +438,8 @@ class MainWindow(QMainWindow):
 
     # ----- handlers -----
     def _open(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         if self._model.path:
             start = str(Path(self._model.path).parent)
         else:
@@ -456,6 +490,8 @@ class MainWindow(QMainWindow):
         self._default_export_dir = None
 
     def _load_sample(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         self._model.replace_project(make_sample_project(), path=None)
         self._view.fit_to_content()
 
@@ -472,7 +508,8 @@ class MainWindow(QMainWindow):
         elif dlg.choice == "sample":
             self._load_sample()
         elif dlg.choice == "recent" and dlg.recent_path:
-            self._open_path(Path(dlg.recent_path))
+            if self._confirm_discard_changes():
+                self._open_path(Path(dlg.recent_path))
 
     # ----- autosave -----
     def _apply_autosave(self, minutes) -> None:
@@ -487,6 +524,7 @@ class MainWindow(QMainWindow):
             self._autosave_timer.start()
 
     def _autosave_tick(self) -> None:
+        self._flush_focused_editor()
         # Only autosave a project that already has a file and unsaved changes.
         if not self._model.path or not self._model.is_dirty():
             return
@@ -499,6 +537,7 @@ class MainWindow(QMainWindow):
 
     def _save(self) -> bool:
         """Save to the current path (or prompt). Returns True if saved."""
+        self._flush_focused_editor()
         if self._model.path:
             try:
                 self._model.save_to_file(self._model.path)
@@ -510,6 +549,7 @@ class MainWindow(QMainWindow):
         return self._save_as()
 
     def _save_as(self) -> bool:
+        self._flush_focused_editor()
         if self._model.path:
             start = str(self._model.path)
         else:
@@ -531,6 +571,8 @@ class MainWindow(QMainWindow):
             return False
 
     def _new_submod(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         dlg = NewSubmodDialog(self)
         if not dlg.exec():
             return
@@ -753,6 +795,8 @@ class MainWindow(QMainWindow):
         self._bridge_pill.style().polish(self._bridge_pill)
 
     def _import_tree(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         project = self._choose_and_import_tree()
         if project is None:
             return
@@ -801,6 +845,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _export_to_mod(self) -> None:
+        self._flush_focused_editor()
         target = self._resolve_mod_dir()
         if not target:
             QMessageBox.information(
@@ -816,6 +861,7 @@ class MainWindow(QMainWindow):
             self._model.status_message.emit(f"Exported to mod: {target}")
 
     def _export_as(self) -> None:
+        self._flush_focused_editor()
         directory = QFileDialog.getExistingDirectory(
             self, "Choose Export Directory", self._default_export_dir or "")
         if not directory:
@@ -876,9 +922,9 @@ class MainWindow(QMainWindow):
             return
         ans = QMessageBox.warning(
             self, "Clear all focuses",
-            f"This permanently removes all {n} focus{'es' if n != 1 else ''} from this "
-            f"project (ideas, events and country data are kept).\n\nThis can't be undone. "
-            f"Continue?",
+            f"This removes all {n} focus{'es' if n != 1 else ''} from this "
+            f"project (ideas, events and country data are kept).\n\nYou can undo "
+            f"this with Ctrl+Z. Continue?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ans != QMessageBox.Yes:
             return
@@ -995,17 +1041,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Focus Forge{star}{suffix}")
 
     def closeEvent(self, event) -> None:
-        if not self._model.is_dirty():
-            self._finish_close(event)
-            return
-        resp = QMessageBox.question(
-            self, "Unsaved changes",
-            "You have unsaved changes. Save them before closing?",
-            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-            QMessageBox.Save)
-        if resp == QMessageBox.Save:
-            self._finish_close(event) if self._save() else event.ignore()
-        elif resp == QMessageBox.Discard:
+        if self._confirm_discard_changes():
             self._finish_close(event)
         else:
             event.ignore()

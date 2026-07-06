@@ -138,6 +138,15 @@ def _block(name: str, lines: list) -> list:
     return [f"{name} = {{", *[f"\t{ln}" for ln in lines], "}"]
 
 
+def _escape_quoted(value: str) -> str:
+    """Escape a value for a quoted Paradox-script string — exactly the same rules
+    as ``core.exporters._escape_loc`` (backslash, double quote, literal newlines):
+    an unescaped ``"`` in e.g. a leader name would terminate the string early and
+    corrupt the rest of the script."""
+    return ((value or "").replace("\\", "\\\\").replace('"', '\\"')
+            .replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n"))
+
+
 # ----- tooltip help text -------------------------------------------------------
 
 CONTEXTUAL_PARAM_HELP: dict = {
@@ -259,7 +268,7 @@ def _b_promote_leader(p):
     data = decode_leader(p.get("leader", ""))
     if not data or not (data.get("name") or "").strip():
         return []
-    inner = [f'name = "{data["name"]}"']
+    inner = [f'name = "{_escape_quoted(data["name"])}"']
     if data.get("picture"):
         inner.append(f'picture = "{data["picture"]}"')
     ideo = (data.get("ideology") or "").strip()

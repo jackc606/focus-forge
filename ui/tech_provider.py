@@ -28,7 +28,7 @@ class TechProvider(QObject):
         self._idea_mod_groups = None
         self._idea_mod_tooltips = None
         self._decision_categories = None
-        icon_provider().changed.connect(self._invalidate)
+        icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._groups = None

@@ -53,8 +53,11 @@ def decode_dds(data: bytes):
     if pf_flags & _DDPF_RGB:
         if len(data) < off + width * height * (rgb_bits // 8):
             return None
-        return width, height, _decode_uncompressed(
+        pixels = _decode_uncompressed(
             data, off, width, height, rgb_bits, masks, bool(pf_flags & _DDPF_ALPHAPIXELS))
+        if pixels is None:
+            return None  # unsupported bpp (e.g. 16-bit) — honour the None contract
+        return width, height, pixels
     return None
 
 

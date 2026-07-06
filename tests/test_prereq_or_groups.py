@@ -37,8 +37,25 @@ def test_normalize_collapses_singleton_group():
     assert normalize_prereq_groups([["a"]]) == ["a"]
 
 
-def test_normalize_dedups_within_group_and_globally():
-    assert normalize_prereq_groups([["a", "b", "a"], "b"]) == [["a", "b"]]
+def test_normalize_dedups_within_group_only():
+    # In-group dup collapses, but "b" as its OWN prerequisite block is a hard
+    # AND requirement and must survive even though "b" also appears in the group.
+    assert normalize_prereq_groups([["a", "b", "a"], "b"]) == [["a", "b"], "b"]
+
+
+def test_normalize_never_dedups_across_groups():
+    # (a OR b) AND (a OR c): the shared "a" must stay in BOTH groups.
+    assert normalize_prereq_groups([["a", "b"], ["a", "c"]]) == [["a", "b"], ["a", "c"]]
+    # (a OR b) AND a: the flat hard requirement must not be deleted.
+    assert normalize_prereq_groups([["a", "b"], "a"]) == [["a", "b"], "a"]
+
+
+def test_normalize_drops_exact_duplicate_groups_and_empties():
+    assert normalize_prereq_groups([["a", "b"], ["b", "a"]]) == [["a", "b"]]
+    assert normalize_prereq_groups(["a", "a"]) == ["a"]
+    assert normalize_prereq_groups([[], ["", None], "a"]) == ["a"]
+    # a singleton group is the same block as the flat id — second one drops
+    assert normalize_prereq_groups(["a", ["a"]]) == ["a"]
 
 
 def test_normalize_flattens_overnesting():

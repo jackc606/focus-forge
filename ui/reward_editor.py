@@ -259,11 +259,27 @@ class RewardEditor(QWidget):
         focus = self._focus()
         if not focus or not focus.completionReward or not focus.completionReward.items:
             return
-        del focus.completionReward.items[index]
+        items = focus.completionReward.items
+        # The card's index is render-time; the list may have shrunk/shifted
+        # underneath us (e.g. an AI-bridge edit while this focus is selected).
+        # Out-of-range or mismatched identity → re-render instead of deleting
+        # the wrong item (or crashing).
+        if not (0 <= index < len(items)) or not self._card_matches(index, items[index]):
+            self._render()
+            return
+        del items[index]
         if not focus.completionReward.items:
             focus.completionReward.items = None
         self._render()
         self._model.notify_changed()
+
+    def _card_matches(self, index: int, item) -> bool:
+        """True when the rendered card at ``index`` still edits ``item``."""
+        layout_item = self._items_box.itemAt(index)
+        card = layout_item.widget() if layout_item else None
+        if not isinstance(card, PresetItemCard):
+            return False
+        return card._item is item
 
     def _refresh_preview(self) -> None:
         focus = self._focus()

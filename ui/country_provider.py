@@ -21,7 +21,7 @@ class CountryProvider(QObject):
         self._by_tag: dict = {}
         self._parties_by_tag: dict = {}
         self._leaders_by_tag: dict = {}
-        icon_provider().changed.connect(self._invalidate)
+        icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._by_tag = {}
