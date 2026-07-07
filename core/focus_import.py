@@ -21,6 +21,7 @@ from .types import (
     FocusForgeProject,
     FocusNodeData,
     FocusPosition,
+    FocusShortcut,
     map_prereq_groups,
 )
 from .mod_paths import effective_roots_for_path
@@ -185,6 +186,33 @@ def _parse_focus(body: str) -> _PFocus:
             elif k == "completion_reward":
                 pf.reward_raw = _raw_lines(val, drop_log=True)
     return pf
+
+
+@dataclass
+class _PShortcut:
+    name: str = ""       # the loc key referenced by `name = ...`
+    target: str = ""
+    zoom: object = None  # float, or None when scroll_wheel_factor is absent
+    trigger_raw: list = field(default_factory=list)
+
+
+def _parse_shortcut(body: str) -> _PShortcut:
+    ps = _PShortcut()
+    for key, kind, val in _statements(body):
+        k = key.lower()
+        if kind == "scalar":
+            if k == "name":
+                ps.name = val
+            elif k == "target":
+                ps.target = val
+            elif k == "scroll_wheel_factor":
+                try:
+                    ps.zoom = float(val)
+                except (TypeError, ValueError):
+                    ps.zoom = None
+        elif k == "trigger":  # block — keep inner lines verbatim
+            ps.trigger_raw = _raw_lines(val)
+    return ps
 
 
 def _to_int(v) -> int:
@@ -384,12 +412,15 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
 
     cfp = FocusPosition(x=0, y=0)
     parsed = []
+    parsed_shortcuts = []
     for key, kind, body in _statements(block):
         k = key.lower()
         if k == "focus" and kind == "block":
             pf = _parse_focus(body)
             if pf.id:
                 parsed.append(pf)
+        elif k == "shortcut" and kind == "block":
+            parsed_shortcuts.append(_parse_shortcut(body))
         elif k == "continuous_focus_position" and kind == "block":
             xm = re.search(r"\bx\s*=\s*(-?\d+)", body)
             ym = re.search(r"\by\s*=\s*(-?\d+)", body)
@@ -398,11 +429,15 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
 
     abs_pos = _resolve_positions(parsed)
 
-    # localisation: titles + descriptions for every focus id
+    # localisation: titles + descriptions for every focus id, plus each
+    # shortcut's button label (its `name` is a loc key).
     needed = set()
     for pf in parsed:
         needed.add(pf.id)
         needed.add(pf.id + "_desc")
+    for ps in parsed_shortcuts:
+        if ps.name:
+            needed.add(ps.name)
     loc = _load_localisation(roots, needed)
 
     focuses = []
@@ -424,6 +459,18 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
             available=available,
         ))
 
+    # Preserve tree order; recover each label from the loc file (fall back to the
+    # raw loc key when it isn't localised).
+    shortcuts = [
+        FocusShortcut(
+            label=loc.get(ps.name, ps.name) if ps.name else "",
+            target=ps.target,
+            zoomFactor=ps.zoom,
+            triggerRawLines=list(ps.trigger_raw),
+        )
+        for ps in parsed_shortcuts
+    ]
+
     tag = ref.tag if ref.tag and ref.tag != "?" else "TAG"
 
     tree_id = ref.tree_id
@@ -440,6 +487,9 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
             f.mutuallyExclusive = [rename.get(m, m) for m in f.mutuallyExclusive]
             if f.available and f.available.completedFocuses:
                 f.available.completedFocuses = [rename.get(c, c) for c in f.available.completedFocuses]
+        # Shortcut targets point at renamed focuses too.
+        for sc in shortcuts:
+            sc.target = rename.get(sc.target, sc.target)
         tree_id = f"{tag.lower()}_focus"
         project_name = f"{tag} focus tree (from generic)"
 
@@ -449,6 +499,7 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
         treeId=tree_id,
         continuousFocusPosition=cfp,
         focuses=focuses,
+        shortcuts=shortcuts,
         exportSettings=ExportSettings(
             modPrefix=tag,
             focusFileName=f"{tag.lower()}_focus",

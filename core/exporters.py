@@ -620,6 +620,51 @@ def export_country_localisation(project: FocusForgeProject) -> str:
     return "\n".join(lines) + "\n"
 
 
+def shortcut_loc_keys(project: FocusForgeProject) -> list:
+    """One UNIQUE localisation key per shortcut, aligned with ``project.shortcuts``
+    order.
+
+    Two shortcuts with the same label would slug to the same key and collide
+    (the second ``name = <key>`` would show the wrong label), so — mirroring
+    :func:`leader_asset_slugs` — an empty label falls back to ``shortcut_<index>``
+    and duplicates get a deterministic ``_2`` / ``_3`` suffix. Used by BOTH the
+    tree and loc exporters so ``name = <key>`` and ``<key>:0 "…"`` always agree."""
+    settings = getattr(project, "exportSettings", None)
+    prefix = (getattr(settings, "localisationPrefix", "") if settings else "") or ""
+    keys: list = []
+    used: set = set()
+    for i, sc in enumerate(getattr(project, "shortcuts", None) or []):
+        slug = _SLUG_RE.sub("_", (getattr(sc, "label", "") or "").lower()).strip("_") or f"shortcut_{i}"
+        base = f"{prefix}_{slug}_shortcut"
+        key, n = base, 2
+        while key in used:
+            key = f"{base}_{n}"
+            n += 1
+        used.add(key)
+        keys.append(key)
+    return keys
+
+
+def _export_shortcut(shortcut, loc_key: str) -> list:
+    """One ``shortcut = { }`` block at focus_tree depth (indent 1)."""
+    lines = [
+        f"{TAB}shortcut = {{",
+        f"{TAB}{TAB}name = {loc_key}",
+        f"{TAB}{TAB}target = {shortcut.target}",
+    ]
+    if getattr(shortcut, "zoomFactor", None) is not None:
+        lines.append(f"{TAB}{TAB}scroll_wheel_factor = {_format_number(shortcut.zoomFactor)}")
+    trigger = [ln for ln in (getattr(shortcut, "triggerRawLines", None) or [])
+               if (ln or "").strip()]
+    if trigger:
+        lines.append(f"{TAB}{TAB}trigger = {{")
+        for raw in trigger:
+            lines.append(f"{TAB}{TAB}{TAB}{raw.strip()}")
+        lines.append(f"{TAB}{TAB}}}")
+    lines.append(f"{TAB}}}")
+    return lines
+
+
 def export_focus_tree(project: FocusForgeProject) -> str:
     lines: list = [
         "focus_tree = {",
@@ -637,6 +682,16 @@ def export_focus_tree(project: FocusForgeProject) -> str:
         f"{TAB}initial_show_position = {{ x = 0 y = 0 }}",
         "",
     ]
+
+    # Branch-bookmark shortcut blocks sit at the top of the tree, before the
+    # focuses. Skip any with an empty target; emit NOTHING (no blank lines) when
+    # there are no shortcuts so the no-shortcuts export stays byte-identical.
+    keys = shortcut_loc_keys(project)
+    for shortcut, key in zip(getattr(project, "shortcuts", None) or [], keys):
+        if not (getattr(shortcut, "target", "") or "").strip():
+            continue
+        lines.extend(_export_shortcut(shortcut, key))
+        lines.append("")
 
     sorted_focuses = sorted(project.focuses, key=lambda f: (f.position.y, f.position.x, f.id))
     for focus in sorted_focuses:
@@ -766,6 +821,12 @@ def export_focus_localisation(project: FocusForgeProject) -> str:
     for focus in project.focuses:
         lines.append(f' {focus.id}:0 "{_escape_loc(focus.title)}"')
         lines.append(f' {focus.id}_desc:0 "{_escape_loc(focus.description)}"')
+    # Shortcut button labels — keyed identically to each tree ``name = <key>``.
+    keys = shortcut_loc_keys(project)
+    for shortcut, key in zip(getattr(project, "shortcuts", None) or [], keys):
+        if not (getattr(shortcut, "target", "") or "").strip():
+            continue
+        lines.append(f' {key}:0 "{_escape_loc(shortcut.label)}"')
     return "\n".join(lines) + "\n"
 
 

@@ -563,6 +563,36 @@ class ProjectModel(QObject):
         self._emit_all()
         return f"Linked {a_id} ↔ {b_id}"
 
+    # ----- focus-tree shortcuts (branch bookmarks) -----
+    def add_shortcut(self, shortcut) -> None:
+        """Append a tree shortcut. A dedicated dialog owns ordering, so this is
+        index-based (no id de-duping)."""
+        self._force_undo_boundary()
+        self._project.shortcuts.append(shortcut)
+        self._emit_all()
+
+    def update_shortcut(self, index: int, shortcut) -> None:
+        self._force_undo_boundary()
+        if 0 <= index < len(self._project.shortcuts):
+            self._project.shortcuts[index] = shortcut
+            self._emit_all()
+
+    def delete_shortcut(self, index: int) -> None:
+        self._force_undo_boundary()
+        if 0 <= index < len(self._project.shortcuts):
+            del self._project.shortcuts[index]
+            self._emit_all()
+
+    def move_shortcut(self, index: int, delta: int) -> None:
+        """Reorder a shortcut up/down; clamps at the ends (no-op past an edge)."""
+        shortcuts = self._project.shortcuts
+        target = index + delta
+        if not (0 <= index < len(shortcuts)) or not (0 <= target < len(shortcuts)):
+            return
+        self._force_undo_boundary()
+        shortcuts.insert(target, shortcuts.pop(index))
+        self._emit_all()
+
     # ----- ideas (national spirits) -----
     def _unique_idea_id(self, base: str, ignore: str = "") -> str:
         existing = {i.id for i in self._project.ideas if i.id != ignore}

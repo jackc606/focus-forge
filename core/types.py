@@ -338,6 +338,18 @@ class DecisionData:
 
 
 @dataclass
+class FocusShortcut:
+    """A focus-tree branch bookmark (the in-game bottom-left shortcut buttons).
+
+    Exported as a ``shortcut = { }`` block at the top of the focus_tree, a
+    sibling of the focus blocks. HOI4 shows at most 8 shortcut slots."""
+    label: str = ""                        # the button text (written to loc under a generated key)
+    target: str = ""                       # focus id the camera jumps to
+    zoomFactor: Optional[float] = None     # → scroll_wheel_factor; None = omit the line
+    triggerRawLines: list = field(default_factory=list)  # verbatim trigger body lines; empty = omit
+
+
+@dataclass
 class FocusForgeProject:
     projectName: str = ""
     countryTag: str = ""
@@ -348,6 +360,7 @@ class FocusForgeProject:
     events: list = field(default_factory=list)
     decisions: list = field(default_factory=list)
     decisionCategories: list = field(default_factory=list)
+    shortcuts: list = field(default_factory=list)
     exportSettings: ExportSettings = field(default_factory=ExportSettings)
     country: Optional["CountryData"] = None
     # Where "Export to Mod" publishes (absolute HOI4 mod folder) and the

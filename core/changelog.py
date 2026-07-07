@@ -11,8 +11,18 @@ CHANGELOG = [
     {
         "version": "0.3.1",
         "date": "2026-07-06",
-        "title": "Big bug-fix release — 27 fixes from a full audit",
+        "title": "Big update — a full-audit bug sweep plus new authoring tools",
         "changes": [
+            "New: focus tree shortcuts — the clickable branch bookmarks big "
+            "trees show in the bottom-left in-game. Add them from the "
+            "Shortcuts toolbar button or by right-clicking a focus, point each "
+            "at a branch, and they export (and re-import) like vanilla MD.",
+            "New: author OR-group prerequisites in-app. Prerequisite chips show "
+            "a group as 'a | b'; type that to make one, or right-click a "
+            "connection to switch it between required (AND) and an OR "
+            "alternative (drawn dashed on the canvas).",
+            "New: custom leader descriptions, and vanilla MD party descriptions "
+            "now load into the Politics tab.",
             "Multi-select works properly now: Ctrl+click to extend, rubber-band "
             "to select a group, then drag, copy, duplicate or delete them all "
             "together. Selections no longer collapse after every edit.",

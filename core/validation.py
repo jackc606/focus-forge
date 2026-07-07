@@ -92,8 +92,31 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_reward_references(project, issues)
     _detect_cycles(project, issues)
     _detect_unreachable(project, issues)
+    _validate_shortcuts(project, focus_ids, issues)
     _validate_metadata(project, issues, known_decision_categories)
     return issues
+
+
+def _validate_shortcuts(project: FocusForgeProject, focus_ids: set, issues: list) -> None:
+    """Focus-tree branch shortcuts (bottom-left bookmarks): each must target a
+    real focus, and the game only renders the first 8 slots."""
+    shortcuts = getattr(project, "shortcuts", None) or []
+    for i, sc in enumerate(shortcuts):
+        label = (getattr(sc, "label", "") or "").strip()
+        target = (getattr(sc, "target", "") or "").strip()
+        who = label or target or f"#{i + 1}"
+        if not target:
+            _err(issues, "shortcut.target.empty",
+                 f"Tree shortcut '{who}' has no target focus.")
+        elif target not in focus_ids:
+            _err(issues, "shortcut.target.missing",
+                 f"Tree shortcut '{who}' targets missing focus '{target}'.")
+        if not label:
+            _warn(issues, "shortcut.label.empty",
+                  f"Tree shortcut targeting '{target or '(none)'}' has no label.")
+    if len(shortcuts) > 8:
+        _warn(issues, "shortcut.count.exceeds",
+              "HOI4 shows at most 8 shortcut slots; extras beyond the first 8 won't appear.")
 
 
 def _validate_reward_references(project: FocusForgeProject, issues: list) -> None:

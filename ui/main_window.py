@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self._view.delete_focus_requested.connect(self._model.delete_focus)
         self._view.delete_focuses_requested.connect(self._on_delete_focuses)
         self._view.add_child_requested.connect(self._on_add_child)
+        self._view.add_shortcut_requested.connect(self._on_add_shortcut)
         self._view.delete_link_requested.connect(self._on_delete_link)
         self._view.group_prereq_requested.connect(self._on_group_prereq)
         self._view.ungroup_prereq_requested.connect(self._on_ungroup_prereq)
@@ -248,6 +249,10 @@ class MainWindow(QMainWindow):
         decisions_act = QAction("Decisions", self)
         decisions_act.triggered.connect(self._manage_decisions)
         tb.addAction(decisions_act)
+
+        shortcuts_act = QAction("Shortcuts", self)
+        shortcuts_act.triggered.connect(self._manage_shortcuts)
+        tb.addAction(shortcuts_act)
         tb.addSeparator()
 
         open_act = QAction("Open", self)
@@ -706,6 +711,18 @@ class MainWindow(QMainWindow):
     def _manage_decisions(self) -> None:
         from .decisions_dialog import DecisionsManagerDialog
         DecisionsManagerDialog(self._model, self).exec()
+
+    def _manage_shortcuts(self) -> None:
+        from .shortcuts_dialog import ShortcutsManagerDialog
+        ShortcutsManagerDialog(self._model, self).exec()
+
+    def _on_add_shortcut(self, focus_id: str) -> None:
+        """Node context menu → author a tree shortcut targeting this focus."""
+        from .shortcut_editor import ShortcutEditorDialog
+        dlg = ShortcutEditorDialog(self._model, target_default=focus_id, parent=self)
+        if dlg.exec():
+            self._model.add_shortcut(dlg.result_shortcut())
+            self._model.status_message.emit(f"Added tree shortcut to {focus_id}.")
 
     def _show_devlog(self) -> None:
         from .devlog_dialog import DevLogDialog

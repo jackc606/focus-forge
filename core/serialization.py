@@ -18,6 +18,7 @@ from .types import (
     FocusForgeProject,
     FocusNodeData,
     FocusPosition,
+    FocusShortcut,
     IdeaData,
     LeaderData,
     PartyData,
@@ -327,6 +328,18 @@ def _num_or_none(value, cast):
         return None
 
 
+def _shortcut_from_dict(d: dict) -> FocusShortcut:
+    zoom = d.get("zoomFactor")
+    return FocusShortcut(
+        label=d.get("label", "") or "",
+        target=d.get("target", "") or "",
+        # Keep an absent/null zoom as None (omits scroll_wheel_factor on export);
+        # only coerce a value that's actually present so we don't churn None → 0.0.
+        zoomFactor=None if zoom is None else _coerce_float(zoom),
+        triggerRawLines=list(_opt_list(d, "triggerRawLines") or []),
+    )
+
+
 def _decision_from_dict(d: dict) -> DecisionData:
     def _reward(key):
         return _completion_reward_from_dict(d[key]) if d.get(key) else None
@@ -370,6 +383,7 @@ def project_from_dict(d: dict) -> FocusForgeProject:
         decisions=[_decision_from_dict(x) for x in (d.get("decisions") or [])],
         decisionCategories=[_decision_category_from_dict(x)
                             for x in (d.get("decisionCategories") or [])],
+        shortcuts=[_shortcut_from_dict(s) for s in (d.get("shortcuts") or [])],
         exportSettings=_export_settings_from_dict(d.get("exportSettings") or {}),
         country=_country_from_dict(d["country"]) if d.get("country") else None,
         exportDir=d.get("exportDir", ""),

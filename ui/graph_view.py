@@ -21,6 +21,7 @@ class GraphView(QGraphicsView):
     delete_focus_requested = Signal(str)       # focus id
     delete_focuses_requested = Signal(list)    # focus ids (Delete key on selection)
     add_child_requested = Signal(str)          # parent focus id
+    add_shortcut_requested = Signal(str)       # focus id to bookmark as a tree shortcut
     delete_link_requested = Signal(str, str, str)  # source_id, target_id, kind
     group_prereq_requested = Signal(str, str)    # source_id, target_id — make OR alternative
     ungroup_prereq_requested = Signal(str, str)  # source_id, target_id — make required (AND)
@@ -169,6 +170,7 @@ class GraphView(QGraphicsView):
 
         if node is not None:
             child_act = menu.addAction("Add child focus")
+            shortcut_act = menu.addAction("Add tree shortcut")
             menu.addSeparator()
             fid = node.focus_id
             label = fid if len(fid) <= 28 else fid[:25] + "…"
@@ -176,6 +178,8 @@ class GraphView(QGraphicsView):
             chosen = menu.exec(event.globalPos())
             if chosen is child_act:
                 self.add_child_requested.emit(node.focus_id)
+            elif chosen is shortcut_act:
+                self.add_shortcut_requested.emit(node.focus_id)
             elif chosen is del_act:
                 self.delete_focus_requested.emit(node.focus_id)
             return
