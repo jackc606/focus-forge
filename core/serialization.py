@@ -271,7 +271,8 @@ def _leader_from_dict(d: dict) -> LeaderData:
     return LeaderData(
         name=d.get("name", ""), ideology=d.get("ideology", ""),
         traits=list(d.get("traits") or []),
-        pictureRef=d.get("pictureRef", ""), pictureData=d.get("pictureData", ""))
+        pictureRef=d.get("pictureRef", ""), pictureData=d.get("pictureData", ""),
+        description=d.get("description", ""))
 
 
 def _election_leader_from_dict(d: dict) -> ElectionLeaderAssignment:

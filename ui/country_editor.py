@@ -285,6 +285,9 @@ class _LeaderRow(QFrame):
                                             trait_provider().trait_tooltips())
         self.traits.set_tokens(leader.traits)
         form.addRow("Traits", self.traits)
+        self.desc = QLineEdit(leader.description)
+        self.desc.setPlaceholderText("Shown in the leader's in-game tooltip (optional)")
+        form.addRow("Description", self.desc)
         v.addLayout(form)
 
         prow = QHBoxLayout()
@@ -370,6 +373,7 @@ class _LeaderRow(QFrame):
             traits=self.traits.tokens(),
             pictureRef=self._pictureRef,
             pictureData=self._pictureData,
+            description=self.desc.text().strip(),
         )
 
 
@@ -410,7 +414,8 @@ class _ElectionLeaderRow(QFrame):
             leader = LeaderData(name=leader.name, ideology=party_ideology,
                                 traits=list(leader.traits or []),
                                 pictureRef=leader.pictureRef,
-                                pictureData=leader.pictureData)
+                                pictureData=leader.pictureData,
+                                description=leader.description)
         self._last_party_ideology = party_ideology
         self._leader = _LeaderRow(leader, lambda _row: on_delete(self), tag)
         v.addWidget(self._leader)

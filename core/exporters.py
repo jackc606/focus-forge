@@ -163,6 +163,10 @@ def _leader_block_lines(leader, tag: str, depth: int = 0, country=None) -> list:
     picture = _leader_picture_value(tag, leader, country)
     lines = [f"{prefix}create_country_leader = {{"]
     lines.append(f'{inner}name = "{_escape_loc(leader.name)}"')
+    if (getattr(leader, "description", "") or "").strip():
+        # desc takes a localisation KEY; the text itself is written by
+        # export_country_localisation under the same key.
+        lines.append(f'{inner}desc = "{_leader_desc_key(tag, leader, country)}"')
     if picture:
         lines.append(f'{inner}picture = "{picture}"')
     lines.append(f"{inner}ideology = {leader.ideology}")
@@ -170,6 +174,13 @@ def _leader_block_lines(leader, tag: str, depth: int = 0, country=None) -> list:
         lines.append(f"{inner}traits = {{ {' '.join(leader.traits)} }}")
     lines.append(f"{prefix}}}")
     return lines
+
+
+def _leader_desc_key(tag: str, leader, country) -> str:
+    """Loc key for a leader's in-game description — unique per leader via the
+    same slug machinery the portrait assets use, so two leaders with the same
+    (or non-Latin) names never share a description."""
+    return f"{tag}_{leader_asset_slug(country, leader)}_desc"
 
 
 def export_country_history(project: FocusForgeProject) -> str:
@@ -600,6 +611,12 @@ def export_country_localisation(project: FocusForgeProject) -> str:
         if (party.description or "").strip():
             # MD party description shown in the politics screen (<TAG>.<sub>_desc).
             lines.append(f' {tag}.{party.subIdeology}_desc:0 "{_escape_loc(party.description)}"')
+    # Leader descriptions (main leaders + election-timeline leaders): the text
+    # behind each create_country_leader's desc = "<key>".
+    for leader in _country_leaders_for_assets(c):
+        if (getattr(leader, "description", "") or "").strip():
+            key = _leader_desc_key(tag, leader, c)
+            lines.append(f' {key}:0 "{_escape_loc(leader.description)}"')
     return "\n".join(lines) + "\n"
 
 

@@ -264,6 +264,7 @@ class LeaderData:
     traits: list = field(default_factory=list)
     pictureRef: str = ""      # preset portrait filename / sprite
     pictureData: str = ""     # base64 PNG of a custom portrait
+    description: str = ""     # in-game leader tooltip text (exported via desc = loc key)
 
 
 @dataclass
