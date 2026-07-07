@@ -31,6 +31,16 @@ class NoScrollComboBox(_NoWheel, QComboBox):
         self.setMinimumContentsLength(8)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+    def wheelEvent(self, event):
+        # ALWAYS propagate to the scroll area — never cycle the selection. The
+        # _NoWheel base allows the wheel when focused, but an EDITABLE combo
+        # reports hasFocus() via its line edit, so selecting/typing a value
+        # left it "focused" and a later scroll silently changed it (the random
+        # modifier-swap bug). Combos are chosen by click/type/completer, never
+        # the wheel; the open dropdown/completer popup is a separate widget and
+        # still scrolls normally.
+        event.ignore()
+
 
 class NoScrollSpinBox(_NoWheel, QSpinBox):
     pass
