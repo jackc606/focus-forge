@@ -28,7 +28,7 @@ from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
 
 from core.presets import MD_FOCUS_FILTERS, MD_ICON_PRESETS
-from core.types import CompletionReward, FocusPosition, iter_prereq_ids
+from core.types import CompletionReward, FocusPosition, normalize_prereq_groups
 
 from . import theme as T
 from .availability_editor import AvailabilityEditor
@@ -161,6 +161,10 @@ class InspectorPanel(QWidget):
         form.addRow("Filters", self._filters)
 
         self._prereqs = ChipSelector(placeholder="add prerequisite focus…")
+        self._prereqs.setToolTip(
+            "Each chip is a required (AND) prerequisite. A chip with | is an OR "
+            "group — any one of those focuses unlocks this one. Type e.g. "
+            "TAG_a | TAG_b to create a group.")
         form.addRow("Prerequisites", self._prereqs)
 
         self._mutex = ChipSelector(placeholder="add mutually-exclusive focus…")
@@ -208,7 +212,7 @@ class InspectorPanel(QWidget):
         self._ai_priority.valueChanged.connect(
             lambda v: self._commit("aiWillDo", None if v == 10 else v))
         self._filters.tokens_changed.connect(lambda v: self._commit("filters", v))
-        self._prereqs.tokens_changed.connect(lambda v: self._commit("prerequisites", v))
+        self._prereqs.tokens_changed.connect(self._commit_prereqs)
         self._mutex.tokens_changed.connect(lambda v: self._commit("mutuallyExclusive", v))
 
         self._model.selection_changed.connect(self._on_selection)
@@ -275,10 +279,7 @@ class InspectorPanel(QWidget):
         self._ai_priority.setValue(10.0 if getattr(focus, "aiWillDo", None) is None
                                    else float(focus.aiWillDo))
         self._filters.set_tokens(focus.filters)
-        # OR groups render as flat chips for now (authoring UI is a follow-up).
-        # Editing chips on an OR-group focus flattens it to plain AND prereqs;
-        # author OR groups via the AI bridge until the grouped editor lands.
-        self._prereqs.set_tokens(list(iter_prereq_ids(focus.prerequisites)))
+        self._prereqs.set_tokens(self._prereq_display_tokens(focus.prerequisites))
         self._mutex.set_tokens(focus.mutuallyExclusive)
         others = [f.id for f in self._model.project.focuses if f.id != focus.id]
         self._prereqs.update_suggestions(others)
@@ -347,6 +348,43 @@ class InspectorPanel(QWidget):
         if not sel:
             return
         self._model.update_focus(sel, **{field: value})
+
+    # ----- OR-group-aware prerequisite chips -----
+    # One chip per prerequisites ELEMENT: a plain id stays one chip; an OR group
+    # renders as its members joined with " | " (any one suffices). Round-tripping
+    # whole elements — instead of flattened ids — is what keeps a group intact
+    # when an unrelated chip is added or removed.
+    @staticmethod
+    def _prereq_display_tokens(prerequisites) -> list:
+        out = []
+        for element in (prerequisites or []):
+            if isinstance(element, (list, tuple)):
+                ids = [p for p in element if isinstance(p, str) and p.strip()]
+                if ids:
+                    out.append(" | ".join(ids))
+            elif isinstance(element, str) and element.strip():
+                out.append(element)
+        return out
+
+    @staticmethod
+    def _parse_prereq_tokens(tokens) -> list:
+        """Chip tokens → canonical prerequisites. A token containing ``|`` is an
+        OR group (split, strip, drop blanks; one survivor = plain id)."""
+        parsed = []
+        for token in (tokens or []):
+            token = str(token)
+            if "|" in token:
+                members = [p.strip() for p in token.split("|") if p.strip()]
+                if len(members) > 1:
+                    parsed.append(members)
+                elif members:
+                    parsed.append(members[0])
+            elif token.strip():
+                parsed.append(token.strip())
+        return normalize_prereq_groups(parsed)
+
+    def _commit_prereqs(self, tokens) -> None:
+        self._commit("prerequisites", self._parse_prereq_tokens(tokens))
 
     def _commit_description(self) -> None:
         self._commit("description", self._desc_edit.toPlainText())

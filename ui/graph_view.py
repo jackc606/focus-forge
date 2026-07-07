@@ -22,6 +22,8 @@ class GraphView(QGraphicsView):
     delete_focuses_requested = Signal(list)    # focus ids (Delete key on selection)
     add_child_requested = Signal(str)          # parent focus id
     delete_link_requested = Signal(str, str, str)  # source_id, target_id, kind
+    group_prereq_requested = Signal(str, str)    # source_id, target_id — make OR alternative
+    ungroup_prereq_requested = Signal(str, str)  # source_id, target_id — make required (AND)
     paste_requested = Signal(QPointF)          # scene pos to paste copied focuses at
 
     def __init__(self, scene, parent=None) -> None:
@@ -175,8 +177,15 @@ class GraphView(QGraphicsView):
 
         new_act = menu.addAction("New Focus Here")
         paste_act = menu.addAction("Paste Here") if self._clipboard_has_focuses() else None
-        unlink_act = None
+        unlink_act = group_act = ungroup_act = None
         if edge is not None:
+            if edge.kind == "prereq":
+                # reconcile keeps the edge's `alternative` flag current, so the
+                # view can offer the right toggle without asking the model.
+                if edge.alternative:
+                    ungroup_act = menu.addAction("Make required (AND)")
+                else:
+                    group_act = menu.addAction("Make OR alternative (any one unlocks)")
             verb = "mutual exclusivity" if edge.kind == "mutex" else "connection"
             unlink_act = menu.addAction(f"Delete {verb}")
         chosen = menu.exec(event.globalPos())
@@ -184,6 +193,10 @@ class GraphView(QGraphicsView):
             self.create_focus_requested.emit(scene_pos)
         elif paste_act is not None and chosen is paste_act:
             self.paste_requested.emit(scene_pos)
+        elif group_act is not None and chosen is group_act:
+            self.group_prereq_requested.emit(edge.source_id, edge.target_id)
+        elif ungroup_act is not None and chosen is ungroup_act:
+            self.ungroup_prereq_requested.emit(edge.source_id, edge.target_id)
         elif unlink_act is not None and chosen is unlink_act:
             self.delete_link_requested.emit(edge.source_id, edge.target_id, edge.kind)
 

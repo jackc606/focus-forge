@@ -101,6 +101,8 @@ class MainWindow(QMainWindow):
         self._view.delete_focuses_requested.connect(self._on_delete_focuses)
         self._view.add_child_requested.connect(self._on_add_child)
         self._view.delete_link_requested.connect(self._on_delete_link)
+        self._view.group_prereq_requested.connect(self._on_group_prereq)
+        self._view.ungroup_prereq_requested.connect(self._on_ungroup_prereq)
         self._view.paste_requested.connect(self._paste_at_scene)
 
         # Canvas-only clipboard shortcuts (widget context: they never steal
@@ -989,6 +991,16 @@ class MainWindow(QMainWindow):
             msg = self._model.remove_mutex(source_id, target_id)
         else:
             msg = self._model.remove_prerequisite(target_id, source_id)
+        if msg:
+            self._model.status_message.emit(msg)
+
+    def _on_group_prereq(self, source_id: str, target_id: str) -> None:
+        msg = self._model.group_prerequisite(target_id, source_id)
+        if msg:
+            self._model.status_message.emit(msg)
+
+    def _on_ungroup_prereq(self, source_id: str, target_id: str) -> None:
+        msg = self._model.ungroup_prerequisite(target_id, source_id)
         if msg:
             self._model.status_message.emit(msg)
 

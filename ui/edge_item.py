@@ -4,6 +4,7 @@ Two kinds, both drawn the way HOI4 renders them in-game:
 - ``prereq``: an orthogonal (right-angle) line flowing top-down from a parent's
   bottom edge into a child's top edge — solid, light steel-blue (the in-game
   colour for an incomplete prerequisite). No arrowheads (the game has none).
+  An OR-group member (``alternative=True``) draws the same line dashed.
 - ``mutex``: a red link between two mutually-exclusive focuses.
 """
 from __future__ import annotations
@@ -17,13 +18,17 @@ from .focus_node_item import ICON, ICON_Y, NODE_H, NODE_W, FocusNodeItem
 
 _ICON_MID_Y = ICON_Y + ICON / 2  # vertical centre of the icon frame
 
+_ALT_TOOLTIP = "OR alternative — any one of the group unlocks this focus"
+
 
 class EdgeItem(QGraphicsPathItem):
-    def __init__(self, source: FocusNodeItem, target: FocusNodeItem, kind: str = "prereq") -> None:
+    def __init__(self, source: FocusNodeItem, target: FocusNodeItem, kind: str = "prereq",
+                 alternative: bool = False) -> None:
         super().__init__()
         self._source = source
         self._target = target
         self._kind = kind
+        self.alternative = False  # OR-group member; styled via set_alternative
         self.setZValue(-1)
         color = QColor(T.MUTEX_LINE if kind == "mutex" else T.PREREQ_LINE)
         pen = QPen(color, 1.7)
@@ -31,12 +36,27 @@ class EdgeItem(QGraphicsPathItem):
         pen.setJoinStyle(Qt.MiterJoin)
         pen.setCosmetic(True)  # constant on-screen weight, like the grid
         self.setPen(pen)
+        if alternative:
+            self.set_alternative(True)
         self._shape_cache = None  # widened hit path, rebuilt when the path moves
         self.refresh()
 
     @property
     def kind(self) -> str:
         return self._kind
+
+    def set_alternative(self, alternative: bool) -> None:
+        """Restyle this prerequisite edge as an OR-group member (dashed) or a
+        hard requirement (solid). Reconcile calls this on EXISTING edges too, so
+        a prereq moving between plain and group restyles in place."""
+        alternative = bool(alternative) and self._kind == "prereq"
+        if alternative == self.alternative:
+            return
+        self.alternative = alternative
+        pen = self.pen()
+        pen.setStyle(Qt.DashLine if alternative else Qt.SolidLine)
+        self.setPen(pen)  # setPen schedules the repaint
+        self.setToolTip(_ALT_TOOLTIP if alternative else "")
 
     def shape(self) -> QPainterPath:
         # Widen the hit area so the thin line is easy to right-click. Cached —

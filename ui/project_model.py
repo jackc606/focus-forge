@@ -246,6 +246,81 @@ class ProjectModel(QObject):
             return f"Removed {prereq_id} → {target_id}"
         return ""
 
+    def group_prerequisite(self, target_id: str, prereq_id: str) -> str:
+        """Turn ``prereq``, currently a plain (hard) prerequisite of ``target``,
+        into an OR alternative. Joins the target's FIRST existing OR group; with
+        no group yet, ALL plain prereqs (>=2 needed) collapse into one group.
+        Returns a status message; "" on no-op."""
+        target = self.find_focus(target_id)
+        if not target:
+            return ""
+        prereqs = list(target.prerequisites or [])
+        group_idx = next((i for i, e in enumerate(prereqs)
+                          if isinstance(e, (list, tuple))), None)
+        plains = [e for e in prereqs if isinstance(e, str)]
+        if prereq_id not in plains:
+            return ""  # not a plain prereq (missing, or already in a group)
+        if group_idx is not None:
+            # Move the plain prereq into the first group.
+            new_group = [p for p in prereqs[group_idx] if isinstance(p, str)]
+            new_group.append(prereq_id)
+            rebuilt = []
+            for i, e in enumerate(prereqs):
+                if i == group_idx:
+                    rebuilt.append(new_group)
+                elif isinstance(e, str) and e == prereq_id:
+                    continue
+                else:
+                    rebuilt.append(e)
+        else:
+            # No group yet: every plain prereq becomes one OR group (a group of
+            # {prereq_id, nothing else} would just be a plain prereq again).
+            if len(plains) < 2:
+                return ""
+            new_group = plains
+            rebuilt = []
+            placed = False
+            for e in prereqs:
+                if isinstance(e, str):
+                    if not placed:
+                        rebuilt.append(new_group)
+                        placed = True
+                else:
+                    rebuilt.append(e)
+        self._force_undo_boundary()
+        target.prerequisites = normalize_prereq_groups(rebuilt)
+        self._emit_all()
+        return "OR group: " + " | ".join(new_group)
+
+    def ungroup_prerequisite(self, target_id: str, prereq_id: str) -> str:
+        """Pull ``prereq`` out of whichever OR group of ``target`` contains it
+        and make it a plain (hard) prerequisite again. A group shrunk to one
+        member dissolves to a plain prereq. Returns ""/no-op when the id isn't
+        in any group."""
+        target = self.find_focus(target_id)
+        if not target:
+            return ""
+        prereqs = list(target.prerequisites or [])
+        group_idx = next((i for i, e in enumerate(prereqs)
+                          if isinstance(e, (list, tuple)) and prereq_id in e), None)
+        if group_idx is None:
+            return ""
+        self._force_undo_boundary()
+        rebuilt = []
+        for i, e in enumerate(prereqs):
+            if i == group_idx:
+                remaining = [p for p in e if p != prereq_id]
+                if len(remaining) == 1:
+                    rebuilt.append(remaining[0])
+                elif remaining:
+                    rebuilt.append(remaining)
+            else:
+                rebuilt.append(e)
+        rebuilt.append(prereq_id)
+        target.prerequisites = normalize_prereq_groups(rebuilt)
+        self._emit_all()
+        return f"Required (AND): {prereq_id} → {target_id}"
+
     def remove_mutex(self, a_id: str, b_id: str) -> str:
         a = self.find_focus(a_id)
         b = self.find_focus(b_id)

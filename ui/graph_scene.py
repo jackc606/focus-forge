@@ -77,27 +77,43 @@ class GraphScene(QGraphicsScene):
 
         # Reconcile edges — prerequisite (top-down) + mutually-exclusive (red).
         # Keys: ("prereq", src, dst) and ("mutex", a, b) with a<b deduped.
+        # Values carry an ``alternative`` flag: True when the prereq comes from
+        # an OR group (drawn dashed). An id that appears BOTH as a plain (hard)
+        # requirement and inside a group keeps the required (solid) styling.
         desired_edges: dict = {}
         for f in project.focuses:
-            for prereq in iter_prereq_ids(f.prerequisites):
-                if prereq in desired_node_keys:
-                    desired_edges[("prereq", prereq, f.id)] = (prereq, f.id)
+            for element in (f.prerequisites or []):
+                is_group = isinstance(element, (list, tuple)) and len(element) > 1
+                members = element if isinstance(element, (list, tuple)) else [element]
+                for prereq in members:
+                    if not isinstance(prereq, str) or prereq not in desired_node_keys:
+                        continue
+                    key = ("prereq", prereq, f.id)
+                    prev = desired_edges.get(key)
+                    alt = is_group and (prev is None or prev[2])
+                    desired_edges[key] = (prereq, f.id, alt)
             for mx in f.mutuallyExclusive:
                 if mx in desired_node_keys:
                     a, b = sorted((f.id, mx))
-                    desired_edges[("mutex", a, b)] = (a, b)
+                    desired_edges[("mutex", a, b)] = (a, b, False)
 
         for stale_key in list(self._edges.keys()):
             if stale_key not in desired_edges:
                 self.removeItem(self._edges[stale_key])
                 del self._edges[stale_key]
 
-        for key, (src_id, dst_id) in desired_edges.items():
-            if key not in self._edges:
+        for key, (src_id, dst_id, alternative) in desired_edges.items():
+            existing_edge = self._edges.get(key)
+            if existing_edge is None:
                 # EdgeItem builds its path in __init__, no refresh needed here.
-                edge = EdgeItem(self._nodes[src_id], self._nodes[dst_id], kind=key[0])
+                edge = EdgeItem(self._nodes[src_id], self._nodes[dst_id], kind=key[0],
+                                alternative=alternative)
                 self.addItem(edge)
                 self._edges[key] = edge
+            else:
+                # A prereq that moved between plain and group keeps its key —
+                # restyle the surviving edge instead of leaving it stale.
+                existing_edge.set_alternative(alternative)
 
         # Rebuild edge paths only for edges whose endpoints actually moved —
         # a title edit on a 500-focus tree shouldn't re-route every connector.
