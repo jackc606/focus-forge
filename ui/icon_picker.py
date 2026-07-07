@@ -44,6 +44,7 @@ class IconPickerDialog(QDialog):
         self.setWindowTitle(title)
         self.resize(*T.DIALOG_LG)
         self._chosen = None
+        self._current = current or ""
         self._loader = loader or load_dds_qimage
         raw = list(sprites) if sprites is not None else provider().focus_sprites()
         # Normalise to (value, path, label). 2-tuples (name, path) display the
@@ -93,12 +94,11 @@ class IconPickerDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         v.addWidget(self._buttons)
 
-        prefilter = current if (current and not current.startswith("GFX_")
-                                and "/" not in current) else ""
-        self._populate(prefilter)
-        # Pre-select the current icon if it's in the list.
+        # Open on the FULL catalogue (not filtered to the current icon) so the
+        # user can actually browse; the current icon is pinned to the front by
+        # _populate and pre-selected here.
+        self._populate("")
         if current:
-            self._search.setText("")
             self._select_name(current)
         self._update_ok()
 
@@ -119,6 +119,14 @@ class IconPickerDialog(QDialog):
             matches = [t for t in self._all if q in t[2].lower() or q in t[0].lower()]
         else:
             matches = list(self._all)
+            # Pin the current icon to the front of the unfiltered grid so it's
+            # always within the display cap and can be pre-selected/scrolled to.
+            if self._current:
+                cur = self._current.lower()
+                idx = next((i for i, t in enumerate(matches)
+                            if t[0].lower() == cur), -1)
+                if idx > 0:
+                    matches.insert(0, matches.pop(idx))
         total = len(matches)
         shown = matches[:_MAX_SHOWN]
         for value, path, label in shown:
