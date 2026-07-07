@@ -59,6 +59,11 @@ class GraphView(QGraphicsView):
         super().keyPressEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
+        # MMB *is* the wheel — holding it to pan and moving fast makes the
+        # wheel physically tick, which zoomed mid-pan. No zooming while panning.
+        if self._panning:
+            event.accept()
+            return
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self._zoom_by(factor)
 

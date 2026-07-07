@@ -43,3 +43,29 @@ def test_scrollbars_always_hidden():
     view = GraphView(_scene())
     assert view.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
     assert view.verticalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+
+
+def test_wheel_zoom_suppressed_while_panning():
+    """MMB is the physical wheel — a fast pan can tick it, which zoomed
+    mid-drag. Wheel events during a pan must not change the zoom."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+    app = _app()
+    from ui.graph_view import GraphView
+    view = GraphView(_scene())
+    view.resize(800, 600)
+    view.show()
+    app.processEvents()
+
+    def wheel():
+        return QWheelEvent(QPoint(400, 300), view.mapToGlobal(QPoint(400, 300)),
+                           QPoint(0, 0), QPoint(0, -120), Qt.NoButton,
+                           Qt.NoModifier, Qt.NoScrollPhase, False)
+
+    zoom = view.transform().m11()
+    view._panning = True
+    view.wheelEvent(wheel())
+    assert view.transform().m11() == zoom      # no zoom mid-pan
+    view._panning = False
+    view.wheelEvent(wheel())
+    assert view.transform().m11() != zoom      # zoom works again after release
