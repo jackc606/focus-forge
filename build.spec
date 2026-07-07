@@ -43,7 +43,9 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    # icon.ico rides along for the runtime window icon (main._icon_path finds
+    # it under _MEIPASS/assets); the exe-embedded icon below covers Explorer.
+    datas=[('assets/icon.ico', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -69,6 +71,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/icon.ico',
 )
 
 # ---- MCP server executable (console, for stdio) ---------------------------

@@ -26,6 +26,7 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=assets\icon.ico
 ; Auto-update: close a running Focus Forge before overwriting its files.
 CloseApplications=yes
 

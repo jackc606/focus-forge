@@ -7,7 +7,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication
 
 from core.version import version_label
@@ -16,6 +16,14 @@ from ui.main_window import MainWindow
 from ui.style import build_qss
 
 CRASH_LOG = Path(os.getenv("APPDATA") or ".") / "FocusForge" / "crash.log"
+
+
+def _icon_path() -> str:
+    """assets/icon.ico — next to the exe when frozen, in the repo when not."""
+    base = Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "frozen", False) \
+        else Path(__file__).resolve().parent
+    p = base / "assets" / "icon.ico"
+    return str(p) if p.exists() else ""
 
 
 def _install_crash_handler() -> None:
@@ -58,6 +66,14 @@ def main() -> int:
     app.setFont(ui_font)
     app.setStyleSheet(build_qss())
     app.setApplicationName("Focus Forge")
+    icon = _icon_path()
+    if icon:
+        app.setWindowIcon(QIcon(icon))
+    if sys.platform == "win32":
+        # Own taskbar identity for source runs — without this Windows groups
+        # the window under python.exe and shows the Python icon.
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("FocusForge.App")
     win = MainWindow()
     win.load_blank()      # don't auto-open a project; the launcher chooses
     win.show()
