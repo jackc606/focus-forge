@@ -29,9 +29,13 @@ class GraphView(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing, True)
         self.setRenderHint(QPainter.SmoothPixmapTransform, True)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self.setDragMode(QGraphicsView.RubberBandDrag)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Always off: MMB-pan + wheel-zoom are the navigation model, and
+        # as-needed scrollbars popping in at the edges resized the viewport
+        # mid-pan (the "canvas jumps around while dragging" complaint).
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         # Repaint only the bounding rect of what changed — NOT the whole
         # viewport. With a 700+ focus tree fitted on screen, full-viewport
         # repaints (one per hover/select/drag-cell) made the canvas unusable;

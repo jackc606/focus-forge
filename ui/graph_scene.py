@@ -113,7 +113,11 @@ class GraphScene(QGraphicsScene):
         if project.focuses:
             xs = [n.scenePos().x() for n in self._nodes.values()]
             ys = [n.scenePos().y() for n in self._nodes.values()]
-            margin = 200
+            # Generous pan room: the view scrolls via scrollbars, which Qt
+            # clamps to this rect — a tight margin made it impossible to pull
+            # the tree's bottom row up the screen when zoomed in. 1000 scene px
+            # covers a full viewport of slack at any zoom ≥ 1.
+            margin = 1000
             new_rect = QRectF(min(xs) - margin, min(ys) - margin,
                               max(xs) - min(xs) + margin * 2 + 240,
                               max(ys) - min(ys) + margin * 2 + 100)
