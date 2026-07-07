@@ -43,3 +43,20 @@ def test_other_tags_ignored(tmp_path):
 
 def test_unknown_tag_returns_empty(tmp_path):
     assert parse_country_parties(_roots(tmp_path), "ZZZ") == []
+
+
+def test_hyphenated_subideology_imports(tmp_path):
+    """MD's Communist-State sub is hyphenated — the loc-key regex must accept
+    '-' or those parties (and their descriptions) silently vanish."""
+    loc = tmp_path / "localisation" / "english"
+    loc.mkdir(parents=True)
+    (loc / "x_l_english.yml").write_text(
+        'l_english:\n'
+        ' ARG.Communist-State:0 "£arg_comm Communist Party"\n'
+        ' ARG.Communist-State_desc:0 "Workers of the pampas."\n',
+        encoding="utf-8")
+    parties = parse_country_parties([str(tmp_path)], "ARG")
+    by_sub = {p["subIdeology"]: p for p in parties}
+    assert "Communist-State" in by_sub
+    assert by_sub["Communist-State"]["name"] == "Communist Party"
+    assert by_sub["Communist-State"]["description"] == "Workers of the pampas."

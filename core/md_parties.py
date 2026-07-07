@@ -88,7 +88,9 @@ MD_PARTY_LABEL_BY_INDEX = dict(MD_PARTIES)
 _SUB_TOP = {sub: top for top, subs in IDEOLOGY_TREE.items() for sub in subs}
 # Value = up to the LAST '"' on the line, tolerating trailing comments /
 # whitespace after the closing quote (same fix as core.pdx_loc._LOC_LINE).
-_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.]+):\d*\s*"(.*)"', re.MULTILINE)
+# Key charset includes '-': MD's Communist-State sub-ideology is hyphenated
+# (e.g. RUS.Communist-State_desc) — without it those parties silently vanish.
+_LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.\-]+):\d*\s*"(.*)"', re.MULTILINE)
 
 
 def _strip_icon_prefix(value: str) -> str:

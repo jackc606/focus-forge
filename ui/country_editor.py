@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 
 from PySide6.QtCore import QBuffer, QByteArray, Qt
 from PySide6.QtGui import QImage, QPixmap
@@ -600,8 +601,15 @@ class CountryEditorDialog(QDialog):
         v.addLayout(btn_row)
         v.addStretch(1)
         # Project data wins; a fresh country auto-seeds from the base mod's parties.
-        seed_parties = self._country.parties or self._md_party_data()
-        for p in seed_parties:
+        # But a saved party with a BLANK description shows MD's existing text
+        # (projects predating the MD import, or hand-added rows, would otherwise
+        # hide it). replace() copies — the live model object stays untouched so
+        # Cancel still cancels; the backfilled text persists only on OK.
+        md_desc = {d["subIdeology"]: d["description"] for d in (self._md_parties or [])}
+        for p in (self._country.parties or self._md_party_data()):
+            fill = md_desc.get(getattr(p, "subIdeology", "") or "")
+            if fill and not (p.description or "").strip():
+                p = replace(p, description=fill)
             self._add_party(p)
         self._check_party_collisions()
         return self._scroll(w)
