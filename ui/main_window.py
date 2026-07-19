@@ -993,15 +993,7 @@ class MainWindow(QMainWindow):
 
     def _free_cell_below(self, parent) -> tuple:
         """A free grid cell on the row below the parent, nearest its column."""
-        occupied = {(int(f.position.x), int(f.position.y)) for f in self._model.project.focuses}
-        px, py = int(parent.position.x), int(parent.position.y) + 1
-        if (px, py) not in occupied:
-            return (px, py)
-        for d in range(1, 16):
-            for cx in (px - d, px + d):
-                if (cx, py) not in occupied:
-                    return (cx, py)
-        return (px, py)
+        return self._model.free_cell_below(parent.id)
 
     def _on_delete_link(self, source_id: str, target_id: str, kind: str) -> None:
         if kind == "mutex":

@@ -75,10 +75,10 @@ and validate."*
 ## Tools
 
 Read: `ping`, `get_project`, `list_focuses`, `get_focus`, `get_selection`, `validate`,
-`list_reward_presets`, `list_condition_presets`, `reference_data`.
+`list_reward_presets`, `list_condition_presets`, `reference_data`, `search_icons`.
 
 Focus edits: `add_focus`, `update_focus`, `rename_focus`, `delete_focus`, `link_prerequisite`,
-`unlink_prerequisite`, `set_mutually_exclusive`, `remove_mutex`, `select_focus`.
+`unlink_prerequisite`, `set_mutually_exclusive`, `remove_mutex`, `select_focus`, `apply_batch`.
 
 Project / content: `set_metadata`, `set_export_settings`, `add_idea`/`update_idea`/`delete_idea`,
 `add_event`/`update_event`/`delete_event`.
@@ -87,6 +87,17 @@ IO: `save_project`, `export_mod`.
 
 Tip: `get_focus` shows the JSON shape for `completionReward` / `available`; `list_reward_presets`
 and `list_condition_presets` give the valid effect/condition `kind`s and their params.
+`search_icons` searches the real sprite index (from your configured icon roots), so the agent
+can verify a `GFX_` icon name resolves before assigning it. `add_focus` also accepts
+`place_below=<focus_id>` to drop a new focus in the nearest free cell under an existing one
+(placement only — prerequisites stay explicit).
+
+### Batching
+
+`apply_batch` runs a list of ops **atomically**: all-or-nothing, one canvas repaint, and a
+**single undo step** — so an agent-built 20-focus branch disappears with one Ctrl+Z instead of
+twenty. If any op fails, nothing is applied and the error names the failing op. IO ops
+(`open_project`, `save_project`, `export_mod`) can't be batched.
 
 ## Safety
 

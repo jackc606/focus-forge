@@ -210,6 +210,13 @@ def _op_reference_data(model, args):
 
 def _op_add_focus(model, args):
     x, y = args.get("x"), args.get("y")
+    below = args.get("place_below")
+    if below:
+        if x is not None or y is not None:
+            raise ValueError("place_below and explicit x/y are mutually exclusive.")
+        # Placement only — the parent is NOT linked as a prerequisite (pass
+        # prerequisites=[parent] explicitly to also link).
+        x, y = model.free_cell_below(str(below))
     if x is not None and y is not None:
         fid = model.add_focus_at(int(x), int(y), prerequisites=normalize_prereq_groups(args.get("prerequisites")))
     else:
@@ -217,9 +224,7 @@ def _op_add_focus(model, args):
         if args.get("prerequisites"):
             model.update_focus(fid, prerequisites=normalize_prereq_groups(args["prerequisites"]))
     fields = _focus_fields_from_args({k: v for k, v in args.items()
-                                      if k not in ("x", "y", "id", "prerequisites")})
-    if args.get("prerequisites") and (x is None or y is None):
-        pass  # already applied above
+                                      if k not in ("x", "y", "id", "prerequisites", "place_below")})
     if fields:
         model.update_focus(fid, **fields)
     if args.get("id"):
@@ -408,6 +413,44 @@ def _op_export(model, args):
     return out
 
 
+# ----- batch ---------------------------------------------------------------------
+
+_BATCH_MAX_OPS = 200
+# IO / undo-stack-destroying ops can't be atomic; `batch` itself can't nest.
+_BATCH_DISALLOWED = {"batch", "load_project", "save", "export"}
+
+
+def _op_batch(model, args):
+    """Run a list of ops atomically: one undo step, one change notification.
+    Any failure rolls the whole batch back (via ``model.batch()``)."""
+    _require(args, "ops")
+    ops = args["ops"]
+    if not isinstance(ops, list) or not ops or not all(isinstance(o, dict) for o in ops):
+        raise ValueError('ops must be a non-empty list of {"op": str, "args": dict} objects.')
+    if len(ops) > _BATCH_MAX_OPS:
+        raise ValueError(f"Too many ops ({len(ops)}); max {_BATCH_MAX_OPS} per batch.")
+    # Validate the whole list BEFORE mutating anything — a bad entry at index k
+    # must not leave entries 0..k-1 applied.
+    plan = []
+    for i, entry in enumerate(ops):
+        name = entry.get("op", "")
+        if name in _BATCH_DISALLOWED:
+            raise ValueError(f"Op '{name}' (at index {i}) isn't allowed inside a batch.")
+        handler = _OPS.get(name)
+        if handler is None:
+            raise ValueError(f"Unknown op '{name}' at index {i}. Known: {', '.join(OP_NAMES)}.")
+        plan.append((name, handler, entry.get("args") or {}))
+    results = []
+    with model.batch():
+        for i, (name, handler, op_args) in enumerate(plan):
+            try:
+                results.append(handler(model, op_args))
+            except Exception as exc:
+                raise ValueError(f"Batch failed at op {i} ({name}): {exc}. "
+                                 "Nothing was applied.") from exc
+    return {"results": results, "count": len(results)}
+
+
 # ----- registry ----------------------------------------------------------------
 
 _OPS = {
@@ -448,6 +491,7 @@ _OPS = {
     "load_project": _op_load_project,
     "save": _op_save,
     "export": _op_export,
+    "batch": _op_batch,
 }
 
 OP_NAMES = sorted(_OPS)

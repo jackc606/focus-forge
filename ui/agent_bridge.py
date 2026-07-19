@@ -44,7 +44,7 @@ _DROP_FORCE_CLOSE_MS = 3000
 _QUIET_OPS = {
     "hello", "get_project", "list_focuses", "get_focus", "get_selection",
     "validate", "list_reward_presets", "list_condition_presets", "reference_data",
-    "screenshot",
+    "screenshot", "search_icons",
 }
 
 
@@ -188,8 +188,14 @@ class AgentBridge(QObject):
             return resp
         op = request.get("op", "")
         args = request.get("args") or {}
-        # `screenshot` is GUI-only (needs the scene) — handled here, not in core dispatch.
-        result = self._screenshot(args) if op == "screenshot" else dispatch(self._model, op, args)
+        # `screenshot`/`search_icons` are GUI-only (need the scene / the sprite
+        # index provider) — handled here, not in core dispatch.
+        if op == "screenshot":
+            result = self._screenshot(args)
+        elif op == "search_icons":
+            result = self._search_icons(args)
+        else:
+            result = dispatch(self._model, op, args)
         if "id" in request:
             result["id"] = request["id"]
         if result.get("ok") and op not in _QUIET_OPS:
@@ -249,6 +255,41 @@ class AgentBridge(QObject):
                                            "focuses_in_view": in_view}}
         except Exception as exc:
             return {"ok": False, "error": f"Screenshot failed: {type(exc).__name__}: {exc}"}
+
+    # ----- icon search -----
+    @staticmethod
+    def _search_icons(args: dict) -> dict:
+        """Substring-search the indexed focus-icon sprite names, so the agent can
+        pick icons that actually resolve instead of guessing GFX_ names."""
+        query = args.get("query")
+        if not isinstance(query, str) or len(query.strip()) < 2:
+            return {"ok": False, "error": "query must be a string of at least 2 characters."}
+        query = query.strip()
+        try:
+            limit = max(1, min(int(args.get("limit", 30)), 100))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"limit must be an integer (got {args.get('limit')!r})."}
+        try:
+            from .icon_provider import provider  # lazy: may build the sprite index
+            sprites = provider().focus_sprites()
+            if not sprites:
+                return {"ok": True, "result": {
+                    "icons": [], "total_matches": 0,
+                    "note": "No icon roots configured in Focus Forge "
+                            "(Settings -> In-game Icons)."}}
+            q = query.lower()
+            matches = [name for name, _path in sprites if q in name.lower()]
+            # An exact hit goes first — agents use it to verify a guessed name.
+            exact = next((n for n in matches if n.lower() == q), None)
+            if exact is not None:
+                matches = [exact] + [n for n in matches if n != exact]
+            shown = matches[:limit]
+            result = {"icons": shown, "total_matches": len(matches), "shown": len(shown)}
+            if exact is not None:
+                result["exact"] = True
+            return {"ok": True, "result": result}
+        except Exception as exc:
+            return {"ok": False, "error": f"search_icons failed: {type(exc).__name__}: {exc}"}
 
     @staticmethod
     def _summarize(op: str, result) -> str:

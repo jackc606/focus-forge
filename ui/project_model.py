@@ -5,6 +5,7 @@ import copy
 import json
 import re
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +56,7 @@ class ProjectModel(QObject):
         self._current_state: dict = project_to_dict(self._project)
         self._state_stale = False      # _current_state lags the project mid-burst
         self._undo_skip = False        # suppress capture during undo/redo/load
+        self._in_batch = False         # batch(): defer capture + notify to the end
         self._last_mutation = 0.0
         self._undo_coalesce_s = _UNDO_COALESCE_S
         # Mid-burst mutations skip the O(project) serialization; this timer
@@ -162,9 +164,66 @@ class ProjectModel(QObject):
         the clock alone is not enough: ``_capture_undo_state`` runs after the
         mutation, and materializing a stale burst there would fold the burst
         and the structural change into a single (empty) diff."""
+        if self._in_batch:
+            return  # batch() owns the boundary; per-op boundaries would be noise
         self._materialize_timer.stop()
         self._materialize_state_now()
         self._last_mutation = 0.0
+
+    @contextmanager
+    def batch(self):
+        """Atomic, single-undo-step, single-notify batch of mutations.
+
+        Per-mutation undo capture and change signals are suppressed while the
+        block runs; on success the whole batch becomes ONE undo step and
+        ``project_changed``/validation fire once. If anything raises, the
+        project is restored to the exact pre-batch state (undo/redo stacks and
+        the dirty flag untouched) and the error propagates."""
+        if self._in_batch:
+            raise RuntimeError("batch() cannot be nested.")
+        # Settle any pending typing/drag burst first, so the pre-batch snapshot
+        # (= what one undo restores) is the burst's END state, not mid-burst.
+        self._force_undo_boundary()
+        pre_state = self._current_state
+        pre_dirty = self._dirty
+        self._in_batch = True
+        # Silence per-op signals wholesale (selection_changed fires from
+        # add/delete/rename even though _emit_all defers) — listeners like the
+        # inspector must see one rebuild, not one per op.
+        self.blockSignals(True)
+        try:
+            yield
+        except BaseException:
+            # All-or-nothing: put the pre-batch project back. _restore_state
+            # emits once; it marks dirty via _emit_all, so re-assert the
+            # pre-batch flag (a rolled-back batch changed nothing).
+            self._in_batch = False
+            self.blockSignals(False)
+            self._restore_state(pre_state)
+            self._set_dirty(pre_dirty)
+            raise
+        self._in_batch = False
+        self.blockSignals(False)
+        new_state = project_to_dict(self._project)
+        changed = new_state != pre_state
+        if changed:  # a read-only/no-op batch burns no undo step
+            self._undo_stack.append(pre_state)
+            if len(self._undo_stack) > _UNDO_LIMIT:
+                self._undo_stack.pop(0)
+            self._redo_stack.clear()
+            self._current_state = new_state
+        self._state_stale = False
+        self._last_mutation = 0.0  # the next edit starts a fresh gesture
+        self._undo_skip = True     # the single notify; capture already done above
+        try:
+            self._emit_all()
+        finally:
+            self._undo_skip = False
+        # Selection moved silently during the batch (signals blocked) — one
+        # re-announce so the inspector lands on the final selection.
+        self.selection_changed.emit(self._selected_id)
+        if not changed:
+            self._set_dirty(pre_dirty)
 
     def _restore_state(self, state: dict) -> None:
         self._project = project_from_dict(state)
@@ -374,6 +433,22 @@ class ProjectModel(QObject):
     def add_focus(self) -> str:
         max_y = max((f.position.y for f in self._project.focuses), default=-1)
         return self.add_focus_at(0, max_y + 2)
+
+    def free_cell_below(self, parent_id: str) -> tuple:
+        """Nearest free grid cell on the row below ``parent_id``, starting at
+        its column and scanning outward. Raises ValueError on an unknown id."""
+        parent = self.find_focus(parent_id)
+        if not parent:
+            raise ValueError(f"No focus '{parent_id}'.")
+        occupied = {(int(f.position.x), int(f.position.y)) for f in self._project.focuses}
+        px, py = int(parent.position.x), int(parent.position.y) + 1
+        if (px, py) not in occupied:
+            return (px, py)
+        for d in range(1, 16):
+            for cx in (px - d, px + d):
+                if (cx, py) not in occupied:
+                    return (cx, py)
+        return (px, py)
 
     def _focus_id_prefix(self) -> str:
         """Country-tag prefix for new focus IDs (HOI4 convention), e.g. 'LBY'."""
@@ -894,6 +969,8 @@ class ProjectModel(QObject):
     # ----- emit helpers -----
     def _emit_all(self) -> None:
         self._focus_index = {f.id: f for f in self._project.focuses}
+        if self._in_batch:
+            return  # batch(): one capture + one notify at the end
         if not self._undo_skip:
             self._capture_undo_state()
         self._set_dirty(True)

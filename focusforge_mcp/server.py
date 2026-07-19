@@ -39,7 +39,9 @@ Roughly: early backbone trends to 10, deep sub-branches to 5. Don't inflate caps
 One specific icon PER focus — real trees are ~1:1 unique. Reuse ONLY inside a tight
 thematic cluster (e.g. several nuclear focuses sharing a nuclear icon is fine). Prefer
 specific, evocative names over generic ones. Check `reference_data.iconPresets` and
-existing focus icons via `get_focus` before picking.
+existing focus icons via `get_focus` before picking. VERIFY every icon name with
+`search_icons` before assigning it — a guessed GFX_ name that doesn't resolve renders
+as a blank in-game; `search_icons` only returns names from the real sprite index.
 
 ## Search filters (almost always present)
 ~80% of focuses carry 1–2 `FOCUS_FILTER_*` tags matching their theme. Pick from:
@@ -190,22 +192,36 @@ def reference_data() -> dict:
     return _call("reference_data")
 
 
+@mcp.tool()
+def search_icons(query: str, limit: int = 30) -> dict:
+    """Search the real sprite index for focus icon names (case-insensitive substring,
+    ~5.8k GFX_ names). Returns {icons, total_matches, shown}; if `query` exactly matches
+    a sprite name it's listed first with "exact": true — use that to VERIFY an icon name
+    resolves before assigning it to a focus. Never guess GFX_ names: a wrong one renders
+    blank in-game. Needs icon roots configured in the editor (Settings -> In-game Icons)."""
+    return _call("search_icons", {"query": query, "limit": limit})
+
+
 # ======================= focus tools =======================
 
 @mcp.tool()
 def add_focus(title: str | None = None, x: int | None = None, y: int | None = None,
               focus_id: str | None = None, icon: str | None = None,
               cost: float | None = None, description: str | None = None,
-              prerequisites: list | None = None,
+              prerequisites: list | None = None, place_below: str | None = None,
               completion_reward: dict | None = None, available: dict | None = None) -> dict:
-    """Create a focus and return its id. Provide x and y (grid cells) to place it, or omit
-    both to auto-place below the tree. Pass focus_id to set the id explicitly (else it's an
-    auto placeholder you can rename). completion_reward/available take the JSON shape from
-    get_focus (use list_reward_presets / list_condition_presets to build items).
-    prerequisites is a list of blocks: a plain id is required (AND); a nested list is
-    an OR group, e.g. [["a","b"]] means a OR b, [["a","b"],"c"] means (a OR b) AND c."""
+    """Create a focus and return its id. Provide x and y (grid cells) to place it, pass
+    place_below=<focus_id> to drop it in the nearest free cell on the row under that focus
+    (mutually exclusive with x/y), or omit all three to auto-place below the tree.
+    place_below is PLACEMENT ONLY — it does not link the parent; also pass
+    prerequisites=[parent_id] when you mean a child focus. Pass focus_id to set the id
+    explicitly (else it's an auto placeholder you can rename). completion_reward/available
+    take the JSON shape from get_focus (use list_reward_presets / list_condition_presets to
+    build items). prerequisites is a list of blocks: a plain id is required (AND); a nested
+    list is an OR group, e.g. [["a","b"]] means a OR b, [["a","b"],"c"] means (a OR b) AND c."""
     args = _compact(title=title, x=x, y=y, id=focus_id, icon=icon, cost=cost,
                     description=description, prerequisites=prerequisites,
+                    place_below=place_below,
                     completionReward=completion_reward, available=available)
     return _call("add_focus", args)
 
@@ -272,6 +288,21 @@ def remove_mutex(focus_a: str, focus_b: str) -> dict:
 def select_focus(focus_id: str) -> dict:
     """Select/highlight a focus in the editor (handy to show what you're working on)."""
     return _call("select_focus", {"id": focus_id})
+
+
+@mcp.tool()
+def apply_batch(ops: list) -> dict:
+    """Apply a list of bridge operations ATOMICALLY: all-or-nothing, one canvas repaint,
+    and a SINGLE undo step for the user. Whenever you're building or editing more than
+    ~3 focuses (a branch, a re-layout, a bulk retag), send ONE apply_batch instead of
+    individual calls — the user can then undo your whole change in one Ctrl+Z.
+    `ops` = [{"op": "add_focus", "args": {...}}, ...] (max 200), using the same op names
+    and args as the underlying bridge ops (add_focus, update_focus, link_prerequisite,
+    delete_focus, add_idea, add_event, ...). add_focus place_below may reference a focus
+    created earlier in the same batch. Not allowed inside: batch, load_project, save,
+    export. If any op fails, NOTHING is applied and the error names the failing op.
+    Returns {"results": [per-op result, ...], "count": N}."""
+    return _call("batch", {"ops": ops})
 
 
 # ======================= project / export =======================

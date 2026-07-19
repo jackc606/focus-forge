@@ -212,6 +212,105 @@ def test_llm_import_marks_project_dirty():
     assert m.is_dirty() is True     # imported-but-unsaved must not read as clean
 
 
+# ----- batch(): atomic, single-undo-step, single-notify -----
+def test_batch_emits_project_changed_exactly_once():
+    m = _model()
+    m.replace_project(_proj())
+    count = []
+    m.project_changed.connect(lambda: count.append(1))
+    with m.batch():
+        for i in range(5):
+            m.add_focus_at(10 + i, 0)
+    assert len(count) == 1                 # the canvas repaints once, not 5 times
+    assert len(m.project.focuses) == 2 + 5
+
+
+def test_batch_emits_selection_changed_exactly_once():
+    # add_focus_at moves the selection per call; inside a batch those must be
+    # silenced (blockSignals) with ONE re-announce at the end, or a 200-op
+    # batch rebuilds the inspector 200 times.
+    m = _model()
+    m.replace_project(_proj())
+    seen = []
+    m.selection_changed.connect(seen.append)
+    with m.batch():
+        for i in range(5):
+            m.add_focus_at(10 + i, 0)
+    assert len(seen) == 1
+    assert seen[0] == m.selected_id        # final selection, not an intermediate
+
+
+def test_batch_is_one_undo_step_even_after_a_pending_burst():
+    m = _model()
+    m.replace_project(_proj())
+    _burst(m)                              # typing burst, snapshot left stale
+    with m.batch():
+        m.add_focus_at(10, 0)
+        m.add_focus_at(11, 0)
+    assert m.undo()                        # undo #1: ONLY the batch
+    assert len(m.project.focuses) == 2
+    assert m.find_focus("LBA_a").title == "XYZ"   # the typing survived undo #1
+    assert m.undo()                        # undo #2: the typing burst
+    assert m.find_focus("LBA_a").title == "A"
+
+
+def test_batch_rollback_restores_state_and_emits_once():
+    from core.serialization import project_to_dict
+    m = _model()
+    m.replace_project(_proj())
+    before = project_to_dict(m.project)
+    depth = len(m._undo_stack)
+    count = []
+    m.project_changed.connect(lambda: count.append(1))
+    try:
+        with m.batch():
+            m.add_focus_at(10, 0)
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    assert project_to_dict(m.project) == before
+    assert len(m._undo_stack) == depth     # stacks untouched by the rollback
+    assert len(count) == 1                 # the single rollback notify
+
+
+def test_batch_rollback_keeps_clean_project_clean():
+    m = _model()
+    m.replace_project(_proj())             # clean baseline
+    assert m.is_dirty() is False
+    try:
+        with m.batch():
+            m.add_focus_at(10, 0)
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    assert m.is_dirty() is False           # nothing was applied -> still clean
+
+
+def test_batch_success_marks_dirty_once():
+    m = _model()
+    m.replace_project(_proj())
+    seen = []
+    m.dirty_changed.connect(seen.append)
+    with m.batch():
+        m.add_focus_at(10, 0)
+        m.add_focus_at(11, 0)
+    assert m.is_dirty() is True
+    assert seen == [True]
+
+
+def test_nested_batch_raises_and_outer_rolls_back():
+    m = _model()
+    m.replace_project(_proj())
+    n = len(m.project.focuses)
+    import pytest
+    with pytest.raises(RuntimeError):
+        with m.batch():
+            m.add_focus_at(10, 0)
+            with m.batch():
+                pass  # pragma: no cover
+    assert len(m.project.focuses) == n     # outer batch rolled back too
+
+
 # ----- finding 6 support: "clear all focuses" really is undoable -----
 def test_clear_all_focuses_is_undoable():
     m = _model()
