@@ -69,7 +69,9 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                     message=f"{focus.id} is not below its prerequisite {prereq} — the in-game tree draws top-down and will render oddly."))
         for exclusive in focus.mutuallyExclusive:
             other = by_id.get(exclusive)
-            if other is None:
+            if exclusive == focus.id:
+                issues.append(ValidationIssue(severity="error", code="focus.mutual.self", focusId=focus.id, message=f"{focus.id} cannot be mutually exclusive with itself."))
+            elif other is None:
                 issues.append(ValidationIssue(severity="error", code="focus.mutual.missing", focusId=focus.id, message=f"{focus.id} references missing mutual exclusion {exclusive}."))
             elif focus.id not in (other.mutuallyExclusive or []):
                 issues.append(ValidationIssue(
@@ -538,7 +540,9 @@ def _detect_unreachable(project: FocusForgeProject, issues: list) -> None:
     mutex = set()
     for f in project.focuses:
         for m in (f.mutuallyExclusive or []):
-            if m in by_id:
+            # m == f.id would collapse the frozenset to one element and crash
+            # the conflict[1] lookup below; self-mutex is reported separately.
+            if m in by_id and m != f.id:
                 mutex.add(frozenset((f.id, m)))
     if not mutex:
         return

@@ -9,6 +9,21 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.3.2",
+        "date": "2026-07-19",
+        "title": "Smoother updates, one crash fixed",
+        "changes": [
+            "Auto-update no longer shows 'Setup was unable to automatically "
+            "close all applications': the installer now waits for Focus Forge "
+            "to finish closing before it touches any files. (If you see that "
+            "message once more while updating TO this version, click Retry — "
+            "it's the last time.)",
+            "Fixed a repeating crash when a focus listed itself as mutually "
+            "exclusive. That's now reported as a normal validation error "
+            "instead of crashing the editor.",
+        ],
+    },
+    {
         "version": "0.3.1",
         "date": "2026-07-06",
         "title": "Big update — a full-audit bug sweep plus new authoring tools",

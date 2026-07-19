@@ -65,6 +65,15 @@ def test_missing_mutual_is_error() -> None:
     assert "focus.mutual.missing" in _codes(project)
 
 
+def test_self_mutual_is_error_not_crash() -> None:
+    # Regression: a focus mutually exclusive with itself collapsed the
+    # frozenset pair in _detect_unreachable to one element and raised
+    # IndexError on every validation pass (user crash report, v0.3.1).
+    project = make_sample_project()
+    project.focuses[0].mutuallyExclusive = [project.focuses[0].id]
+    assert "focus.mutual.self" in _codes(project)
+
+
 def test_missing_available_completed_is_error() -> None:
     project = make_sample_project()
     project.focuses[0].available = AvailabilityRule(completedFocuses=["does_not_exist"])

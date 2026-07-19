@@ -74,6 +74,11 @@ def main() -> int:
         # the window under python.exe and shows the Python icon.
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("FocusForge.App")
+        # Auto-update handshake: installer.iss waits for this mutex to vanish
+        # before replacing files, so a /SILENT update can't race our shutdown.
+        # Windows releases it only when the process has fully exited — exactly
+        # the "safe to overwrite" signal setup needs. Never CloseHandle it.
+        ctypes.windll.kernel32.CreateMutexW(None, False, "FocusForgeAppMutex")
     win = MainWindow()
     win.load_blank()      # don't auto-open a project; the launcher chooses
     win.show()
