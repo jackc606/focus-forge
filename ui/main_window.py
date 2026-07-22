@@ -11,10 +11,12 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QSplitter,
@@ -22,6 +24,8 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTextEdit,
     QToolBar,
+    QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -31,7 +35,11 @@ from core.mod_scaffold import (
     DEFAULT_SUPPORTED_VERSION,
     DEFAULT_TAGS,
     MD_DEPENDENCY,
+    default_mod_root,
     find_mod_root,
+    is_hoi4_mod_root,
+    read_descriptor_name,
+    sanitize_folder,
     scaffold_submod,
 )
 from core.types import FocusForgeProject
@@ -136,6 +144,10 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
+        # The inspector column must never silently collapse to zero width — a
+        # squeezed first layout (small launch window) used to leave it invisible
+        # until the user found the splitter handle by accident.
+        splitter.setCollapsible(2, False)
         splitter.setSizes([280, 800, 440])
 
         # Status bar
@@ -222,116 +234,131 @@ class MainWindow(QMainWindow):
 
     # ----- toolbar -----
     def _build_toolbar(self) -> None:
+        """The command bar: labeled banks of buttons (PROJECT / CONTENT /
+        CANVAS) with one green Export CTA on the right, instead of 18 flat
+        actions in a row. Rare and destructive commands live behind "…" so the
+        bar fits any sane window width."""
         tb = QToolBar("Main")
         tb.setMovable(False)
         self.addToolBar(tb)
 
-        new_mod_act = QAction("New Submod", self)
-        new_mod_act.triggered.connect(self._new_submod)
-        tb.addAction(new_mod_act)
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(T.SPACE_XS, 2, T.SPACE_XS, 0)
+        row.setSpacing(T.SPACE_MD)
 
-        import_act = QAction("Import Tree", self)
-        import_act.triggered.connect(self._import_tree)
-        tb.addAction(import_act)
+        def act(text, slot, tooltip="", shortcut=None):
+            a = QAction(text, self)
+            if tooltip:
+                a.setToolTip(tooltip)
+            if shortcut:
+                a.setShortcut(shortcut)
+                # The action must belong to a widget for its shortcut to fire —
+                # QToolButton.setDefaultAction alone doesn't register it.
+                self.addAction(a)
+            a.triggered.connect(slot)
+            return a
 
-        country_act = QAction("Country", self)
-        country_act.triggered.connect(self._edit_country)
-        tb.addAction(country_act)
+        def btn(action, object_name=""):
+            b = QToolButton()
+            b.setDefaultAction(action)
+            b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            b.setFocusPolicy(Qt.NoFocus)
+            if object_name:
+                b.setObjectName(object_name)
+            return b
 
-        ideas_act = QAction("Ideas", self)
-        ideas_act.triggered.connect(self._manage_ideas)
-        tb.addAction(ideas_act)
+        def bank(caption, widgets):
+            holder = QWidget()
+            v = QVBoxLayout(holder)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(1)
+            h = QHBoxLayout()
+            h.setSpacing(T.SPACE_XS)
+            for w in widgets:
+                h.addWidget(w)
+            v.addLayout(h)
+            cap = QLabel(caption)
+            cap.setObjectName("bankLabel")
+            cap.setAlignment(Qt.AlignHCenter)
+            v.addWidget(cap)
+            row.addWidget(holder)
 
-        events_act = QAction("Events", self)
-        events_act.triggered.connect(self._manage_events)
-        tb.addAction(events_act)
+        def bank_divider():
+            line = QFrame()
+            line.setObjectName("bankDivider")
+            line.setFrameShape(QFrame.VLine)
+            line.setFixedWidth(1)
+            row.addWidget(line)
 
-        decisions_act = QAction("Decisions", self)
-        decisions_act.triggered.connect(self._manage_decisions)
-        tb.addAction(decisions_act)
+        # PROJECT
+        new_mod_act = act("New Submod", self._new_submod)
+        open_act = act("Open", self._open, shortcut=QKeySequence.Open)
+        save_act = act("Save", self._save, shortcut=QKeySequence.Save)
+        bank("PROJECT", [btn(new_mod_act), btn(open_act), btn(save_act)])
+        bank_divider()
 
-        shortcuts_act = QAction("Shortcuts", self)
-        shortcuts_act.triggered.connect(self._manage_shortcuts)
-        tb.addAction(shortcuts_act)
-        tb.addSeparator()
+        # CONTENT — the non-focus-tree parts of the mod.
+        country_act = act("Country", self._edit_country)
+        ideas_act = act("Ideas", self._manage_ideas)
+        events_act = act("Events", self._manage_events)
+        decisions_act = act("Decisions", self._manage_decisions)
+        bank("CONTENT", [btn(country_act), btn(ideas_act),
+                         btn(events_act), btn(decisions_act)])
+        bank_divider()
 
-        open_act = QAction("Open", self)
-        open_act.setShortcut(QKeySequence.Open)
-        open_act.triggered.connect(self._open)
-        tb.addAction(open_act)
-
-        save_act = QAction("Save", self)
-        save_act.setShortcut(QKeySequence.Save)
-        save_act.triggered.connect(self._save)
-        tb.addAction(save_act)
-
-        save_as_act = QAction("Save As", self)
-        save_as_act.triggered.connect(self._save_as)
-        tb.addAction(save_as_act)
-
-        tb.addSeparator()
-
-        # Toolbar buttons always operate on the PROJECT (clicking a button
-        # doesn't move keyboard focus, so a focused text field must not hijack
-        # them); the keyboard shortcuts below keep the text-field guard.
-        undo_act = QAction("Undo", self)
-        undo_act.setToolTip("Undo the last change (Ctrl+Z)")
-        undo_act.triggered.connect(self._undo_project)
-        tb.addAction(undo_act)
-
-        redo_act = QAction("Redo", self)
-        redo_act.setToolTip("Redo (Ctrl+Y)")
-        redo_act.triggered.connect(self._redo_project)
-        tb.addAction(redo_act)
+        # CANVAS — buttons always operate on the PROJECT (clicking one doesn't
+        # move keyboard focus, so a focused text field must not hijack them);
+        # the QShortcuts below keep the text-field guard.
+        undo_act = act("Undo", self._undo_project, tooltip="Undo the last change (Ctrl+Z)")
+        redo_act = act("Redo", self._redo_project, tooltip="Redo (Ctrl+Y)")
+        add_act = act("+ Focus", self._on_add_focus)
+        del_act = act("Delete", self._on_delete_focus)
+        self._delete_action = del_act
+        fit_act = act("Fit View", lambda: self._view.fit_to_content())
+        bank("CANVAS", [btn(undo_act), btn(redo_act), btn(add_act),
+                        btn(del_act), btn(fit_act)])
 
         QShortcut(QKeySequence.Undo, self, activated=self._undo)
         QShortcut(QKeySequence.Redo, self, activated=self._redo)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo)
 
-        tb.addSeparator()
+        row.addStretch(1)
 
-        add_act = QAction("+ Focus", self)
-        add_act.triggered.connect(self._on_add_focus)
-        tb.addAction(add_act)
-
-        del_act = QAction("Delete", self)
-        del_act.triggered.connect(self._on_delete_focus)
-        tb.addAction(del_act)
-        self._delete_action = del_act
-
-        fit_act = QAction("Fit View", self)
-        fit_act.triggered.connect(lambda: self._view.fit_to_content())
-        tb.addAction(fit_act)
-
-        clear_act = QAction("Clear Focuses", self)
-        clear_act.setToolTip("Remove every focus from this project (asks first).")
-        clear_act.triggered.connect(self._on_clear_focuses)
-        tb.addAction(clear_act)
-        clear_btn = tb.widgetForAction(clear_act)
-        if clear_btn is not None:
-            clear_btn.setObjectName("danger")
-
-        tb.addSeparator()
-
-        export_act = QAction("Export to Mod", self)
-        export_act.triggered.connect(self._export_to_mod)
-        tb.addAction(export_act)
-        export_btn = tb.widgetForAction(export_act)
-        if export_btn is not None:
-            export_btn.setObjectName("primary")
-
-        export_as_act = QAction("Export As…", self)
-        export_as_act.triggered.connect(self._export_as)
-        tb.addAction(export_as_act)
-
-        tb.addSeparator()
+        # MORE — rare, secondary, and destructive commands.
+        import_act = act("Import Tree…", self._import_tree)
+        save_as_act = act("Save As…", self._save_as)
+        export_as_act = act("Export As…", self._export_as)
+        shortcuts_act = act("Shortcuts…", self._manage_shortcuts)
         self._bridge_action = QAction("AI Bridge", self)
         self._bridge_action.setCheckable(True)
         self._bridge_action.setToolTip(
             "Let a local AI agent (via MCP) edit this project live. Loopback-only; "
             "off by default.")
         self._bridge_action.toggled.connect(self._toggle_bridge)
-        tb.addAction(self._bridge_action)
+        clear_act = act("Clear Focuses", self._on_clear_focuses,
+                        tooltip="Remove every focus from this project (asks first).")
+        more_menu = QMenu(self)
+        for a in (import_act, save_as_act, export_as_act, shortcuts_act):
+            more_menu.addAction(a)
+        more_menu.addSeparator()
+        more_menu.addAction(self._bridge_action)
+        more_menu.addSeparator()
+        more_menu.addAction(clear_act)
+        more_btn = QToolButton()
+        more_btn.setText("…")
+        more_btn.setToolTip("Import, Save As, Export As, Shortcuts, AI Bridge, Clear")
+        more_btn.setMenu(more_menu)
+        more_btn.setPopupMode(QToolButton.InstantPopup)
+        more_btn.setFocusPolicy(Qt.NoFocus)
+        bank("MORE", [more_btn])
+        bank_divider()
+
+        # EXPORT — the one green CTA.
+        export_act = act("Export to Mod", self._export_to_mod)
+        bank("EXPORT", [btn(export_act, "primary")])
+
+        tb.addWidget(bar)
 
     # ----- pending-edit flush + unsaved-changes guard -----
     @staticmethod
@@ -827,8 +854,11 @@ class MainWindow(QMainWindow):
 
     def _resolve_mod_dir(self):
         """The HOI4 mod folder to build into: the project's remembered exportDir,
-        else (legacy projects living in a mod) the ancestor descriptor.mod, else
-        this session's default."""
+        else (legacy projects living in a mod) the ancestor descriptor.mod.
+
+        Deliberately NOT the session default: that belongs to whichever project
+        exported last, and falling back to it once built an opened project
+        straight over a different mod's folder."""
         ed = (self._model.project.exportDir or "").strip()
         if ed:
             return ed
@@ -836,7 +866,7 @@ class MainWindow(QMainWindow):
             root = find_mod_root(self._model.path)
             if root:
                 return root
-        return self._default_export_dir
+        return None
 
     def _ensure_mod_scaffolded(self, target: str) -> bool:
         """Materialise the HOI4 mod folder (descriptor + skeleton) if it doesn't
@@ -873,20 +903,96 @@ class MainWindow(QMainWindow):
                 "\"New Submod\", or use Export As… to pick a destination.")
             self._export_as()
             return
+        if not self._confirm_mod_identity(target):
+            return
         if not self._ensure_mod_scaffolded(target):
             return
         self._default_export_dir = target
         if self._do_export(Path(target)):
+            self._remember_export_dir(target)
             self._model.status_message.emit(f"Exported to mod: {target}")
+
+    def _confirm_mod_identity(self, target: str) -> bool:
+        """Refuse-to-surprise guard: if ``target`` already holds a mod whose
+        descriptor name doesn't look like this project, make the user say so
+        explicitly before anything is overwritten."""
+        existing = read_descriptor_name(target)
+        if not existing:
+            return True
+        meta = self._model.project.modMeta or {}
+        ours = (meta.get("name") or self._model.project.projectName or "").strip()
+        if not ours or existing.strip().lower() == ours.lower():
+            return True
+        ans = QMessageBox.warning(
+            self, "Export to Mod",
+            f"The folder\n{target}\nalready contains the mod \"{existing}\", "
+            f"but this project is \"{ours}\".\n\nExporting would write this "
+            f"project's files into that mod. Choose \"Pick Another Folder…\" "
+            f"to export somewhere else.",
+            QMessageBox.Yes | QMessageBox.Open | QMessageBox.Cancel,
+            QMessageBox.Cancel)
+        if ans == QMessageBox.Open:
+            self._export_as()
+            return False
+        return ans == QMessageBox.Yes
+
+    def _remember_export_dir(self, target: str) -> None:
+        """Persist the export destination on the project itself so reopening it
+        later (or on another machine) never inherits a different mod's folder."""
+        if (self._model.project.exportDir or "").strip() != target:
+            self._model.update_project_meta(exportDir=target)
 
     def _export_as(self) -> None:
         self._flush_focused_editor()
         directory = QFileDialog.getExistingDirectory(
-            self, "Choose Export Directory", self._default_export_dir or "")
+            self, "Choose Export Directory",
+            self._default_export_dir or default_mod_root())
+        if not directory:
+            return
+        directory = self._prepare_export_destination(directory)
         if not directory:
             return
         self._default_export_dir = directory
-        self._do_export(Path(directory))
+        if self._do_export(Path(directory)):
+            self._remember_export_dir(directory)
+            self._model.status_message.emit(f"Exported to: {directory}")
+
+    def _prepare_export_destination(self, directory: str):
+        """Turn a picked directory into a real mod destination.
+
+        Picking the HOI4 mods root itself (the classic mistake — game files
+        splat bare next to the *.mod entries and the launcher shows nothing)
+        offers to create a named mod folder inside it. Any other folder with no
+        descriptor.mod offers to scaffold one so HOI4 can actually see the mod.
+        Returns the (possibly new) directory, or None to cancel."""
+        meta = self._model.project.modMeta or {}
+        mod_name = (meta.get("name") or self._model.project.projectName or "").strip()
+        if is_hoi4_mod_root(directory):
+            from PySide6.QtWidgets import QInputDialog
+            folder, ok = QInputDialog.getText(
+                self, "Create Mod Folder",
+                "That's the HOI4 mods folder itself — exporting game files "
+                "straight into it makes a mod the launcher can't see.\n\n"
+                "Create this mod folder inside it instead:",
+                text=sanitize_folder(mod_name) or "my_submod")
+            if not ok or not folder.strip():
+                return None
+            target = os.path.join(directory, sanitize_folder(folder))
+            if not self._ensure_mod_scaffolded(target):
+                return None
+            return target
+        if not os.path.isfile(os.path.join(directory, "descriptor.mod")):
+            ans = QMessageBox.question(
+                self, "Export As",
+                f"{directory}\nisn't a HOI4 mod folder yet (no descriptor.mod).\n\n"
+                f"Create the mod files here so the launcher can see it?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes)
+            if ans == QMessageBox.Cancel:
+                return None
+            if ans == QMessageBox.Yes and not self._ensure_mod_scaffolded(directory):
+                return None
+        return directory
 
     def _do_export(self, directory: Path) -> bool:
         from core.validation import get_blocking_issues
