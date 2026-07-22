@@ -147,8 +147,14 @@ class ChipSelector(QWidget):
         return list(self._tokens)
 
     def update_suggestions(self, suggestions) -> None:
+        suggestions = list(suggestions or [])
+        # Rebuilding a big combo (500+ ids) costs several ms — a no-op call
+        # from a project_changed storm (every grid-step of a drag) must not
+        # pay it again for identical content.
+        if self._groups is None and suggestions == self._suggestions:
+            return
         self._groups = None
-        self._suggestions = list(suggestions or [])
+        self._suggestions = suggestions
         self._rebuild_combo()
 
     def set_grouped_suggestions(self, groups, tooltips=None) -> None:
