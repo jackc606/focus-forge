@@ -8,9 +8,39 @@ import pytest
 from core.mod_scaffold import (
     MD_DEPENDENCY,
     find_mod_root,
+    read_descriptor_name,
     sanitize_folder,
     scaffold_submod,
 )
+
+
+def test_is_hoi4_mod_root(tmp_path):
+    from core.mod_scaffold import is_hoi4_mod_root
+    # A "mod" dir holding launcher .mod entries is the mods root.
+    root = tmp_path / "mod"
+    root.mkdir()
+    (root / "md_thing.mod").write_text('name="x"\n', encoding="utf-8")
+    assert is_hoi4_mod_root(root)
+    # A mod folder inside it is not; neither is an unrelated dir or empty "mod".
+    sub = root / "md_thing"
+    sub.mkdir()
+    assert not is_hoi4_mod_root(sub)
+    assert not is_hoi4_mod_root(tmp_path)
+    empty = tmp_path / "elsewhere" / "mod"
+    empty.mkdir(parents=True)
+    assert not is_hoi4_mod_root(empty)
+    assert not is_hoi4_mod_root("")
+
+
+def test_read_descriptor_name(tmp_path):
+    scaffold_submod(str(tmp_path), "md_chile", "Millennium Dawn: Chile")
+    assert read_descriptor_name(tmp_path / "md_chile") == "Millennium Dawn: Chile"
+    # Missing folder / missing descriptor / missing field all read as "".
+    assert read_descriptor_name(tmp_path / "nope") == ""
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    (bare / "descriptor.mod").write_text('version="1.0"\n', encoding="utf-8")
+    assert read_descriptor_name(bare) == ""
 
 
 def test_sanitize_folder():

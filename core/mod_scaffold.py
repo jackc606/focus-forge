@@ -63,6 +63,33 @@ def find_mod_root(start) -> str:
     return None
 
 
+def is_hoi4_mod_root(directory) -> bool:
+    """True when ``directory`` IS the HOI4 mods folder itself (Documents/…/mod)
+    rather than a mod inside it — game files must never be exported bare into
+    it, or the launcher sees nothing."""
+    if not directory:
+        return False
+    p = Path(directory)
+    try:
+        if p.resolve() == Path(default_mod_root()).resolve():
+            return True
+    except OSError:
+        pass
+    return p.name.lower() == "mod" and any(p.glob("*.mod"))
+
+
+def read_descriptor_name(mod_dir) -> str:
+    """The ``name="…"`` from a mod folder's descriptor.mod, or "" if the file
+    or field is missing/unreadable. Used to catch exporting project A into a
+    folder that belongs to mod B."""
+    try:
+        text = (Path(mod_dir) / "descriptor.mod").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    m = re.search(r'^\s*name\s*=\s*"([^"]*)"', text, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
 def sanitize_folder(name: str) -> str:
     """Turn a display name into a safe folder/file slug (lowercase, underscores)."""
     slug = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
