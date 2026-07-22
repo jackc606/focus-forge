@@ -944,8 +944,19 @@ class ProjectModel(QObject):
                 f"{path.name} isn't a readable Focus Forge project — the file is "
                 f"corrupt or not UTF-8 JSON ({exc}). If you have a backup or a "
                 f"version in source control, restore that copy.") from exc
-        self.replace_project(project_from_dict(data), path=path)
-        self.status_message.emit(f"Opened {path}")
+        from core.applog import logger
+        from core.mod_scaffold import sanitize_foreign_project
+        project = project_from_dict(data)
+        # A shared project may carry another machine's paths — sanitize BEFORE
+        # the undo baseline snapshots, so the cleanup persists on next save.
+        notes = sanitize_foreign_project(project)
+        self.replace_project(project, path=path)
+        message = f"Opened {path}"
+        if notes:
+            message += " — " + "; ".join(notes)
+        logger().info("open %s (%d focuses)%s", path, len(project.focuses),
+                      " — " + "; ".join(notes) if notes else "")
+        self.status_message.emit(message)
 
     def save_to_file(self, path: Path) -> None:
         text = json.dumps(project_to_dict(self._project), indent=2, ensure_ascii=False)
@@ -955,6 +966,8 @@ class ProjectModel(QObject):
         self._path = path
         self._set_dirty(False)
         self.project_path_changed.emit(str(path))
+        from core.applog import logger
+        logger().info("save %s (%d focuses)", path, len(self._project.focuses))
         self.status_message.emit(f"Saved {path}")
 
     def export_to_directory(self, directory: Path) -> int:
@@ -964,6 +977,8 @@ class ProjectModel(QObject):
             target.parent.mkdir(parents=True, exist_ok=True)
             content = ("﻿" + f.content) if f.bom else f.content
             atomic_write_bytes(target, content.encode("utf-8"))
+        from core.applog import logger
+        logger().info("export %d files -> %s", len(files), directory)
         self.status_message.emit(f"Exported {len(files)} files to {directory}")
         return len(files)
 

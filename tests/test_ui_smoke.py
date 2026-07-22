@@ -197,6 +197,22 @@ def test_event_editor_card_chips(model):
     assert dlg._options_chip.text() == "1 option"
 
 
+# ----- settings: diagnostic report -----
+
+def test_settings_diagnostic_report_to_clipboard(model, tmp_path):
+    from core import applog
+    applog.install(tmp_path, force=True)
+    applog.logger().info("smoke-test event")
+    from ui.settings_panel import SettingsPanel
+    panel = SettingsPanel(model)
+    panel._copy_diagnostics()
+    text = QApplication.clipboard().text()
+    assert "=== Focus Forge diagnostic report ===" in text
+    assert "[EGY]" in text                  # project line
+    assert "focuses" in text                # content counts
+    assert "smoke-test event" in text       # log tail included
+
+
 # ----- reward editor: structure-raw-script conversion -----
 
 def test_reward_editor_structures_raw_script(model):

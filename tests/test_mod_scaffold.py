@@ -32,6 +32,25 @@ def test_is_hoi4_mod_root(tmp_path):
     assert not is_hoi4_mod_root("")
 
 
+def test_sanitize_foreign_project_clears_missing_export_dir(tmp_path):
+    from core.mod_scaffold import sanitize_foreign_project
+    from core.types import FocusForgeProject
+
+    # A foreign machine's path is cleared, with a note saying what happened.
+    project = FocusForgeProject(exportDir=r"C:\Users\SomeoneElse\HOI4\mod\their_mod")
+    notes = sanitize_foreign_project(project)
+    assert project.exportDir == ""
+    assert len(notes) == 1 and "another machine" in notes[0]
+
+    # A destination that exists on THIS machine is untouched.
+    project = FocusForgeProject(exportDir=str(tmp_path))
+    assert sanitize_foreign_project(project) == []
+    assert project.exportDir == str(tmp_path)
+
+    # No destination at all: nothing to do.
+    assert sanitize_foreign_project(FocusForgeProject()) == []
+
+
 def test_read_descriptor_name(tmp_path):
     scaffold_submod(str(tmp_path), "md_chile", "Millennium Dawn: Chile")
     assert read_descriptor_name(tmp_path / "md_chile") == "Millennium Dawn: Chile"

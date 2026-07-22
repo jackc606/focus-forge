@@ -39,6 +39,8 @@ def _install_crash_handler() -> None:
                 traceback.print_exception(etype, value, tb, file=f)
         except OSError:
             pass
+        from core.applog import log_exception
+        log_exception(etype, value, tb)  # keep it in the event log too
         traceback.print_exception(etype, value, tb)  # keep stderr output too
         try:
             from PySide6.QtWidgets import QMessageBox
@@ -57,6 +59,10 @@ def _install_crash_handler() -> None:
 
 def main() -> int:
     _install_crash_handler()
+    from core import applog
+    applog.install()
+    applog.install_qt_handler()
+    applog.logger().info("--- session start %s ---", version_label())
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     # App-wide font so non-QSS surfaces (completer popups, native menus) inherit

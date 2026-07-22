@@ -63,6 +63,20 @@ def find_mod_root(start) -> str:
     return None
 
 
+def sanitize_foreign_project(project) -> list:
+    """Strip machine-specific state that traveled inside a shared project file
+    (users trade .focusforge.json over Discord). Currently: an exportDir whose
+    directory doesn't exist here — left in place it would make Export to Mod
+    scaffold a bogus foreign path (C:/Users/<someone_else>/…) on this machine.
+    Returns human-readable notes describing what was cleared (empty = clean)."""
+    notes: list = []
+    ed = (getattr(project, "exportDir", "") or "").strip()
+    if ed and not os.path.isdir(ed):
+        project.exportDir = ""
+        notes.append(f"cleared export destination from another machine ({ed})")
+    return notes
+
+
 def is_hoi4_mod_root(directory) -> bool:
     """True when ``directory`` IS the HOI4 mods folder itself (Documents/…/mod)
     rather than a mod inside it — game files must never be exported bare into

@@ -183,6 +183,23 @@ class SettingsPanel(QWidget):
         v.addWidget(self._icon_status)
         self._reload_icon_roots()
 
+        # ----- Diagnostics -----
+        v.addWidget(section_header("Diagnostics"))
+        v.addWidget(hint(
+            "Something misbehaving? Copy a diagnostic report — app and project "
+            "facts plus the recent event log, ready to paste into Discord or a "
+            "bug report. No file contents are included."))
+        diag_btns = QHBoxLayout()
+        diag_btns.setSpacing(T.SPACE_SM)
+        b_diag = QPushButton("Copy Diagnostic Report")
+        b_diag.clicked.connect(self._copy_diagnostics)
+        b_logs = QPushButton("Open Log Folder")
+        b_logs.clicked.connect(self._open_log_folder)
+        diag_btns.addWidget(b_diag)
+        diag_btns.addWidget(b_logs)
+        diag_btns.addStretch(1)
+        v.addLayout(diag_btns)
+
         v.addStretch(1)
 
         # Wire commits
@@ -200,6 +217,41 @@ class SettingsPanel(QWidget):
 
         self._model.project_changed.connect(self.refresh)
         self.refresh()
+
+    # ----- diagnostics -----
+    def _copy_diagnostics(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from core.applog import build_report
+        from .icon_provider import provider as icon_provider
+
+        p = self._model.project
+        issues = self._model.issues()
+        errors = sum(1 for i in issues if i.severity == "error")
+        info = {
+            "app": version_label(),
+            "project": f"{p.projectName or '(unnamed)'} [{p.countryTag}]",
+            "path": str(self._model.path or "(unsaved)"),
+            "content": (f"{len(p.focuses)} focuses, {len(p.ideas)} ideas, "
+                        f"{len(p.events)} events, {len(p.decisions)} decisions"),
+            "export dir": p.exportDir or "(not set)",
+            "icon roots": "; ".join(icon_provider().roots()) or "(none)",
+            "validation": f"{errors} errors, {len(issues) - errors} warnings",
+            "unsaved changes": "yes" if self._model.is_dirty() else "no",
+        }
+        QApplication.clipboard().setText(build_report(info))
+        self._model.status_message.emit("Diagnostic report copied to clipboard.")
+
+    def _open_log_folder(self) -> None:
+        import os
+
+        from core.applog import LOG_DIR
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(LOG_DIR))  # noqa: S606 - local folder open
+        except OSError as exc:
+            QMessageBox.warning(self, "Open Log Folder",
+                                f"Couldn't open the log folder:\n{exc}")
 
     def refresh(self) -> None:
         p = self._model.project

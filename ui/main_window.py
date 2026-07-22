@@ -913,6 +913,9 @@ class MainWindow(QMainWindow):
             return
         with self._model.batch():
             converted, effects, skipped = structure_all_rewards(self._model.project)
+        from core.applog import logger
+        logger().info("structure-raw: %d/%d focuses converted (%d effects), %d kept raw",
+                      converted, candidates, effects, len(skipped))
         parts = [f"Structured {converted} of {candidates} focuses with raw "
                  f"reward script — {effects} effect"
                  f"{'s' if effects != 1 else ''} lifted into editable cards."]
@@ -957,6 +960,9 @@ class MainWindow(QMainWindow):
         ours = (meta.get("name") or self._model.project.projectName or "").strip()
         if not ours or existing.strip().lower() == ours.lower():
             return True
+        from core.applog import logger
+        logger().info("export identity mismatch at %s: folder=%r project=%r",
+                      target, existing, ours)
         ans = QMessageBox.warning(
             self, "Export to Mod",
             f"The folder\n{target}\nalready contains the mod \"{existing}\", "
