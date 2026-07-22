@@ -183,8 +183,8 @@ class StatsPanel(QWidget):
         v.addWidget(self._reward_chart)
 
         v.addWidget(section_header("Political power"))
-        v.addWidget(hint("Tracks structured reward items only — rewards authored "
-                         "as raw script (imports, bridge edits) aren't parsed here."))
+        v.addWidget(hint("Counts structured reward items plus recognized raw-script "
+                         "effects (imports, AI-bridge edits)."))
         self._pp_form = QFormLayout()
         self._pp_form.setSpacing(T.SPACE_SM)
         v.addLayout(self._pp_form)

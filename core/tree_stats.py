@@ -6,6 +6,7 @@ days), so day figures here are cost × 7.
 """
 from __future__ import annotations
 
+from .reward_script import parse_reward_lines
 from .types import iter_prereq_ids
 
 DAYS_PER_COST = 7
@@ -106,6 +107,14 @@ def compute_stats(project) -> dict:
                 has_any = True
                 if getattr(item, "kind", "") == "political_power" and getattr(item, "enabled", True) is not False:
                     add_pp((getattr(item, "params", {}) or {}).get("amount"))
+            # Raw script (imports, AI-bridge edits): lift what the parser
+            # recognizes so pp/reward counts see it too.
+            if r.rawLines:
+                parsed, _remainder = parse_reward_lines(r.rawLines)
+                for item in parsed:
+                    rewards_total += 1
+                    if item["kind"] == "political_power":
+                        add_pp(item["params"].get("amount"))
             has_any = has_any or bool(r.stability or r.warSupport or r.commandPower
                                       or r.armyExperience or r.airExperience
                                       or r.navyExperience or r.addIdeas or r.removeIdeas

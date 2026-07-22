@@ -5,7 +5,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +22,7 @@ from core.reward_presets import (
     create_reward_item,
     get_reward_preset,
 )
+from core.reward_script import parse_reward_lines
 from core.types import CompletionReward, RewardItem
 
 from . import theme as T
@@ -83,6 +86,15 @@ class RewardEditor(QWidget):
         self._raw.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw.textChanged.connect(self._commit_raw)
         v.addWidget(self._raw)
+        self._convert_btn = QPushButton("Structure raw script")
+        self._convert_btn.setToolTip(
+            "Convert this focus's raw script into editable reward cards. "
+            "All-or-nothing: it only converts when every effect is recognized "
+            "and rebuilds to the same script (key order/whitespace may be "
+            "tidied), so the exported mod stays identical. Undo restores the "
+            "raw form.")
+        self._convert_btn.clicked.connect(self._convert_raw)
+        v.addWidget(self._convert_btn)
 
         # Generated preview
         self._preview_label = QLabel("Generated Reward Block")
@@ -162,10 +174,46 @@ class RewardEditor(QWidget):
         self._raw.blockSignals(True)
         self._raw.setPlainText("\n".join(reward.rawLines or []))
         self._raw.blockSignals(False)
+        self._convert_btn.setVisible(bool(reward.rawLines))
 
         self._refresh_preview()
         self._apply_script_visibility()  # new cards follow the toggle
         self._suspend = False
+
+    # ----- raw script → structured items -----
+    def _convert_raw(self) -> None:
+        """Lift this focus's raw script into structured item cards — but only
+        when EVERY effect parses and round-trips, so the exported script stays
+        game-identical and no line silently changes meaning."""
+        focus = self._focus()
+        if not focus or not focus.completionReward:
+            return
+        reward = focus.completionReward
+        raw = list(reward.rawLines or [])
+        if not raw:
+            return
+        parsed, remainder = parse_reward_lines(raw)
+        if remainder or not parsed:
+            recognized = len(parsed)
+            total = recognized + 1  # at least one statement didn't parse
+            QMessageBox.information(
+                self, "Structure raw script",
+                f"Recognized {recognized} effect{'s' if recognized != 1 else ''}, "
+                f"but not the whole script — nothing was changed.\n\n"
+                f"Conversion is all-or-nothing so the raw script's exact order "
+                f"is preserved. First unrecognized line:\n"
+                f"  {remainder[0].strip() if remainder else '(none)'}")
+            return
+        reward.items = list(reward.items or []) + [
+            RewardItem(kind=it["kind"], params=dict(it["params"]), enabled=True)
+            for it in parsed]
+        reward.rawLines = None
+        focus.completionReward = reward
+        self._model.notify_changed()
+        self._render()
+        self._model.status_message.emit(
+            f"Structured {len(parsed)} effect{'s' if len(parsed) != 1 else ''} "
+            f"from raw script — undo restores the raw form.")
 
     # ----- raw/preview visibility (driven by the inspector checkbox) -----
     def set_script_visible(self, show: bool) -> None:
