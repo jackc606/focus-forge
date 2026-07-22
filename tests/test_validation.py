@@ -86,6 +86,24 @@ def test_position_overlap_is_error() -> None:
     assert "focus.position.overlap" in _codes(project)
 
 
+def test_same_row_too_close_is_warning() -> None:
+    # dx=1 on the same row renders overlapping focus boxes in-game; the
+    # minimum usable spacing is MIN_SAME_ROW_DX columns.
+    project = make_sample_project()
+    project.focuses[0].position = FocusPosition(x=0, y=0)
+    project.focuses[1].position = FocusPosition(x=1, y=0)
+    issues = validate_project(project)
+    assert any(i.code == "focus.position.tooClose" and i.severity == "warning"
+               for i in issues)
+
+
+def test_same_row_min_dx_is_clean() -> None:
+    project = make_sample_project()
+    project.focuses[0].position = FocusPosition(x=0, y=0)
+    project.focuses[1].position = FocusPosition(x=2, y=0)
+    assert "focus.position.tooClose" not in _codes(project)
+
+
 def test_empty_title_is_warning() -> None:
     project = make_sample_project()
     project.focuses[0].title = ""

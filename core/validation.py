@@ -16,6 +16,11 @@ _TOKEN_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")   # focus_tree id, loc 
 _FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]+$")       # safe export filename
 _TAG_PATTERN = re.compile(r"^[A-Z0-9]{3}$")                 # HOI4 country tag
 
+# In-game a focus box is wider than one grid column: two focuses on the same y
+# row need at least this much x separation or their boxes visually overlap.
+# dy=1 vertical steps are fine. (Measured in-game against MD's renderer.)
+MIN_SAME_ROW_DX = 2
+
 
 def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_decision_categories=None) -> list:
@@ -55,6 +60,21 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
             issues.append(ValidationIssue(severity="error", code="focus.position.overlap", focusId=focus.id, message=f"{focus.id} overlaps {existing} at {pos_key}."))
         else:
             seen_positions[pos_key] = focus.id
+
+    rows: dict = {}
+    for focus in project.focuses:
+        if (focus.id or "").strip():
+            rows.setdefault(focus.position.y, []).append(focus)
+    for y, row in rows.items():
+        row.sort(key=lambda f: f.position.x)
+        for left, right in zip(row, row[1:]):
+            dx = right.position.x - left.position.x
+            if 0 < dx < MIN_SAME_ROW_DX:
+                issues.append(ValidationIssue(
+                    severity="warning", code="focus.position.tooClose", focusId=right.id,
+                    message=f"{right.id} is only {dx} column from {left.id} on row y={y} — "
+                            f"same-row focuses need dx >= {MIN_SAME_ROW_DX} or their boxes "
+                            f"overlap in-game."))
 
     by_id = {f.id: f for f in project.focuses}
     for focus in project.focuses:

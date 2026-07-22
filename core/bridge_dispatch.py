@@ -36,6 +36,7 @@ from .serialization import (
     project_to_dict,
 )
 from .types import FocusPosition, normalize_id_list, normalize_prereq_groups
+from .validation import MIN_SAME_ROW_DX
 
 try:
     from .version import __version__ as _APP_VERSION
@@ -43,6 +44,15 @@ except Exception:  # pragma: no cover - version module optional
     _APP_VERSION = "0.0.0"
 
 BRIDGE_PROTOCOL = 1
+
+# Authoring convention surfaced to every bridge client (hello + reference_data)
+# so agents place focuses with correct in-game spacing without being told.
+LAYOUT_CONVENTION = {
+    "minSameRowDx": MIN_SAME_ROW_DX,
+    "note": (f"Focuses sharing a y row need x-distance >= {MIN_SAME_ROW_DX}; "
+             "dx=1 makes the focus boxes overlap in-game. Vertical steps of "
+             "dy=1 are fine. The validator warns via focus.position.tooClose."),
+}
 
 
 # ----- shaping helpers ---------------------------------------------------------
@@ -145,6 +155,7 @@ def _op_hello(model, args):
         "project": {"name": p.projectName, "tag": p.countryTag,
                     "treeId": p.treeId, "focuses": len(p.focuses),
                     "ideas": len(p.ideas), "events": len(p.events)},
+        "layout": LAYOUT_CONVENTION,
     }
 
 
@@ -197,6 +208,7 @@ def _op_reference_data(model, args):
         "equipmentTypes": list(EQUIPMENT_TYPES),
         "wargoalTypes": list(WARGOAL_TYPES),
         "buildingTypes": list(BUILDING_TYPES),
+        "layoutConvention": LAYOUT_CONVENTION,
         # MD focus-cost convention (measured from real submods) — don't use a uniform cost.
         "costConvention": {
             "default": 10, "leaf": 5, "trivial": 1,
