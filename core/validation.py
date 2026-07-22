@@ -23,12 +23,15 @@ MIN_SAME_ROW_DX = 2
 
 
 def validate_project(project: FocusForgeProject, icon_exists=None,
-                     known_decision_categories=None) -> list:
+                     known_decision_categories=None,
+                     known_idea_ids=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
     ``known_decision_categories`` is an optional set of existing game/MD
-    decision-category ids; when provided, unknown category references warn."""
+    decision-category ids; when provided, unknown category references warn.
+    ``known_idea_ids`` is an optional set of idea ids defined by the game/MD —
+    tag-prefixed idea references found there are legal, not warnings."""
     issues: list = []
     focus_ids: set = set()
     seen_positions: dict = {}
@@ -111,7 +114,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
             for message in validate_reward_item(item):
                 issues.append(ValidationIssue(severity="error", code="focus.reward.invalid", focusId=focus.id, message=f"{focus.id} reward {index + 1}: {message}"))
 
-    _validate_reward_references(project, issues)
+    _validate_reward_references(project, issues, known_idea_ids)
     _detect_cycles(project, issues)
     _detect_unreachable(project, issues)
     _validate_shortcuts(project, focus_ids, issues)
@@ -141,7 +144,8 @@ def _validate_shortcuts(project: FocusForgeProject, focus_ids: set, issues: list
               "HOI4 shows at most 8 shortcut slots; extras beyond the first 8 won't appear.")
 
 
-def _validate_reward_references(project: FocusForgeProject, issues: list) -> None:
+def _validate_reward_references(project: FocusForgeProject, issues: list,
+                                known_idea_ids=None) -> None:
     """Catch focus rewards pointing at project ideas/events that don't exist or
     won't be exported. Only ids that look project-owned (the project's event
     namespace / country-tag prefix) are flagged — references to MD's own
@@ -173,8 +177,12 @@ def _validate_reward_references(project: FocusForgeProject, issues: list) -> Non
                 _warn_focus(issues, "focus.reward.idea.unexported", focus_id,
                             f"{focus_id} grants idea {v}, but “Include ideas” is off — it won't be exported.")
         elif tag and v.upper().startswith(f"{tag}_"):
-            # WARNING, not error: Millennium Dawn itself defines tag-prefixed
-            # ideas, so this can be a perfectly valid base-mod reference.
+            # The game/MD defines plenty of tag-prefixed ideas — a reference
+            # found there is legal, not a warning (a converted base tree
+            # grants dozens of them).
+            if known_idea_ids is not None and v in known_idea_ids:
+                return
+            # WARNING, not error: without a game index we can't be sure.
             _warn_focus(issues, "focus.reward.idea.missing", focus_id,
                         f"{focus_id} grants idea {v}, which isn't one of this project's "
                         f"ideas — fine if it exists in MD, a problem if it was deleted here.")

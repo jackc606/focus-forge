@@ -97,6 +97,41 @@ def test_same_row_too_close_is_warning() -> None:
                for i in issues)
 
 
+def test_reward_idea_known_to_game_is_not_warned() -> None:
+    # A tag-prefixed idea reference that the game/MD defines is legal; the
+    # same reference without a game index stays a cautious warning.
+    from core.types import CompletionReward, RewardItem
+    project = make_sample_project()
+    project.countryTag = "EGY"
+    project.focuses[0].completionReward = CompletionReward(items=[
+        RewardItem(kind="add_idea", enabled=True,
+                   params={"idea": "EGY_tourism_idea"})])
+    warned = [i.code for i in validate_project(project)]
+    assert "focus.reward.idea.missing" in warned
+    ok = [i.code for i in validate_project(
+        project, known_idea_ids={"EGY_tourism_idea"})]
+    assert "focus.reward.idea.missing" not in ok
+
+
+def test_build_known_idea_ids_scans_depth_two(tmp_path) -> None:
+    from core.tech_index import build_known_idea_ids
+    d = tmp_path / "common" / "ideas"
+    d.mkdir(parents=True)
+    (d / "Egyptian.txt").write_text(
+        "ideas = {\n"
+        "\tcountry = {\n"
+        "\t\tEGY_tourism_idea = {\n"
+        "\t\t\tmodifier = { stability_factor = 0.05 }\n"
+        "\t\t}\n"
+        "\t\tEGY_arms_purch_idea = { }\n"
+        "\t}\n"
+        "}\n", encoding="utf-8")
+    ids = build_known_idea_ids([str(tmp_path)])
+    assert {"EGY_tourism_idea", "EGY_arms_purch_idea"} <= ids
+    # Slot names and inner blocks are NOT idea ids.
+    assert "country" not in ids and "modifier" not in ids
+
+
 def test_same_row_min_dx_is_clean() -> None:
     project = make_sample_project()
     project.focuses[0].position = FocusPosition(x=0, y=0)

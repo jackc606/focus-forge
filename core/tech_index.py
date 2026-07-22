@@ -102,6 +102,38 @@ def build_tech_index(roots) -> dict:
     return index
 
 
+_IDEA_TOKEN = re.compile(r"([A-Za-z0-9_.\-]+)\s*=\s*\{|\{|\}")
+
+
+def build_known_idea_ids(roots) -> set:
+    """Every idea id defined by the game/MD roots (common/ideas): the names
+    that open a block at nesting depth 2 — ``ideas = { <slot> = { <ID> = {``.
+    Union across roots. Used to keep validation from flagging focus rewards
+    that grant base-mod ideas (only project-missing + game-missing warns)."""
+    ids = set()
+    for root in roots:
+        d = os.path.join(root, "common", "ideas")
+        if not os.path.isdir(d):
+            continue
+        for fp in glob.glob(os.path.join(d, "*.txt")):
+            try:
+                text = _COMMENT.sub("", open(fp, "r", encoding="utf-8-sig",
+                                             errors="replace").read())
+            except OSError:
+                continue
+            depth = 0
+            for m in _IDEA_TOKEN.finditer(text):
+                if m.group(1):
+                    if depth == 2:
+                        ids.add(m.group(1))
+                    depth += 1
+                elif m.group(0) == "{":
+                    depth += 1
+                else:
+                    depth = max(0, depth - 1)
+    return ids
+
+
 def build_tech_categories(roots) -> list:
     """Sorted unique CAT_* technology categories from common/technology_tags
     (for add_tech_bonus). technology_tags isn't replace_path'd → union all roots."""

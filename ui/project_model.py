@@ -107,7 +107,8 @@ class ProjectModel(QObject):
 
     def issues(self) -> list:
         return validate_project(self._project, icon_exists=self._icon_exists(),
-                                known_decision_categories=self._known_decision_categories())
+                                known_decision_categories=self._known_decision_categories(),
+                                known_idea_ids=self._known_idea_ids())
 
     @staticmethod
     def _icon_exists():
@@ -124,6 +125,13 @@ class ProjectModel(QObject):
         from .tech_provider import tech_provider
         cats = tech_provider().md_decision_categories_cached()
         return set(cats) if cats else None
+
+    @staticmethod
+    def _known_idea_ids():
+        """Set of game/MD idea ids (self-warming background index), else None —
+        validation then keeps the cautious base-mod-reference warning."""
+        from .tech_provider import tech_provider
+        return tech_provider().known_idea_ids_cached()
 
     # ----- undo / redo -----
     def can_undo(self) -> bool:
@@ -1010,4 +1018,5 @@ class ProjectModel(QObject):
     def _emit_validation(self) -> None:
         self.validation_changed.emit(
             validate_project(self._project, icon_exists=self._icon_exists(),
-                             known_decision_categories=self._known_decision_categories()))
+                             known_decision_categories=self._known_decision_categories(),
+                             known_idea_ids=self._known_idea_ids()))

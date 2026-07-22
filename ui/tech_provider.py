@@ -6,9 +6,12 @@ from PySide6.QtCore import QObject
 
 from core.decision_index import build_decision_categories
 from core.modifier_index import build_modifier_groups, build_modifier_tooltips
+import threading
+
 from core.tech_index import (
     build_building_list,
     build_building_types,
+    build_known_idea_ids,
     build_opinion_modifiers,
     build_tech_categories,
     build_tech_groups,
@@ -28,6 +31,8 @@ class TechProvider(QObject):
         self._idea_mod_groups = None
         self._idea_mod_tooltips = None
         self._decision_categories = None
+        self._known_idea_ids = None
+        self._idea_ids_building = False
         icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
@@ -39,6 +44,8 @@ class TechProvider(QObject):
         self._idea_mod_groups = None
         self._idea_mod_tooltips = None
         self._decision_categories = None
+        self._known_idea_ids = None
+        self._idea_ids_building = False
 
     def tech_groups(self) -> list:
         """[(group_label, [(tech_id, display)])]; cached."""
@@ -93,6 +100,26 @@ class TechProvider(QObject):
         """The cached list, or None if it hasn't been built yet — for callers
         (validation) that must never trigger a blocking scan."""
         return self._decision_categories
+
+    def known_idea_ids_cached(self):
+        """Set of game/MD idea ids, or None while unknown. Self-warming: the
+        first call kicks a background scan of common/ideas; validation simply
+        skips the base-mod check until the set lands (never blocks)."""
+        if self._known_idea_ids is None and not self._idea_ids_building:
+            self._idea_ids_building = True
+            roots = list(icon_provider().roots())
+
+            def _build() -> None:
+                try:
+                    ids = build_known_idea_ids(roots)
+                except Exception:
+                    ids = set()
+                self._known_idea_ids = ids
+                self._idea_ids_building = False
+
+            threading.Thread(target=_build, daemon=True,
+                             name="idea-id-index").start()
+        return self._known_idea_ids
 
 
 _INSTANCE = None
