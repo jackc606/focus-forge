@@ -9,6 +9,37 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.3.4",
+        "date": "2026-07-22",
+        "title": "Minimap, lineage tracing, and one language for rewards",
+        "changes": [
+            "Canvas minimap: the whole tree as a constellation in the corner, "
+            "with your viewport marked — click or drag it to jump anywhere. "
+            "Big trees stop being a scroll marathon.",
+            "Hover a focus to light up its entire ancestry — every "
+            "prerequisite path back to the roots, OR-groups included. See "
+            "what a capstone really demands at a glance.",
+            "Structure raw script: convert raw reward script into editable "
+            "reward cards — per focus in the inspector, or the whole project "
+            "at once from the \"…\" menu (all-or-nothing per focus, so the "
+            "exported mod stays identical; one undo restores everything).",
+            "Stats and the political-power economy now understand raw-script "
+            "rewards too.",
+            "Smarter validation: idea references are checked against the "
+            "game/MD's real idea list (no more false alarms on base-mod "
+            "ideas), and a new structural check catches unbalanced braces or "
+            "quotes in raw script before they corrupt an export.",
+            "Opening a project shared from another computer now cleans up "
+            "machine-specific paths it carried, instead of exporting to a "
+            "folder that doesn't exist here.",
+            "New in Settings: Copy Diagnostic Report — app, project, and "
+            "recent event log in one paste for bug reports — plus an event "
+            "log the app keeps automatically.",
+            "Fixed a hidden canvas bug that spammed hundreds of paint "
+            "warnings every time a big tree was fitted to the window.",
+        ],
+    },
+    {
         "version": "0.3.3",
         "date": "2026-07-21",
         "title": "A cleaner cockpit — redesigned UI, faster big trees, safer exports",
