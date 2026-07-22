@@ -315,11 +315,17 @@ class FocusNodeItem(QGraphicsObject):
     def hoverEnterEvent(self, event) -> None:
         self._hover = True
         self.update()
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "on_node_hover"):
+            scene.on_node_hover(self._focus_id, True)
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event) -> None:
         self._hover = False
         self.update()
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "on_node_hover"):
+            scene.on_node_hover(self._focus_id, False)
         super().hoverLeaveEvent(event)
 
     def itemChange(self, change, value):

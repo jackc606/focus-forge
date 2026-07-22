@@ -25,6 +25,9 @@ class GraphScene(QGraphicsScene):
         self._nodes: dict = {}  # focus_id -> FocusNodeItem
         self._edges: dict = {}  # (src_id, dst_id) -> EdgeItem
         self._last_positions: dict = {}  # focus_id -> (x, y) at last reconcile
+        self._parents: dict = {}  # focus_id -> set of prerequisite ids (for lineage)
+        self._lineage_keys: set = set()  # edge keys currently accent-lit
+        self.layout_version = 0  # bumped when nodes appear/vanish/move (minimap cache)
         self._temp_line = None
         self._connect_anchor = None
 
@@ -115,11 +118,21 @@ class GraphScene(QGraphicsScene):
                 # restyle the surviving edge instead of leaving it stale.
                 existing_edge.set_alternative(alternative)
 
+        # Ancestry map for hover-lineage: child -> its prerequisite parents.
+        self._parents = {}
+        for (kind, a, b) in self._edges:
+            if kind == "prereq":
+                self._parents.setdefault(b, set()).add(a)
+        # Hovered edges may have been deleted by this reconcile.
+        self._lineage_keys = {k for k in self._lineage_keys if k in self._edges}
+
         # Rebuild edge paths only for edges whose endpoints actually moved —
         # a title edit on a 500-focus tree shouldn't re-route every connector.
         positions = {fid: (node.x(), node.y()) for fid, node in self._nodes.items()}
         moved = {fid for fid, pos in positions.items()
                  if self._last_positions.get(fid) != pos}
+        if moved or set(positions) != set(self._last_positions):
+            self.layout_version += 1
         self._last_positions = positions
         if moved:
             for (kind, a, b), edge in self._edges.items():
@@ -139,6 +152,38 @@ class GraphScene(QGraphicsScene):
                               max(ys) - min(ys) + margin * 2 + 100)
             if new_rect != self.sceneRect():
                 self.setSceneRect(new_rect)
+
+    # ----- hover lineage -----
+    def on_node_hover(self, focus_id: str, on: bool) -> None:
+        """Accent-light the hovered focus's ancestry (every prerequisite path
+        up to its roots). Touches only the lineage edges — a hover on a
+        500-focus tree repaints a dozen items, not the canvas."""
+        for key in self._lineage_keys:
+            edge = self._edges.get(key)
+            if edge is not None:
+                edge.set_lineage(False)
+        self._lineage_keys = set()
+        if not on or focus_id not in self._nodes:
+            return
+        seen = set()
+        queue = [focus_id]
+        while queue:
+            child = queue.pop()
+            if child in seen:
+                continue
+            seen.add(child)
+            for parent in self._parents.get(child, ()):
+                key = ("prereq", parent, child)
+                if key in self._edges:
+                    self._lineage_keys.add(key)
+                if parent not in seen:
+                    queue.append(parent)
+        for key in self._lineage_keys:
+            self._edges[key].set_lineage(True)
+
+    def node_points(self) -> list:
+        """Scene positions of every node — the minimap's dot field."""
+        return [(node.x(), node.y()) for node in self._nodes.values()]
 
     def select_node(self, focus_id: str) -> None:
         """Sync the canvas to a programmatic selection change (list panel,

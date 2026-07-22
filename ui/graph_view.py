@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QGraphicsView, QMenu
 
 from .edge_item import EdgeItem
 from .focus_node_item import GRID_X, GRID_Y, NODE_H, NODE_W, FocusNodeItem
+from .minimap import MinimapOverlay
 
 # Zoom-in is clamped to a sensible upper bound; zoom-out floor is computed
 # dynamically from the focus tree's bounding rect so the entire tree is
@@ -46,6 +47,18 @@ class GraphView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
         self._panning = False
         self._pan_start = QPoint()
+        self._minimap = MinimapOverlay(self)
+        self._minimap.reposition()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        self._minimap.reposition()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().paintEvent(event)
+        # Keep the minimap's viewport rectangle live during pans/zooms — its
+        # own paint is a cached-pixmap blit plus one rect, so this is cheap.
+        self._minimap.update()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         # Delete / Backspace removes every selected (highlighted) focus. Scoped

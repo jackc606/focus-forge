@@ -29,6 +29,7 @@ class EdgeItem(QGraphicsPathItem):
         self._target = target
         self._kind = kind
         self.alternative = False  # OR-group member; styled via set_alternative
+        self._lineage = False     # accent-lit while an ancestry hover traces it
         self.setZValue(-1)
         color = QColor(T.MUTEX_LINE if kind == "mutex" else T.PREREQ_LINE)
         pen = QPen(color, 1.7)
@@ -57,6 +58,25 @@ class EdgeItem(QGraphicsPathItem):
         pen.setStyle(Qt.DashLine if alternative else Qt.SolidLine)
         self.setPen(pen)  # setPen schedules the repaint
         self.setToolTip(_ALT_TOOLTIP if alternative else "")
+
+    def set_lineage(self, on: bool) -> None:
+        """Light this edge up (accent, thicker, above its peers) while a hover
+        traces the target's ancestry — and put it back exactly as it was."""
+        on = bool(on)
+        if on == self._lineage:
+            return
+        self._lineage = on
+        pen = self.pen()
+        if on:
+            pen.setColor(QColor(T.ACCENT))
+            pen.setWidthF(2.4)
+            self.setZValue(0)
+        else:
+            pen.setColor(QColor(T.MUTEX_LINE if self._kind == "mutex"
+                                else T.PREREQ_LINE))
+            pen.setWidthF(1.7)
+            self.setZValue(-1)
+        self.setPen(pen)  # setPen schedules the repaint
 
     def shape(self) -> QPainterPath:
         # Widen the hit area so the thin line is easy to right-click. Cached —

@@ -197,6 +197,72 @@ def test_event_editor_card_chips(model):
     assert dlg._options_chip.text() == "1 option"
 
 
+# ----- canvas: hover lineage + minimap -----
+
+def _lineage_scene(model):
+    from ui.graph_scene import GraphScene
+    scene = GraphScene()
+    scene.reconcile(model.project, "")
+    return scene
+
+
+def _chain_model(qapp):
+    from core.types import FocusForgeProject, FocusNodeData, FocusPosition
+    from ui.project_model import ProjectModel
+    m = ProjectModel()
+    project = FocusForgeProject(countryTag="EGY", focuses=[
+        FocusNodeData(id="root", position=FocusPosition(0, 0)),
+        FocusNodeData(id="mid", position=FocusPosition(0, 1),
+                      prerequisites=["root"]),
+        FocusNodeData(id="leaf", position=FocusPosition(0, 2),
+                      prerequisites=["mid"]),
+        FocusNodeData(id="stranger", position=FocusPosition(4, 0)),
+    ])
+    m.replace_project(project, path=None)
+    return m
+
+
+def test_hover_lineage_lights_ancestry_and_clears(qapp):
+    m = _chain_model(qapp)
+    scene = _lineage_scene(m)
+    scene.on_node_hover("leaf", True)
+    lit = {k for k, e in scene._edges.items() if e._lineage}
+    assert lit == {("prereq", "mid", "leaf"), ("prereq", "root", "mid")}
+    scene.on_node_hover("leaf", False)
+    assert not any(e._lineage for e in scene._edges.values())
+
+
+def test_hover_lineage_root_has_no_edges(qapp):
+    m = _chain_model(qapp)
+    scene = _lineage_scene(m)
+    scene.on_node_hover("stranger", True)
+    assert not any(e._lineage for e in scene._edges.values())
+
+
+def test_minimap_mapping_roundtrip_and_cache(qapp):
+    from PySide6.QtCore import QPointF
+    from ui.graph_scene import GraphScene
+    from ui.graph_view import GraphView
+    m = _chain_model(qapp)
+    scene = GraphScene()
+    view = GraphView(scene)
+    view.resize(800, 600)
+    scene.reconcile(m.project, "")
+    mini = view._minimap
+    mini._rebuild_dots(scene.node_points())
+    pt = QPointF(120.0, 340.0)
+    rt = mini._widget_to_scene(mini._scene_to_widget(pt))
+    assert abs(rt.x() - pt.x()) < 0.01 and abs(rt.y() - pt.y()) < 0.01
+    # layout_version only bumps when the layout actually changes.
+    v = scene.layout_version
+    scene.reconcile(m.project, "")            # no changes
+    assert scene.layout_version == v
+    from core.types import FocusPosition
+    m.update_focus("stranger", position=FocusPosition(6, 0))
+    scene.reconcile(m.project, "")
+    assert scene.layout_version == v + 1
+
+
 # ----- canvas: grid labels gated by zoom -----
 
 def test_grid_labels_skip_when_unreadable(qapp):
