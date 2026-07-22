@@ -64,6 +64,40 @@ def test_add_focus_with_position_and_fields():
     assert f and f.title == "New Plan" and f.position.x == 2 and f.icon == "GFX_x"
 
 
+def test_add_focus_with_structured_reward_items():
+    """The preferred agent authoring path (reference_data.rewardAuthoring):
+    structured items in, preset-built script out — no rawLines involved."""
+    from core.exporters import export_completion_reward_lines
+    m = _model()
+    r = _ok(m, "add_focus", x=4, y=6, title="Structured", completionReward={
+        "items": [
+            {"kind": "political_power", "enabled": True,
+             "params": {"amount": 75}},
+            {"kind": "treasury_change", "enabled": True,
+             "params": {"amount": -6.5}},
+        ]})
+    f = m.find_focus(r["id"])
+    assert [i.kind for i in f.completionReward.items] == [
+        "political_power", "treasury_change"]
+    assert not f.completionReward.rawLines
+    exported = "\n".join(export_completion_reward_lines(f.completionReward))
+    assert "add_political_power = 75" in exported
+    assert "treasury_change = -6.5" in exported
+    assert "modify_treasury_effect = yes" in exported
+    # An unknown kind must be caught by validation, not silently export nothing.
+    _ok(m, "update_focus", id=r["id"], completionReward={
+        "items": [{"kind": "not_a_real_kind", "enabled": True, "params": {}}]})
+    issues = _ok(m, "validate")
+    assert any("not_a_real_kind" in i["message"] or "Unknown" in i["message"]
+               for i in issues["errors"]), issues
+
+
+def test_reference_data_teaches_structured_authoring():
+    ref = _ok(_model(), "reference_data")
+    note = ref["rewardAuthoring"]["note"]
+    assert "items" in note and "rawLines" in note
+
+
 def test_add_focus_with_explicit_id_and_reward():
     m = _model()
     r = _ok(m, "add_focus", id="MEX_custom", title="Custom",

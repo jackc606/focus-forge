@@ -6,6 +6,12 @@ on:
     tags: ["v*"]
   pull_request:
 
+# A burst of pushes (busy Claude sessions) shouldn't queue redundant builds —
+# only the newest commit per ref matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: windows-latest
@@ -14,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install dependencies
         run: pip install PySide6 mcp pytest
       - name: Run tests

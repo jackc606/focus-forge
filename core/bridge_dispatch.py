@@ -209,6 +209,21 @@ def _op_reference_data(model, args):
         "wargoalTypes": list(WARGOAL_TYPES),
         "buildingTypes": list(BUILDING_TYPES),
         "layoutConvention": LAYOUT_CONVENTION,
+        # How to author rewards/conditions: structured items, not raw script.
+        "rewardAuthoring": {
+            "note": (
+                "PREFER structured items over rawLines. completionReward = "
+                '{"items": [{"kind": "<preset kind>", "params": {...}}]} — '
+                "kinds and their params come from list_reward_presets; "
+                "availability conditions likewise via list_condition_presets "
+                "into available.items. Structured items are validated, "
+                "editable as cards in the GUI, visible to Stats and the "
+                "pp economy, and export through the exact same builders. "
+                "Use rawLines ONLY for effects no preset expresses (nested "
+                "if/limit blocks, state-scoped script) — raw script is "
+                "invisible to charts until someone runs Structure Raw "
+                "Rewards."),
+        },
         # MD focus-cost convention (measured from real submods) — don't use a uniform cost.
         "costConvention": {
             "default": 10, "leaf": 5, "trivial": 1,
