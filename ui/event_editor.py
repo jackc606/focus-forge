@@ -44,7 +44,8 @@ from .icon_picker import IconPickerDialog
 from .icon_provider import provider
 from .no_scroll import NoScrollComboBox, NoScrollSpinBox
 from .preset_list import ConditionListWidget, EffectListWidget
-from .widgets import hint, panel_header, section_header
+from .widgets import (BracketFrame, hint, meta_chip, panel_header,
+                      section_header)
 
 # HOI4 event pictures are wide banner images, exported as .dds. The well-known
 # standard is 420×175 px; MD's own are typically ~217×163 (report) or ~397×153
@@ -224,22 +225,49 @@ class EventEditorDialog(QDialog):
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
-        # ----- core fields -----
-        form = QFormLayout()
-        form.setSpacing(T.SPACE_SM)
-        v.addLayout(form)
-
+        # ----- dossier card: banner + in-place title/id + meta chips -----
+        card = QFrame()
+        card.setObjectName("dossierCard")
+        ch = QHBoxLayout(card)
+        ch.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
+        ch.setSpacing(T.SPACE_MD)
+        self._pic_prev = QLabel()
+        self._pic_prev.setObjectName("dossierIcon")
+        self._pic_prev.setFixedSize(_PIC_PREVIEW_W, _PIC_PREVIEW_H)
+        self._pic_prev.setAlignment(Qt.AlignCenter)
+        ch.addWidget(BracketFrame(self._pic_prev), 0, Qt.AlignTop)
+        ident = QVBoxLayout()
+        ident.setSpacing(2)
+        self._title = QLineEdit(event.title if event else "")
+        self._title.setObjectName("identityTitle")
+        self._title.setPlaceholderText("Untitled event")
+        self._title.textChanged.connect(self._on_title)
+        ident.addWidget(self._title)
         self._id = QLineEdit(event.id if event else self._suggest_id())
+        self._id.setObjectName("identityId")
+        self._id.setPlaceholderText("namespace.number")
         self._id.textChanged.connect(lambda *_: self._refresh_preview())
         # While editing a new event the id tracks the title (<prefix>.<slug>); a
         # manual id edit (textEdited, not our programmatic setText) detaches it.
         self._id_edited = self._editing
         self._id.textEdited.connect(lambda *_: setattr(self, "_id_edited", True))
-        form.addRow("ID", self._id)
+        ident.addWidget(self._id)
+        meta = QHBoxLayout()
+        meta.setSpacing(T.SPACE_XS)
+        self._type_chip = meta_chip("", "Event type")
+        self._options_chip = meta_chip("", "How many buttons the player sees")
+        meta.addWidget(self._type_chip)
+        meta.addWidget(self._options_chip)
+        meta.addStretch(1)
+        ident.addSpacing(2)
+        ident.addLayout(meta)
+        ch.addLayout(ident, 1)
+        v.addWidget(card)
 
-        self._title = QLineEdit(event.title if event else "")
-        self._title.textChanged.connect(self._on_title)
-        form.addRow("Title", self._title)
+        # ----- core fields -----
+        form = QFormLayout()
+        form.setSpacing(T.SPACE_SM)
+        v.addLayout(form)
 
         self._desc = QPlainTextEdit(event.description if event else "")
         self._desc.setMaximumHeight(T.TEXTAREA_MEDIUM)
@@ -260,11 +288,6 @@ class EventEditorDialog(QDialog):
         pic_h = QHBoxLayout(pic_row)
         pic_h.setContentsMargins(0, 0, 0, 0)
         pic_h.setSpacing(T.SPACE_SM)
-        self._pic_prev = QLabel()
-        self._pic_prev.setObjectName("iconPreview")
-        self._pic_prev.setFixedSize(_PIC_PREVIEW_W, _PIC_PREVIEW_H)
-        self._pic_prev.setAlignment(Qt.AlignCenter)
-        pic_h.addWidget(self._pic_prev)
         self._pic_name_lbl = QLabel()
         self._pic_name_lbl.setWordWrap(True)
         pic_h.addWidget(self._pic_name_lbl, 1)
@@ -544,6 +567,10 @@ class EventEditorDialog(QDialog):
         if not self._built:
             return
         self._relabel_options()
+        self._type_chip.setText(
+            "news event" if self._type.currentData() == "news_event" else "country event")
+        n = sum(1 for _ in self._option_cards())
+        self._options_chip.setText(f"{n} option{'s' if n != 1 else ''}")
         try:
             event = self.result_event()
             proj = FocusForgeProject(

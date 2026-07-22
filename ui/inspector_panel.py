@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFormLayout,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -39,7 +39,7 @@ from .icon_picker import IconPickerDialog
 from .icon_provider import provider
 from .project_model import ProjectModel
 from .reward_editor import RewardEditor
-from .widgets import divider, panel_header
+from .widgets import BracketFrame, divider, panel_header, section_header
 
 # In-game focus icon size (all base/MD focus icons are 100×88).
 _FOCUS_ICON_W, _FOCUS_ICON_H = 100, 88
@@ -53,6 +53,7 @@ class InspectorPanel(QWidget):
         # When True, the focus id tracks the title (auto tag_slug). Flips off the
         # moment the user hand-edits the id, or when an id no longer looks auto.
         self._id_auto = False
+        self._issues_cache = None  # last validation_changed payload
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -69,29 +70,96 @@ class InspectorPanel(QWidget):
 
         v.addWidget(panel_header("Inspector"))
 
-        self._empty_label = QLabel("Select a focus on the canvas or in the focuses list.")
+        self._empty_label = QLabel(
+            "No focus selected.\nClick a node on the canvas, or pick one from "
+            "the Focuses list.")
         self._empty_label.setObjectName("muted")
         self._empty_label.setWordWrap(True)  # don't force a wide minimum on the panel
         v.addWidget(self._empty_label)
 
         self._form_group = QWidget()
         v.addWidget(self._form_group)
-        form = QFormLayout(self._form_group)
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setSpacing(8)
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        fg = QVBoxLayout(self._form_group)
+        fg.setContentsMargins(0, 0, 0, 0)
+        fg.setSpacing(T.SPACE_MD)
 
-        self._id_edit = QLineEdit()
-        form.addRow("ID", self._id_edit)
+        # ----- Dossier card: the selected focus as an in-game style plate -----
+        # Icon in the canvas-node bracket frame, title + id edited in place,
+        # and a quiet mono meta row (position · cost in days · AI weight).
+        card = QFrame()
+        card.setObjectName("dossierCard")
+        ch = QHBoxLayout(card)
+        ch.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
+        ch.setSpacing(T.SPACE_MD)
+
+        self._icon_preview = QLabel()
+        self._icon_preview.setFixedSize(56, 49)
+        self._icon_preview.setAlignment(Qt.AlignCenter)
+        self._icon_preview.setObjectName("dossierIcon")
+        ch.addWidget(BracketFrame(self._icon_preview), 0, Qt.AlignTop)
+
+        ident = QVBoxLayout()
+        ident.setSpacing(2)
         self._title_edit = QLineEdit()
-        form.addRow("Title", self._title_edit)
+        self._title_edit.setObjectName("identityTitle")
+        self._title_edit.setPlaceholderText("Untitled focus")
+        self._title_edit.setToolTip("Focus title as the player sees it. Edit in place.")
+        ident.addWidget(self._title_edit)
+        self._id_edit = QLineEdit()
+        self._id_edit.setObjectName("identityId")
+        self._id_edit.setPlaceholderText("focus_id")
+        self._id_edit.setToolTip(
+            "Focus id — renames rewrite every reference (prerequisites, mutex, "
+            "availability) project-wide.")
+        ident.addWidget(self._id_edit)
+        meta = QHBoxLayout()
+        meta.setSpacing(T.SPACE_XS)
+        self._meta_pos = QLabel()
+        self._meta_pos.setObjectName("metaChip")
+        self._meta_pos.setToolTip("Grid position (x, y)")
+        self._meta_cost = QLabel()
+        self._meta_cost.setObjectName("metaChip")
+        self._meta_cost.setToolTip("Focus cost — 1 cost = 7 in-game days")
+        self._meta_ai = QLabel()
+        self._meta_ai.setObjectName("metaChip")
+        self._meta_ai.setToolTip("AI priority (ai_will_do) — shown when not the default 10")
+        meta.addWidget(self._meta_pos)
+        meta.addWidget(self._meta_cost)
+        meta.addWidget(self._meta_ai)
+        meta.addStretch(1)
+        ident.addSpacing(2)
+        ident.addLayout(meta)
+        ch.addLayout(ident, 1)
+        # Validation health for THIS focus: green dot = clean, amber = warnings,
+        # red = errors; the tooltip lists the actual messages.
+        self._status_dot = QLabel()
+        self._status_dot.setFixedSize(10, 10)
+        self._status_dot.setObjectName("statusDotOk")
+        ch.addWidget(self._status_dot, 0, Qt.AlignTop)
+        fg.addWidget(card)
+
+        def _section(title: str) -> QFormLayout:
+            fg.addWidget(divider())
+            fg.addWidget(section_header(title))
+            holder = QWidget()
+            form = QFormLayout(holder)
+            form.setContentsMargins(0, 0, 0, 0)
+            form.setLabelAlignment(Qt.AlignRight)
+            form.setSpacing(8)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+            fg.addWidget(holder)
+            return form
+
+        # ----- Presentation -----
+        form = _section("PRESENTATION")
         self._desc_edit = QPlainTextEdit()
         self._desc_edit.setMinimumHeight(70)
+        self._desc_edit.setPlaceholderText("What the player reads — two or three sentences.")
         form.addRow("Description", self._desc_edit)
 
-        # Icon: preview + name on the first line, the action buttons on a second
-        # line — side by side they force the form wider than the panel and every
-        # field gets clipped (the inspector never scrolls sideways).
+        # Icon: name row + action row stacked — side by side they force the form
+        # wider than the panel and every field gets clipped (the inspector never
+        # scrolls sideways). The preview lives in the dossier card above.
         self._icon_edit = QComboBox()
         self._icon_edit.setEditable(True)
         self._icon_edit.addItems(MD_ICON_PRESETS)
@@ -99,15 +167,7 @@ class InspectorPanel(QWidget):
         ic = QVBoxLayout(icon_row)
         ic.setContentsMargins(0, 0, 0, 0)
         ic.setSpacing(6)
-        ir = QHBoxLayout()
-        ir.setSpacing(6)
-        self._icon_preview = QLabel()
-        self._icon_preview.setFixedSize(40, 34)
-        self._icon_preview.setAlignment(Qt.AlignCenter)
-        self._icon_preview.setObjectName("iconPreview")
-        ir.addWidget(self._icon_preview)
-        ir.addWidget(self._icon_edit, 1)
-        ic.addLayout(ir)
+        ic.addWidget(self._icon_edit)
         ib = QHBoxLayout()
         ib.setSpacing(6)
         self._icon_browse = QPushButton("Browse…")
@@ -130,6 +190,8 @@ class InspectorPanel(QWidget):
         ic.addLayout(ib)
         form.addRow("Icon", icon_row)
 
+        # ----- Placement & pacing -----
+        form = _section("PLACEMENT & PACING")
         pos_holder = QWidget()
         ph = QHBoxLayout(pos_holder)
         ph.setContentsMargins(0, 0, 0, 0)
@@ -144,10 +206,19 @@ class InspectorPanel(QWidget):
         ph.addStretch(1)
         form.addRow("Position", pos_holder)
 
+        cost_holder = QWidget()
+        cl = QHBoxLayout(cost_holder)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(T.SPACE_SM)
         self._cost_edit = QDoubleSpinBox()
         self._cost_edit.setRange(0, 9999)
         self._cost_edit.setDecimals(2)
-        form.addRow("Cost", self._cost_edit)
+        cl.addWidget(self._cost_edit)
+        self._cost_days = QLabel()
+        self._cost_days.setObjectName("hint")
+        cl.addWidget(self._cost_days)
+        cl.addStretch(1)
+        form.addRow("Cost", cost_holder)
 
         self._ai_priority = QDoubleSpinBox()
         self._ai_priority.setRange(0, 9999)
@@ -157,6 +228,8 @@ class InspectorPanel(QWidget):
             "the default; higher means picked sooner, 0 makes the AI avoid it.")
         form.addRow("AI Priority", self._ai_priority)
 
+        # ----- Graph links -----
+        form = _section("GRAPH LINKS")
         self._filters = ChipSelector(MD_FOCUS_FILTERS, "add filter…")
         form.addRow("Filters", self._filters)
 
@@ -176,11 +249,27 @@ class InspectorPanel(QWidget):
         self._show_script = QCheckBox("Show raw script && generated blocks")
         v.addWidget(self._show_script)
 
-        # Availability (when can it be taken)
+        def _counted_header(title: str):
+            """Section header with a right-aligned muted count summary."""
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(section_header(title))
+            row.addStretch(1)
+            count = QLabel()
+            count.setObjectName("hint")
+            row.addWidget(count)
+            return row, count
+
+        # Availability (when can it be taken) — same section language as above,
+        # no nested group boxes.
         self._avail_divider = divider()
         v.addWidget(self._avail_divider)
-        self._avail_group = QGroupBox("Availability")
+        self._avail_group = QWidget()
         ag = QVBoxLayout(self._avail_group)
+        ag.setContentsMargins(0, 0, 0, 0)
+        ag.setSpacing(T.SPACE_SM)
+        header_row, self._avail_count = _counted_header("AVAILABILITY")
+        ag.addLayout(header_row)
         self._avail_editor = AvailabilityEditor(model)
         ag.addWidget(self._avail_editor)
         v.addWidget(self._avail_group)
@@ -188,8 +277,12 @@ class InspectorPanel(QWidget):
         # Reward editor
         self._reward_divider = divider()
         v.addWidget(self._reward_divider)
-        self._reward_group = QGroupBox("Completion Reward")
+        self._reward_group = QWidget()
         rg = QVBoxLayout(self._reward_group)
+        rg.setContentsMargins(0, 0, 0, 0)
+        rg.setSpacing(T.SPACE_SM)
+        header_row, self._reward_count = _counted_header("COMPLETION REWARD")
+        rg.addLayout(header_row)
         self._reward_editor = RewardEditor(model)
         rg.addWidget(self._reward_editor)
         v.addWidget(self._reward_group)
@@ -206,17 +299,17 @@ class InspectorPanel(QWidget):
         self._icon_edit.currentTextChanged.connect(self._on_icon_text)
         self._pos_x.valueChanged.connect(self._commit_position)
         self._pos_y.valueChanged.connect(self._commit_position)
-        self._cost_edit.valueChanged.connect(lambda v: self._commit("cost", v))
+        self._cost_edit.valueChanged.connect(self._on_cost_changed)
         # 10 is HOI4's effective default — store None so untouched focuses
         # serialize and export byte-identically to before this field existed.
-        self._ai_priority.valueChanged.connect(
-            lambda v: self._commit("aiWillDo", None if v == 10 else v))
+        self._ai_priority.valueChanged.connect(self._on_ai_changed)
         self._filters.tokens_changed.connect(lambda v: self._commit("filters", v))
         self._prereqs.tokens_changed.connect(self._commit_prereqs)
         self._mutex.tokens_changed.connect(lambda v: self._commit("mutuallyExclusive", v))
 
         self._model.selection_changed.connect(self._on_selection)
         self._model.project_changed.connect(self._refresh_suggestions)
+        self._model.validation_changed.connect(self._on_validation_issues)
         provider().changed.connect(self._refresh_icon_preview)
 
         # Restore the script-visibility preference and apply it to both editors.
@@ -244,6 +337,14 @@ class InspectorPanel(QWidget):
         ids = [f.id for f in self._model.project.focuses]
         self._prereqs.update_suggestions([i for i in ids if i != sel])
         self._mutex.update_suggestions([i for i in ids if i != sel])
+        # Section counts are cheap (they read one focus) and safe to refresh on
+        # every project change — they never re-render the editors themselves.
+        # The status dot is NOT refreshed here: it needs full-project validation,
+        # so it rides the model's debounced validation_changed signal instead
+        # (running it per project_changed made every drag grid-step revalidate
+        # the whole tree).
+        if sel and self._model.find_focus(sel):
+            self._refresh_counts()
 
     def _on_selection(self, focus_id: str) -> None:
         focus = self._model.find_focus(focus_id)
@@ -265,9 +366,14 @@ class InspectorPanel(QWidget):
         self._avail_divider.setVisible(True)
 
         self._suspend = True
-        # A freshly-added focus (still "…new_focus_NNN") has its id follow the title
-        # until the user names it or hand-edits the id.
-        self._id_auto = self._is_auto_focus_id(focus.id)
+        # The id follows the title while it still looks machine-made: either the
+        # "…new_focus_NNN" placeholder, or exactly the slug the auto-generator
+        # would produce from the current title (so re-titling an existing focus
+        # keeps its id in sync). A hand-crafted id — anything that doesn't match
+        # its own title's slug — never gets touched.
+        self._id_auto = (self._is_auto_focus_id(focus.id)
+                         or (bool(focus.id)
+                             and focus.id == self._auto_id_from_title(focus.title)))
         self._id_edit.setText(focus.id)
         self._title_edit.setText(focus.title)
         if self._desc_edit.toPlainText() != focus.description:
@@ -288,6 +394,108 @@ class InspectorPanel(QWidget):
         self._reward_editor.set_focus_id(focus.id)
         self._avail_editor.set_focus_id(focus.id)
         self._refresh_icon_preview()
+        self._refresh_meta()
+        self._refresh_status()
+        self._refresh_counts()
+
+    # ----- dossier meta row -----
+    def _refresh_meta(self) -> None:
+        """Mirror position / cost / AI weight into the dossier card's mono chips
+        (cost also shown as in-game days: 1 cost = 7 days)."""
+        focus = self._model.find_focus(self._model.selected_id)
+        if not focus:
+            return
+        self._meta_pos.setText(f"({focus.position.x}, {focus.position.y})")
+        cost = float(focus.cost)
+        days = int(round(cost * 7))
+        self._meta_cost.setText(f"{cost:g} cost · {days}d")
+        self._cost_days.setText(f"≈ {days} in-game days")
+        ai = getattr(focus, "aiWillDo", None)
+        self._meta_ai.setVisible(ai is not None)
+        if ai is not None:
+            self._meta_ai.setText(f"AI {float(ai):g}")
+
+    def _on_cost_changed(self, value: float) -> None:
+        self._commit("cost", value)
+        self._refresh_meta()
+
+    def _on_ai_changed(self, value: float) -> None:
+        self._commit("aiWillDo", None if value == 10 else value)
+        self._refresh_meta()
+
+    # ----- validation status dot -----
+    def _on_validation_issues(self, issues: list) -> None:
+        """Debounced full-project validation results from the model — cache
+        them so the dot never triggers a validation pass of its own."""
+        self._issues_cache = list(issues)
+        if self._model.selected_id:
+            self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        fid = self._model.selected_id
+        if not fid or not self._model.find_focus(fid):
+            return
+        if self._issues_cache is None:  # first selection before any debounce fired
+            self._issues_cache = self._model.issues()
+        mine = [i for i in self._issues_cache if i.focusId == fid]
+        errors = [i for i in mine if i.severity == "error"]
+        warnings = [i for i in mine if i.severity != "error"]
+        name = ("statusDotError" if errors
+                else "statusDotWarn" if warnings else "statusDotOk")
+        if self._status_dot.objectName() != name:
+            self._status_dot.setObjectName(name)
+            # Re-polish so the QSS keyed on the new object name applies.
+            self._status_dot.style().unpolish(self._status_dot)
+            self._status_dot.style().polish(self._status_dot)
+        shown = errors + warnings
+        tip = "\n".join(i.message for i in shown[:6])
+        if len(shown) > 6:
+            tip += f"\n…and {len(shown) - 6} more"
+        self._status_dot.setToolTip(tip or "No validation issues for this focus.")
+
+    # ----- section count summaries -----
+    @staticmethod
+    def _top_level_statements(lines) -> int:
+        """Statements at brace-depth 0 in flattened raw lines — a rough but
+        stable 'how many things does this do' count."""
+        depth = 0
+        n = 0
+        for ln in lines or []:
+            s = ln.strip()
+            if not s:
+                continue
+            if depth == 0 and not s.startswith("}"):
+                n += 1
+            depth = max(0, depth + s.count("{") - s.count("}"))
+        return n
+
+    def _refresh_counts(self) -> None:
+        focus = self._model.find_focus(self._model.selected_id)
+        if not focus:
+            return
+        reward = focus.completionReward
+        items = [i for i in (getattr(reward, "items", None) or [])
+                 if getattr(i, "enabled", True)]
+        raw = getattr(reward, "rawLines", None) or []
+        effects = len(items) + self._top_level_statements(raw)
+        events = sum(1 for ln in raw
+                     if "=" in ln and ("country_event" in ln or "news_event" in ln))
+        events += sum(1 for i in items
+                      if getattr(i, "kind", "") in ("country_event", "news_event"))
+        parts = [f"{effects} effect{'s' if effects != 1 else ''}"]
+        if events:
+            parts.append(f"{events} event{'s' if events != 1 else ''}")
+        self._reward_count.setText(" · ".join(parts) if effects else "none")
+
+        rule = focus.available
+        if rule is None:
+            self._avail_count.setText("always")
+        else:
+            n = (len(rule.completedFocuses or []) + len(rule.flagsRequired or [])
+                 + len(rule.flagsBlocked or []) + len(rule.items or [])
+                 + self._top_level_statements(rule.rawLines))
+            self._avail_count.setText(
+                f"{n} condition{'s' if n != 1 else ''}" if n else "always")
 
     def _on_icon_text(self, value: str) -> None:
         self._commit("icon", value)
@@ -308,7 +516,7 @@ class InspectorPanel(QWidget):
             self._icon_preview.setToolTip("")
         if pm is not None and not pm.isNull():
             self._icon_preview.setPixmap(pm.scaled(
-                40, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                56, 49, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self._icon_preview.clear()
 
@@ -396,6 +604,7 @@ class InspectorPanel(QWidget):
         if not sel:
             return
         self._model.update_focus(sel, position=FocusPosition(x=self._pos_x.value(), y=self._pos_y.value()))
+        self._refresh_meta()
 
     # ----- title → auto id -----
     def _on_title_text(self, text: str) -> None:

@@ -7,8 +7,8 @@ keyed on the object names set here.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme as T
 
@@ -92,7 +92,44 @@ def divider() -> QFrame:
     return line
 
 
+class BracketFrame(QWidget):
+    """Hosts one child widget and paints the HOI4 corner brackets around it —
+    the same motif the canvas nodes use (``FOCUS_BRACKET``), so a panel that
+    shows a focus 'plate' visually rhymes with the tree itself."""
+
+    _LEG = 7      # bracket leg length (px)
+    _PAD = 4      # gap between child and the brackets
+
+    def __init__(self, child: QWidget, parent=None) -> None:
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        m = self._PAD + 2
+        lay.setContentsMargins(m, m, m, m)
+        lay.addWidget(child)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().paintEvent(event)
+        p = QPainter(self)
+        pen = QPen(QColor(T.FOCUS_BRACKET))
+        pen.setWidth(1)
+        p.setPen(pen)
+        w, h, leg = self.width() - 1, self.height() - 1, self._LEG
+        for x, y, dx, dy in ((0, 0, 1, 1), (w, 0, -1, 1), (0, h, 1, -1), (w, h, -1, -1)):
+            p.drawLine(x, y, x + dx * leg, y)
+            p.drawLine(x, y, x, y + dy * leg)
+        p.end()
+
+
 _PILL_KINDS = {"ok": "pillOk", "error": "pillError", "warn": "pillWarn", "neutral": "pillNeutral"}
+
+
+def meta_chip(text: str = "", tooltip: str = "") -> QLabel:
+    """Small mono chip for quiet metadata rows (dossier cards, section counts)."""
+    lbl = QLabel(text)
+    lbl.setObjectName("metaChip")
+    if tooltip:
+        lbl.setToolTip(tooltip)
+    return lbl
 
 
 def pill(text: str, kind: str = "neutral") -> QLabel:

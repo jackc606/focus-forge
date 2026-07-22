@@ -25,17 +25,20 @@ from PySide6.QtWidgets import (
 from core.reward_presets import format_number
 from core.types import IdeaData
 
+from PySide6.QtWidgets import QFrame
+
 from . import theme as T
 from .icon_picker import IconPickerDialog
 from .icon_provider import provider
 from .no_scroll import NoScrollComboBox, NoScrollDoubleSpinBox
 from .tech_provider import tech_provider
-from .widgets import hint, panel_header, section_header
+from .widgets import (BracketFrame, ClickableLabel, hint, meta_chip,
+                      panel_header, section_header)
 
 _MOD_LINE = re.compile(r"([A-Za-z0-9_]+)\s*=\s*(-?[\d.]+)")
 
 # HOI4 idea icons are roughly 65:55 — preview at a small multiple of that ratio.
-_ICON_PREVIEW_W, _ICON_PREVIEW_H = 40, 34
+_ICON_PREVIEW_W, _ICON_PREVIEW_H = 46, 39
 
 
 def _build_modifier_combo(current: str) -> QComboBox:
@@ -85,39 +88,51 @@ class IdeaEditorDialog(QDialog):
         v.setSpacing(T.SPACE_MD)
         v.addWidget(panel_header("Idea / National Spirit"))
 
+        # Dossier card — same identity plate as the focus inspector: bracketed
+        # icon (click to change), in-place title/id, quiet meta chips.
+        card = QFrame()
+        card.setObjectName("dossierCard")
+        ch = QHBoxLayout(card)
+        ch.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
+        ch.setSpacing(T.SPACE_MD)
+        self._icon_preview = ClickableLabel()
+        self._icon_preview.setObjectName("dossierIcon")
+        self._icon_preview.setFixedSize(_ICON_PREVIEW_W, _ICON_PREVIEW_H)
+        self._icon_preview.setAlignment(Qt.AlignCenter)
+        self._icon_preview.setToolTip("Click to choose the idea icon")
+        self._icon_preview.clicked.connect(self._choose_icon)
+        ch.addWidget(BracketFrame(self._icon_preview), 0, Qt.AlignTop)
+        ident = QVBoxLayout()
+        ident.setSpacing(2)
+        self._title = QLineEdit(idea.title if idea else "")
+        self._title.setObjectName("identityTitle")
+        self._title.setPlaceholderText("Untitled spirit")
+        self._title.textChanged.connect(self._on_title)
+        ident.addWidget(self._title)
+        self._id = QLineEdit(idea.id if idea else "")
+        self._id.setObjectName("identityId")
+        self._id.setPlaceholderText("TAG_idea_id")
+        self._id.textEdited.connect(lambda *_: setattr(self, "_id_edited", True))
+        ident.addWidget(self._id)
+        meta = QHBoxLayout()
+        meta.setSpacing(T.SPACE_XS)
+        self._mods_chip = meta_chip("0 modifiers")
+        self._icon_chip = meta_chip("", "Idea icon sprite — click the preview to change")
+        meta.addWidget(self._mods_chip)
+        meta.addWidget(self._icon_chip)
+        meta.addStretch(1)
+        ident.addSpacing(2)
+        ident.addLayout(meta)
+        ch.addLayout(ident, 1)
+        v.addWidget(card)
+
         form = QFormLayout()
         form.setSpacing(T.SPACE_SM)
         v.addLayout(form)
 
-        self._title = QLineEdit(idea.title if idea else "")
-        self._title.textChanged.connect(self._on_title)
-        form.addRow("Title", self._title)
-
-        self._id = QLineEdit(idea.id if idea else "")
-        self._id.textEdited.connect(lambda *_: setattr(self, "_id_edited", True))
-        form.addRow("ID", self._id)
-
         self._desc = QPlainTextEdit(idea.description if idea else "")
         self._desc.setMaximumHeight(T.TEXTAREA_MEDIUM)
         form.addRow("Description", self._desc)
-
-        # Icon row
-        icon_row = QWidget()
-        ir = QHBoxLayout(icon_row)
-        ir.setContentsMargins(0, 0, 0, 0)
-        ir.setSpacing(T.SPACE_SM)
-        self._icon_preview = QLabel()
-        self._icon_preview.setObjectName("iconPreview")
-        self._icon_preview.setFixedSize(_ICON_PREVIEW_W, _ICON_PREVIEW_H)
-        self._icon_preview.setAlignment(Qt.AlignCenter)
-        ir.addWidget(self._icon_preview)
-        self._icon_name = QLabel()
-        self._icon_name.setObjectName("muted")
-        ir.addWidget(self._icon_name, 1)
-        choose = QPushButton("Choose icon…")
-        choose.clicked.connect(self._choose_icon)
-        ir.addWidget(choose)
-        form.addRow("Icon", icon_row)
 
         # Modifiers
         v.addWidget(section_header("Modifiers"))
@@ -157,7 +172,7 @@ class IdeaEditorDialog(QDialog):
             self._refresh_icon()
 
     def _refresh_icon(self) -> None:
-        self._icon_name.setText(self._picture or "(no icon)")
+        self._icon_chip.setText(self._picture or "no icon")
         pm = provider().pixmap(self._picture) if self._picture else None
         if pm is not None and not pm.isNull():
             self._icon_preview.setPixmap(pm.scaled(_ICON_PREVIEW_W, _ICON_PREVIEW_H,
@@ -165,6 +180,10 @@ class IdeaEditorDialog(QDialog):
                                                    Qt.SmoothTransformation))
         else:
             self._icon_preview.clear()
+
+    def _refresh_mods_chip(self) -> None:
+        n = sum(1 for _ in self._mod_rows())
+        self._mods_chip.setText(f"{n} modifier{'s' if n != 1 else ''}")
 
     # ----- modifiers -----
     def _add_mod_row(self, key: str, value) -> None:
@@ -192,10 +211,12 @@ class IdeaEditorDialog(QDialog):
         row._spin = spin    # type: ignore[attr-defined]
         x.clicked.connect(lambda: self._remove_mod_row(row))
         self._mods_box.addWidget(row)
+        self._refresh_mods_chip()
 
     def _remove_mod_row(self, row) -> None:
         self._mods_box.removeWidget(row)
         row.deleteLater()
+        self._refresh_mods_chip()
 
     def _mod_rows(self):
         for i in range(self._mods_box.count()):

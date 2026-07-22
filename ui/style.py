@@ -69,6 +69,22 @@ QToolBar::separator {{
     width: 1px;
     margin: 4px 6px;
 }}
+/* Command-bar banks: tiny uppercase captions under each button group, like
+   labeled switch banks on a console. */
+QLabel#bankLabel {{
+    color: {T.TEXT_MUTED};
+    font-size: 9px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+    letter-spacing: 2px;
+}}
+QFrame#bankDivider {{
+    background-color: {T.BORDER_SUBTLE};
+    max-width: 1px;
+    min-width: 1px;
+    border: 0;
+    margin: 2px 0 12px 0;
+}}
+QToolBar QToolButton::menu-indicator {{ image: none; }}
 
 /* ----- Primary (accent) button ----- */
 QPushButton#primary, QToolBar QToolButton#primary {{
@@ -263,6 +279,96 @@ QLabel#helpTitle {{ color: {T.TEXT_PRIMARY}; font-weight: {T.WEIGHT_SEMIBOLD}; f
 QLabel#helpBody {{ color: {T.TEXT_SECONDARY}; font-size: {T.TEXT_BODY}px; }}
 QLabel#helpChevron {{ color: {T.ACCENT}; font-weight: {T.WEIGHT_BOLD}; font-size: {T.TEXT_LABEL}px; }}
 QLabel#iconPreview {{ background-color: {T.BG_INSET}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_INPUT}px; }}
+
+/* ----- Inspector dossier card ----- */
+QFrame#dossierCard {{
+    background-color: {T.BG_ELEVATED};
+    border: 1px solid {T.BORDER_SUBTLE};
+    border-radius: {T.RADIUS_CARD}px;
+}}
+QLabel#dossierIcon {{
+    background-color: {T.BG_INSET};
+    border: 1px solid {T.FOCUS_FRAME};
+    border-radius: 2px;
+}}
+QLineEdit#identityTitle {{
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 0 2px 0;
+    color: {T.TEXT_PRIMARY};
+    font-size: 16px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+}}
+QLineEdit#identityTitle:hover {{ border-bottom: 1px solid {T.BORDER_HOVER}; }}
+QLineEdit#identityTitle:focus {{ border-bottom: 1px solid {T.ACCENT}; padding: 0 0 2px 0; }}
+QLineEdit#identityId {{
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0;
+    padding: 0 0 1px 0;
+    color: {T.TEXT_MUTED};
+    font-family: {T.FONT_MONO};
+    font-size: {T.TEXT_MICRO}px;
+}}
+QLineEdit#identityId:hover {{ border-bottom: 1px solid {T.BORDER_HOVER}; }}
+QLineEdit#identityId:focus {{
+    color: {T.TEXT_PRIMARY};
+    border-bottom: 1px solid {T.ACCENT};
+    padding: 0 0 1px 0;
+}}
+QLabel#metaChip {{
+    background-color: {T.BG_INSET};
+    border: 1px solid {T.BORDER_SUBTLE};
+    border-radius: 9px;
+    color: {T.TEXT_SECONDARY};
+    font-family: {T.FONT_MONO};
+    font-size: {T.TEXT_MICRO}px;
+    padding: 2px 8px;
+}}
+QLabel#statusDotOk {{ background-color: {T.STATUS_OK}; border-radius: 5px; }}
+
+/* ----- Stats tiles + welcome cards ----- */
+QFrame#statTile {{
+    background-color: {T.BG_ELEVATED};
+    border: 1px solid {T.BORDER_SUBTLE};
+    border-radius: {T.RADIUS_CARD}px;
+}}
+QLabel#statValue {{
+    color: {T.TEXT_PRIMARY};
+    font-size: 22px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+}}
+QLabel#statLabel {{
+    color: {T.TEXT_MUTED};
+    font-size: 9px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+    letter-spacing: 2px;
+}}
+QFrame#recentCard {{
+    background-color: {T.BG_ELEVATED};
+    border: 1px solid {T.BORDER_SUBTLE};
+    border-radius: {T.RADIUS_CARD}px;
+}}
+QFrame#recentCard:hover {{
+    background-color: {T.BG_HOVER};
+    border-color: {T.ACCENT_DIM};
+}}
+QFrame#recentCard QLabel, QFrame#statTile QLabel {{ background: transparent; }}
+QLabel#recentName {{
+    color: {T.TEXT_PRIMARY};
+    font-size: {T.TEXT_LABEL}px;
+    font-weight: {T.WEIGHT_SEMIBOLD};
+}}
+QLabel#recentPath {{
+    color: {T.TEXT_MUTED};
+    font-family: {T.FONT_MONO};
+    font-size: {T.TEXT_MICRO}px;
+}}
+QLabel#statusDotWarn {{ background-color: {T.STATUS_WARN}; border-radius: 5px; }}
+QLabel#statusDotError {{ background-color: {T.STATUS_ERROR}; border-radius: 5px; }}
 
 /* ----- Event editor ----- */
 QFrame#optionCard {{ background-color: {T.BG_ELEVATED}; border: 1px solid {T.BORDER_SUBTLE}; border-radius: {T.RADIUS_CARD}px; }}
