@@ -32,15 +32,18 @@ def test_build_report_contains_info_and_log(tmp_path):
     assert "os:" in report and "python:" in report
 
 
-def test_dedup_collapses_consecutive_repeats():
-    from core.applog import _Dedup
-    d = _Dedup()
-    assert d.should_log("A") == (True, None)      # first A logs
-    assert d.should_log("A") == (False, None)     # repeat suppressed
-    assert d.should_log("A") == (False, None)
-    do_log, flushed = d.should_log("B")           # new message flushes the run
-    assert do_log and "repeated 2x" in flushed
-    assert d.should_log("A") == (True, None)      # A again after B logs fresh
+def test_rate_limit_bounds_repeated_messages():
+    from core.applog import _RateLimit
+    r = _RateLimit(every=100)
+    # A cycle of distinct messages (the real paint-warning shape): each logs
+    # on its first occurrence, then is suppressed until the 100th.
+    logged = 0
+    for _ in range(250):
+        for msg in ("begin", "compose", "fill", "end"):
+            do_log, _n = r.check(msg)
+            logged += do_log
+    # 4 messages × (1 first + 2 hundredth-marks in 250) = 12, not 1000.
+    assert logged == 12
 
 
 def test_log_exception_lands_in_log(tmp_path):

@@ -49,32 +49,30 @@ def install(log_dir=None, force: bool = False) -> None:
         log.addHandler(logging.NullHandler())
 
 
-class _Dedup:
-    """Collapse repeated identical Qt messages so a paint-warning storm doesn't
-    bury the useful events. A repeat is counted, not logged; the running count
-    flushes as '(xN)' when a different message arrives."""
+class _RateLimit:
+    """Bound how often each DISTINCT Qt message hits the log. A repeating paint
+    warning is a cycle of a few distinct strings (begin/fillRect/end/…), so
+    consecutive-dedup fails; keying per message and logging the 1st plus every
+    ``every``-th occurrence collapses a storm to a handful of lines while still
+    proving 'this is still happening'."""
 
-    def __init__(self) -> None:
-        self.last = None
-        self.count = 0
+    def __init__(self, every: int = 500) -> None:
+        self._counts: dict = {}
+        self._every = every
 
-    def should_log(self, message: str) -> "tuple[bool, str | None]":
-        if message == self.last:
-            self.count += 1
-            return False, None
-        flushed = None
-        if self.count > 1:
-            flushed = f"  (previous message repeated {self.count - 1}x)"
-        self.last = message
-        self.count = 1
-        return True, flushed
+    def check(self, message: str) -> "tuple[bool, int]":
+        """→ (should_log, occurrence_count). Log the first time and every
+        ``every``-th time thereafter."""
+        n = self._counts.get(message, 0) + 1
+        self._counts[message] = n
+        return (n == 1 or n % self._every == 0), n
 
 
 def install_qt_handler() -> None:
     """Route Qt warnings/criticals into the event log — 'QPainter not active'
     style spew is exactly what a remote bug report needs and users never see.
-    Consecutive duplicates are collapsed to keep the log (and the diagnostic
-    report) readable."""
+    Per-message rate-limited so a paint-warning storm can't bury the useful
+    events (or fill the diagnostic report)."""
     try:
         from PySide6.QtCore import QtMsgType, qInstallMessageHandler
     except ImportError:  # pragma: no cover - PySide always present in the app
@@ -82,17 +80,25 @@ def install_qt_handler() -> None:
     levels = {QtMsgType.QtWarningMsg: logging.WARNING,
               QtMsgType.QtCriticalMsg: logging.ERROR,
               QtMsgType.QtFatalMsg: logging.CRITICAL}
-    dedup = _Dedup()
+    limiter = _RateLimit()
 
     def handler(mode, _context, message) -> None:
         level = levels.get(mode)
         if not level:
             return
-        do_log, flushed = dedup.should_log(message)
-        if flushed:
-            logger().log(logging.WARNING, "Qt:%s", flushed)
-        if do_log:
-            logger().log(level, "Qt: %s", message)
+        do_log, n = limiter.check(message)
+        if not do_log:
+            return
+        if n == 1 and level >= logging.WARNING:
+            # First sighting of a Qt warning: capture where WE called into Qt
+            # from, so a mystery paint warning in a bug report is traceable.
+            # Trim our own frame + the noisiest Qt-agnostic frames.
+            import traceback
+            stack = "".join(traceback.format_stack(limit=8)[:-1]).rstrip()
+            logger().log(level, "Qt: %s\n%s", message, stack)
+        else:
+            suffix = f"  (x{n})" if n > 1 else ""
+            logger().log(level, "Qt: %s%s", message, suffix)
 
     qInstallMessageHandler(handler)
 
