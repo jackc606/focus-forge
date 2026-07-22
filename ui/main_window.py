@@ -332,10 +332,10 @@ class MainWindow(QMainWindow):
         export_as_act = act("Export As…", self._export_as)
         shortcuts_act = act("Shortcuts…", self._manage_shortcuts)
         structure_act = act(
-            "Structure Raw Rewards…", self._structure_all_rewards,
-            tooltip="Convert every focus's raw reward script into editable "
-                    "reward cards, where fully recognized. One undo restores "
-                    "everything.")
+            "Structure Raw Scripts…", self._structure_all_rewards,
+            tooltip="Convert every focus's raw reward AND availability script "
+                    "into editable cards, where fully recognized. One undo "
+                    "restores everything.")
         self._bridge_action = QAction("AI Bridge", self)
         self._bridge_action.setCheckable(True)
         self._bridge_action.setToolTip(
@@ -901,34 +901,52 @@ class MainWindow(QMainWindow):
         return True
 
     def _structure_all_rewards(self) -> None:
-        """Project-wide raw-script conversion: one undo step, one summary —
-        instead of visiting focuses one by one in the reward editor."""
+        """Project-wide raw-script conversion (rewards AND availability/bypass
+        triggers): one undo step, one summary — instead of visiting focuses
+        one by one in the editors."""
+        from core.condition_script import structure_all_conditions
         self._flush_focused_editor()
-        candidates = sum(
+        reward_candidates = sum(
             1 for f in self._model.project.focuses
             if f.completionReward and (f.completionReward.rawLines or []))
-        if not candidates:
-            QMessageBox.information(self, "Structure Raw Rewards",
-                                    "No focuses have raw reward script.")
+        trigger_candidates = sum(
+            1 for f in self._model.project.focuses
+            for rule in (f.available, getattr(f, "bypass", None))
+            if rule is not None and (rule.rawLines or []))
+        if not reward_candidates and not trigger_candidates:
+            QMessageBox.information(self, "Structure Raw Scripts",
+                                    "No focuses have raw reward or trigger script.")
             return
         with self._model.batch():
-            converted, effects, skipped = structure_all_rewards(self._model.project)
+            r_conv, effects, r_skip = structure_all_rewards(self._model.project)
+            c_conv, conditions, c_skip = structure_all_conditions(self._model.project)
         from core.applog import logger
-        logger().info("structure-raw: %d/%d focuses converted (%d effects), %d kept raw",
-                      converted, candidates, effects, len(skipped))
-        parts = [f"Structured {converted} of {candidates} focuses with raw "
-                 f"reward script — {effects} effect"
-                 f"{'s' if effects != 1 else ''} lifted into editable cards."]
+        logger().info(
+            "structure-raw: rewards %d/%d (%d effects), triggers %d/%d (%d conditions)",
+            r_conv, reward_candidates, effects,
+            c_conv, trigger_candidates, conditions)
+        parts = []
+        if reward_candidates:
+            parts.append(f"Rewards: {r_conv} of {reward_candidates} focuses "
+                         f"structured ({effects} effect"
+                         f"{'s' if effects != 1 else ''}).")
+        if trigger_candidates:
+            parts.append(f"Triggers: {c_conv} of {trigger_candidates} "
+                         f"availability/bypass blocks structured "
+                         f"({conditions} condition"
+                         f"{'s' if conditions != 1 else ''}).")
+        skipped = sorted(set(r_skip) | set(c_skip))
         if skipped:
             shown = ", ".join(skipped[:5])
             more = f" (+{len(skipped) - 5} more)" if len(skipped) > 5 else ""
             parts.append(
-                f"{len(skipped)} kept their raw script — unrecognized or "
-                f"partially recognized effects (conversion is all-or-nothing "
-                f"per focus, so script order is preserved): {shown}{more}")
-        if converted:
+                f"{len(skipped)} focus{'es' if len(skipped) != 1 else ''} kept "
+                f"some raw script — unrecognized or partially recognized "
+                f"(conversion is all-or-nothing per block, so script order is "
+                f"preserved): {shown}{more}")
+        if r_conv or c_conv:
             parts.append("One undo restores everything.")
-        QMessageBox.information(self, "Structure Raw Rewards", "\n\n".join(parts))
+        QMessageBox.information(self, "Structure Raw Scripts", "\n\n".join(parts))
 
     def _export_to_mod(self) -> None:
         self._flush_focused_editor()

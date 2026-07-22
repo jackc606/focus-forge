@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QLabel,
+    QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -66,10 +68,18 @@ class AvailabilityEditor(QWidget):
         self._raw.setMaximumHeight(T.TEXTAREA_SHORT)
         self._raw.textChanged.connect(self._commit_raw)
         v.addWidget(self._raw)
+        self._convert_btn = QPushButton("Structure raw triggers")
+        self._convert_btn.setToolTip(
+            "Convert this focus's raw availability script into editable "
+            "condition cards. All-or-nothing: only converts when every "
+            "trigger is recognized and rebuilds to the same script, so the "
+            "exported mod stays identical. Undo restores the raw form.")
+        self._convert_btn.clicked.connect(self._convert_raw)
+        v.addWidget(self._convert_btn)
 
         # Bypass: conditions that SKIP the focus entirely (it completes without
         # being taken — e.g. "already a NATO member").
-        v.addWidget(section_header("Bypass (optional)"))
+        v.addWidget(section_header("BYPASS (OPTIONAL)"))
         v.addWidget(hint("If these conditions are met the focus is skipped — marked "
                          "complete without spending its time."))
         self._bypass_holder = QVBoxLayout()
@@ -106,6 +116,11 @@ class AvailabilityEditor(QWidget):
             child = self._items_box.takeAt(0)
             w = child.widget()
             if w:
+                # Hide BEFORE deleteLater: takeAt only removes layout
+                # management, so a still-visible widget keeps painting at its
+                # old geometry until the deferred delete lands — one frame of
+                # old cards overlapping their replacements.
+                w.hide()
                 w.deleteLater()
         focus = self._focus()
         if not focus:
@@ -129,6 +144,7 @@ class AvailabilityEditor(QWidget):
             child = self._bypass_holder.takeAt(0)
             w = child.widget()
             if w:
+                w.hide()  # same transient-overlap guard as the items above
                 w.deleteLater()
         bypass = getattr(focus, "bypass", None)
         self._bypass_widget = ConditionListWidget(
@@ -139,9 +155,38 @@ class AvailabilityEditor(QWidget):
         self._raw.blockSignals(True)
         self._raw.setPlainText("\n".join(rule.rawLines or []))
         self._raw.blockSignals(False)
+        self._convert_btn.setVisible(bool(rule.rawLines))
         self._refresh_preview()
         self._apply_script_visibility()  # new cards follow the toggle
         self._suspend = False
+
+    # ----- raw triggers → structured condition cards -----
+    def _convert_raw(self) -> None:
+        from core.condition_script import parse_condition_lines, structure_availability_rule
+        focus = self._focus()
+        if not focus or not focus.available:
+            return
+        rule = focus.available
+        raw = list(rule.rawLines or [])
+        if not raw:
+            return
+        parsed, remainder = parse_condition_lines(raw)
+        if remainder or not parsed:
+            recognized = len(parsed)
+            QMessageBox.information(
+                self, "Structure raw triggers",
+                f"Recognized {recognized} condition"
+                f"{'s' if recognized != 1 else ''}, but not the whole script — "
+                f"nothing was changed.\n\nConversion is all-or-nothing so the "
+                f"raw script's exact order is preserved. First unrecognized "
+                f"line:\n  {remainder[0].strip() if remainder else '(none)'}")
+            return
+        n = structure_availability_rule(rule)
+        self._model.notify_changed()
+        self._render()
+        self._model.status_message.emit(
+            f"Structured {n} condition{'s' if n != 1 else ''} from raw "
+            f"triggers — undo restores the raw form.")
 
     # ----- raw/preview visibility (driven by the inspector checkbox) -----
     def set_script_visible(self, show: bool) -> None:

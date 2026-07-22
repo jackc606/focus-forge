@@ -75,6 +75,8 @@ def _b_has_opinion(p): return [f"has_opinion = {{ target = {_value(p, 'tag')} va
 def _b_at_war(p): return ["has_war = yes"]
 def _b_at_peace(p): return ["has_war = no"]
 def _b_war_with(p): return [f"has_war_with = {_value(p, 'tag')}"]
+def _b_not_war_with(p): return [f"NOT = {{ has_war_with = {_value(p, 'tag')} }}"]
+def _b_not_completed_focus(p): return [f"NOT = {{ has_completed_focus = {_value(p, 'focus')} }}"]
 # ruling_only restricts the match to the leader actually in power — without it
 # the trigger also fires while the named person merely leads an opposition party.
 def _b_leader_name(p): return [f'has_country_leader = {{ name = "{_value(p, "name")}" ruling_only = yes }}']
@@ -102,6 +104,11 @@ _RAW = [
     AvailabilityPreset("lacks_country_flag", "Focus & Flags", "Lacks country flag",
                        "Requires a country flag to NOT be set.",
                        [_p("flag", "Flag", "string", "", required=True)], _b_lacks_country_flag),
+    AvailabilityPreset("not_completed_focus", "Focus & Flags", "Focus NOT completed",
+                       "Requires another focus to NOT be completed (either/or paths "
+                       "outside a mutex pair).",
+                       [_p("focus", "Focus", "focus", "", required=True)],
+                       _b_not_completed_focus),
 
     AvailabilityPreset("government", "Politics", "Government (ideology)",
                        "Requires a ruling ideology group.",
@@ -146,6 +153,10 @@ _RAW = [
     AvailabilityPreset("war_with", "Diplomacy", "At war with",
                        "Requires being at war with a specific country.",
                        [_p("tag", "Country", "country_tag", "", required=True)], _b_war_with),
+    AvailabilityPreset("not_war_with", "Diplomacy", "Not at war with",
+                       "Requires NOT being at war with a specific country.",
+                       [_p("tag", "Country", "country_tag", "", required=True)],
+                       _b_not_war_with),
 
     AvailabilityPreset("country_leader_name", "Leaders", "Country leader (by name)",
                        "Requires a specific leader to be in power (exact name).",

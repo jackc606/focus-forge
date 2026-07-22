@@ -139,11 +139,13 @@ class RewardEditor(QWidget):
 
     def _render(self) -> None:
         self._suspend = True
-        # Clear items
+        # Clear items — hide BEFORE deleteLater or the old cards keep painting
+        # at their stale geometry for a frame, overlapping their replacements.
         while self._items_box.count():
             child = self._items_box.takeAt(0)
             w = child.widget()
             if w:
+                w.hide()
                 w.deleteLater()
         focus = self._focus()
         if not focus:

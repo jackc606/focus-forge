@@ -310,6 +310,28 @@ def test_settings_diagnostic_report_to_clipboard(model, tmp_path):
     assert "smoke-test event" in text       # log tail included
 
 
+# ----- availability editor: structure raw triggers -----
+
+def test_availability_editor_structures_raw_triggers(model):
+    from core.types import AvailabilityRule
+    from ui.availability_editor import AvailabilityEditor
+    focus = model.find_focus("EGY_auto_named")
+    focus.available = AvailabilityRule(rawLines=[
+        "date > 2015.8.1",
+        "country_exists = ETH",
+        "NOT = { has_war_with = ETH }",
+    ])
+    editor = AvailabilityEditor(model)
+    model.set_selection("EGY_auto_named")
+    editor.set_focus_id("EGY_auto_named")
+    assert editor._convert_btn.isVisibleTo(editor)
+    editor._convert_raw()
+    rule = model.find_focus("EGY_auto_named").available
+    assert not rule.rawLines
+    assert [i.kind for i in rule.items] == ["date_after", "country_exists",
+                                            "not_war_with"]
+
+
 # ----- reward editor: structure-raw-script conversion -----
 
 def test_reward_editor_structures_raw_script(model):
