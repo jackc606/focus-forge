@@ -22,6 +22,14 @@ _COMMON_EXCLUDES = [
     'notebook',
     'IPython',
     'pytest',
+    # Freeloaders PyInstaller picked up from site-packages that nothing in the
+    # app or the MCP server imports (verified): ~30 MB of AWS SDK, crypto and
+    # .NET interop.
+    'boto3',
+    'botocore',
+    'cryptography',
+    'pythonnet',
+    'clr',
 ]
 _GUI_EXCLUDES = _COMMON_EXCLUDES + [
     'PySide6.QtWebEngineCore',
@@ -53,6 +61,17 @@ a = Analysis(
     excludes=_GUI_EXCLUDES,
     noarchive=False,
 )
+
+# Qt DLLs the widgets-only app never touches but the PySide6 hook drags in:
+# the QML/Quick stack, the PDF engine, and the 20 MB software-OpenGL
+# rasterizer (QGraphicsView paints with the raster engine; only QtQuick's RHI
+# would ever fall back to it). ~37 MB off the folder, less AV scan surface.
+import re as _re
+_QT_DLL_TRIM = _re.compile(
+    r'(opengl32sw|Qt6Quick|Qt6Qml|Qt6Pdf|Qt6ShaderTools|Qt6VirtualKeyboard)',
+    _re.IGNORECASE)
+a.binaries = [b for b in a.binaries if not _QT_DLL_TRIM.search(b[0])]
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
