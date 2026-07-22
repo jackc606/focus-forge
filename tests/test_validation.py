@@ -132,6 +132,38 @@ def test_build_known_idea_ids_scans_depth_two(tmp_path) -> None:
     assert "country" not in ids and "modifier" not in ids
 
 
+def test_lint_raw_script_catches_structural_breaks() -> None:
+    from core.validation import lint_raw_script
+    # Sound script: balanced braces across lines, quoted braces ignored.
+    assert lint_raw_script([
+        "create_wargoal = {",
+        "type = puppet_wargoal_focus",
+        "target = ETH",
+        "}",
+        'custom_effect_tooltip = "curly { inside } quotes"',
+        "add_political_power = 50  # comment { ignored",
+    ]) == ""
+    assert lint_raw_script([]) == ""
+    # One unclosed block.
+    assert "unclosed" in lint_raw_script(["random_owned_state = {", "add_manpower = 5"])
+    # Closing more than was opened, with the line number named.
+    assert "line 2" in lint_raw_script(["add_stability = 0.05", "}"])
+    # Unbalanced quotes.
+    assert "quotes" in lint_raw_script(['set_name = "oops'])
+
+
+def test_broken_reward_script_is_blocking_error() -> None:
+    from core.types import CompletionReward
+    project = make_sample_project()
+    project.focuses[0].completionReward = CompletionReward(rawLines=[
+        "if = {",
+        "limit = { is_controlled_by = EGY }",
+    ])
+    issues = validate_project(project)
+    assert any(i.code == "focus.reward.script" and i.severity == "error"
+               for i in issues)
+
+
 def test_same_row_min_dx_is_clean() -> None:
     project = make_sample_project()
     project.focuses[0].position = FocusPosition(x=0, y=0)

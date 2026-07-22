@@ -21,6 +21,29 @@ _TAG_PATTERN = re.compile(r"^[A-Z0-9]{3}$")                 # HOI4 country tag
 # dy=1 vertical steps are fine. (Measured in-game against MD's renderer.)
 MIN_SAME_ROW_DX = 2
 
+_QUOTED = re.compile(r'"[^"]*"')
+
+
+def lint_raw_script(lines) -> str:
+    """Structural lint for raw Paradox-script lines: brace balance and quote
+    balance. One stray brace corrupts the whole exported file's structure —
+    the game then drops or misparses every later block, which presents as
+    'my mod stopped working' far from the actual typo. Returns a short
+    problem description, or '' when the script is structurally sound."""
+    depth = 0
+    for n, ln in enumerate(lines or [], start=1):
+        if ln.count('"') % 2:
+            return f'unbalanced quotes on line {n} ({ln.strip()[:40]}…)'
+        s = _QUOTED.sub("", ln)          # braces inside quoted text don't nest
+        s = s.split("#", 1)[0]           # nor do braces in comments
+        depth += s.count("{") - s.count("}")
+        if depth < 0:
+            return (f"a '}}' on line {n} closes more blocks than were opened "
+                    f"({ln.strip()[:40]}…)")
+    if depth > 0:
+        return f"{depth} unclosed '{{' block{'s' if depth != 1 else ''}"
+    return ""
+
 
 def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_decision_categories=None,
@@ -115,6 +138,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                 issues.append(ValidationIssue(severity="error", code="focus.reward.invalid", focusId=focus.id, message=f"{focus.id} reward {index + 1}: {message}"))
 
     _validate_reward_references(project, issues, known_idea_ids)
+    _lint_all_raw_script(project, issues)
     _detect_cycles(project, issues)
     _detect_unreachable(project, issues)
     _validate_shortcuts(project, focus_ids, issues)
@@ -142,6 +166,44 @@ def _validate_shortcuts(project: FocusForgeProject, focus_ids: set, issues: list
     if len(shortcuts) > 8:
         _warn(issues, "shortcut.count.exceeds",
               "HOI4 shows at most 8 shortcut slots; extras beyond the first 8 won't appear.")
+
+
+def _lint_all_raw_script(project: FocusForgeProject, issues: list) -> None:
+    """Run the structural raw-script lint over every place free-form script
+    lives: focus rewards/availability/bypass, idea modifiers, event triggers
+    and option effects. Errors, not warnings — a stray brace corrupts the
+    exported file for everything after it."""
+
+    def check(lines, code: str, where: str, focus_id: str = "") -> None:
+        problem = lint_raw_script(lines)
+        if problem:
+            issues.append(ValidationIssue(
+                severity="error", code=code, focusId=focus_id or None,
+                message=f"{where}: raw script has {problem}."))
+
+    for focus in project.focuses:
+        reward = focus.completionReward
+        if reward is not None:
+            check(reward.rawLines, "focus.reward.script",
+                  f"{focus.id} completion reward", focus.id)
+        for label, rule in (("availability", focus.available),
+                            ("bypass", getattr(focus, "bypass", None))):
+            if rule is not None:
+                check(rule.rawLines, "focus.available.script",
+                      f"{focus.id} {label}", focus.id)
+    for idea in project.ideas:
+        check(idea.modifierRawLines, "idea.modifier.script",
+              f"idea {idea.id} modifiers")
+    for event in project.events:
+        if event.trigger is not None:
+            check(event.trigger.rawLines, "event.trigger.script",
+                  f"event {event.id} trigger")
+        for i, opt in enumerate(event.options or [], start=1):
+            check(opt.effectRawLines, "event.option.script",
+                  f"event {event.id} option {i} effects")
+            if opt.trigger is not None:
+                check(opt.trigger.rawLines, "event.option.script",
+                      f"event {event.id} option {i} trigger")
 
 
 def _validate_reward_references(project: FocusForgeProject, issues: list,
