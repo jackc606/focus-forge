@@ -5,7 +5,7 @@
 ; packaging\release.py syncs MyAppVersion from core\version.py and publishes.
 
 #define MyAppName "Focus Forge"
-#define MyAppVersion "0.3.3"
+#define MyAppVersion "0.3.4"
 #define MyAppPublisher "Focus Forge"
 #define MyAppExeName "FocusForge.exe"
 
