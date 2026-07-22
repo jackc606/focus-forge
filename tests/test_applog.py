@@ -32,6 +32,17 @@ def test_build_report_contains_info_and_log(tmp_path):
     assert "os:" in report and "python:" in report
 
 
+def test_dedup_collapses_consecutive_repeats():
+    from core.applog import _Dedup
+    d = _Dedup()
+    assert d.should_log("A") == (True, None)      # first A logs
+    assert d.should_log("A") == (False, None)     # repeat suppressed
+    assert d.should_log("A") == (False, None)
+    do_log, flushed = d.should_log("B")           # new message flushes the run
+    assert do_log and "repeated 2x" in flushed
+    assert d.should_log("A") == (True, None)      # A again after B logs fresh
+
+
 def test_log_exception_lands_in_log(tmp_path):
     applog.install(tmp_path, force=True)
     try:

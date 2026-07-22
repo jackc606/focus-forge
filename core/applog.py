@@ -49,9 +49,32 @@ def install(log_dir=None, force: bool = False) -> None:
         log.addHandler(logging.NullHandler())
 
 
+class _Dedup:
+    """Collapse repeated identical Qt messages so a paint-warning storm doesn't
+    bury the useful events. A repeat is counted, not logged; the running count
+    flushes as '(xN)' when a different message arrives."""
+
+    def __init__(self) -> None:
+        self.last = None
+        self.count = 0
+
+    def should_log(self, message: str) -> "tuple[bool, str | None]":
+        if message == self.last:
+            self.count += 1
+            return False, None
+        flushed = None
+        if self.count > 1:
+            flushed = f"  (previous message repeated {self.count - 1}x)"
+        self.last = message
+        self.count = 1
+        return True, flushed
+
+
 def install_qt_handler() -> None:
     """Route Qt warnings/criticals into the event log — 'QPainter not active'
-    style spew is exactly what a remote bug report needs and users never see."""
+    style spew is exactly what a remote bug report needs and users never see.
+    Consecutive duplicates are collapsed to keep the log (and the diagnostic
+    report) readable."""
     try:
         from PySide6.QtCore import QtMsgType, qInstallMessageHandler
     except ImportError:  # pragma: no cover - PySide always present in the app
@@ -59,10 +82,16 @@ def install_qt_handler() -> None:
     levels = {QtMsgType.QtWarningMsg: logging.WARNING,
               QtMsgType.QtCriticalMsg: logging.ERROR,
               QtMsgType.QtFatalMsg: logging.CRITICAL}
+    dedup = _Dedup()
 
     def handler(mode, _context, message) -> None:
         level = levels.get(mode)
-        if level:
+        if not level:
+            return
+        do_log, flushed = dedup.should_log(message)
+        if flushed:
+            logger().log(logging.WARNING, "Qt:%s", flushed)
+        if do_log:
             logger().log(level, "Qt: %s", message)
 
     qInstallMessageHandler(handler)
