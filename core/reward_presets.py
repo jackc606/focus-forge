@@ -460,6 +460,34 @@ def _b_interest_group_opinion(p):
     ]
 
 
+def _b_doctrine_cost_reduction(p):
+    return _block(
+        "add_doctrine_cost_reduction",
+        [
+            *_maybe_line(f"name = {_value(p, 'name')}", bool(_value(p, "name"))),
+            f"category = {_value(p, 'category')}",
+            f"uses = {_number_value(p, 'uses')}",
+            f"cost_reduction = {_number_value(p, 'costReduction')}",
+        ],
+    )
+
+
+def _b_corruption(p):
+    return [f"{_value(p, 'direction')}_corruption = yes"]
+
+
+def _b_national_budget(p):
+    return [f"{_value(p, 'direction')}_{_value(p, 'budget')} = yes"]
+
+
+def _b_ideology_popularity(p):
+    return _block(
+        "add_popularity",
+        [f"ideology = {_value(p, 'ideology')}",
+         f"popularity = {_number_value(p, 'popularity')}"],
+    )
+
+
 def _b_add_manpower(p): return [f"add_manpower = {_number_value(p, 'amount')}"]
 
 
@@ -610,6 +638,36 @@ _RAW_PRESETS = [
                   RewardParamDef("bonus", "Bonus", "number", 0.5, required=True, step=0.05),
                   RewardParamDef("uses", "Uses", "number", 1, required=True),
                   RewardParamDef("category", "Category", "tech_category", "CAT_industry", required=True)], _b_tech_bonus),
+    RewardPreset("doctrine_cost_reduction", "Research", "Doctrine Cost Reduction",
+                 "Discounts doctrine research in one doctrine category (MD uses this on "
+                 "military-reform focuses, typically 0.15-0.5 reduction).",
+                 [RewardParamDef("name", "Bonus Name", "string", "focus_doctrine_bonus"),
+                  RewardParamDef("category", "Category", "select", "CAT_land_doctrine", required=True,
+                                 options=["CAT_land_doctrine", "CAT_naval_doctrine", "CAT_air_doctrine"]),
+                  RewardParamDef("uses", "Uses", "number", 1, required=True),
+                  RewardParamDef("costReduction", "Cost Reduction", "number", 0.3, required=True, step=0.05)],
+                 _b_doctrine_cost_reduction),
+    RewardPreset("corruption", "Millennium Dawn Politics", "Corruption Change",
+                 "Steps national corruption up or down one notch via MD's scripted "
+                 "effect (decrease = cleaner government).",
+                 [RewardParamDef("direction", "Direction", "select", "decrease", required=True,
+                                 options=["decrease", "increase"])], _b_corruption),
+    RewardPreset("national_budget", "Millennium Dawn Politics", "National Budget",
+                 "Raises or lowers one MD budget line (military spending, education, "
+                 "policing) via the matching scripted effect.",
+                 [RewardParamDef("direction", "Direction", "select", "increase", required=True,
+                                 options=["increase", "decrease"]),
+                  RewardParamDef("budget", "Budget Line", "select", "education_budget", required=True,
+                                 options=["education_budget", "policing_budget", "military_spending"])],
+                 _b_national_budget),
+    RewardPreset("ideology_popularity", "Political", "Ideology Popularity",
+                 "Shifts an ideology group's national popularity (vanilla add_popularity; "
+                 "MD's focuses use it alongside the party-popularity helper).",
+                 [RewardParamDef("ideology", "Ideology", "select", "democratic", required=True,
+                                 options=["democratic", "nationalist", "communism",
+                                          "neutrality", "fascism"]),
+                  RewardParamDef("popularity", "Popularity", "number", 0.05, required=True, step=0.01)],
+                 _b_ideology_popularity),
     RewardPreset("treasury_change", "Millennium Dawn Economy", "Treasury Change", "Uses the common MD treasury helper pattern.",
                  [RewardParamDef("amount", "Treasury Change", "number", 1, required=True, step=0.1)], _b_treasury_change),
     RewardPreset("productivity_growth", "Millennium Dawn Economy", "Productivity Growth",
