@@ -9,6 +9,40 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.3.3",
+        "date": "2026-07-21",
+        "title": "A cleaner cockpit — redesigned UI, faster big trees, safer exports",
+        "changes": [
+            "Redesigned inspector: the selected focus shows as a dossier card "
+            "— icon in the canvas-style bracket frame, title and id edited in "
+            "place, position/cost chips (cost shown in in-game days), and a "
+            "live validation dot. The Idea and Event editors open with the "
+            "same card.",
+            "New command bar: buttons grouped into labeled banks with one "
+            "green Export button; rare and destructive commands moved under "
+            "\"…\". The toolbar no longer clips off-screen on smaller windows.",
+            "Focuses list: every row shows its focus icon, id, and a "
+            "validation dot; warnings underneath are clickable and jump "
+            "straight to the focus.",
+            "Stats tab: headline tiles plus branch-length and reward-mix "
+            "charts — see at a glance if your rewards lean too hard on one "
+            "effect.",
+            "Welcome screen: recent projects are cards with a constellation "
+            "thumbnail of each tree's real shape.",
+            "Dragging focuses on big trees (500+) is ~3× smoother.",
+            "Export safety: exporting one project can no longer overwrite a "
+            "different mod's folder — the destination is remembered per "
+            "project, a mismatch warns first, and Export As now offers to "
+            "create a proper mod folder (descriptor included) so your mod "
+            "actually appears in the launcher.",
+            "Retitling an existing focus updates its auto-generated id again.",
+            "New validation warning when two same-row focuses are close "
+            "enough to overlap in-game.",
+            "New reward presets: doctrine cost reduction, corruption, "
+            "national budget lines, and ideology popularity.",
+        ],
+    },
+    {
         "version": "0.3.2",
         "date": "2026-07-19",
         "title": "Smoother updates, one crash fixed",
