@@ -133,6 +133,13 @@ def _paint_axes(painter: QPainter, rect: QRectF) -> None:
 
 def _paint_grid_labels(painter: QPainter, rect: QRectF) -> None:
     """Coordinate stamps at major-grid intersections — like ops-room map ticks."""
+    # Skip when zoomed too far out to read them: at a small view scale a 7pt
+    # label rasterizes to a sub-pixel glyph, and Qt fails to build the glyph
+    # cache — a "Paint device returned engine == 0" warning per label (hundreds
+    # of them right after fit-to-content on a big tree). Unreadable anyway.
+    scale = painter.transform().m11()
+    if scale * _label_font().pointSizeF() < 4.0:
+        return
     painter.setFont(_label_font())
     painter.setPen(COLOR_LABEL)
     step_x = GRID_X * MAJOR_EVERY

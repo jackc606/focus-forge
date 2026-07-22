@@ -197,6 +197,37 @@ def test_event_editor_card_chips(model):
     assert dlg._options_chip.text() == "1 option"
 
 
+# ----- canvas: grid labels gated by zoom -----
+
+def test_grid_labels_skip_when_unreadable(qapp):
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QImage, QPainter, QTransform
+    from ui import graph_background as gb
+
+    orig = QPainter.drawText
+    calls = {"n": 0}
+
+    def counting(self, *a, **k):
+        calls["n"] += 1
+        return orig(self, *a, **k)
+
+    QPainter.drawText = counting
+    try:
+        def draw_at(scale):
+            calls["n"] = 0
+            img = QImage(400, 300, QImage.Format_ARGB32)
+            p = QPainter(img)
+            p.setTransform(QTransform().scale(scale, scale))
+            gb._paint_grid_labels(p, QRectF(0, 0, 4000, 3000))
+            p.end()
+            return calls["n"]
+
+        assert draw_at(0.15) == 0    # fit-to-content zoom: no sub-pixel glyphs
+        assert draw_at(1.0) > 0      # editing zoom: labels visible
+    finally:
+        QPainter.drawText = orig
+
+
 # ----- settings: diagnostic report -----
 
 def test_settings_diagnostic_report_to_clipboard(model, tmp_path):
