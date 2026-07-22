@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
+from core.reward_script import structure_all_rewards
 from core.focus_import import find_focus_trees, import_focus_tree
 from core.mod_scaffold import (
     DEFAULT_SUPPORTED_VERSION,
@@ -330,6 +331,11 @@ class MainWindow(QMainWindow):
         save_as_act = act("Save As…", self._save_as)
         export_as_act = act("Export As…", self._export_as)
         shortcuts_act = act("Shortcuts…", self._manage_shortcuts)
+        structure_act = act(
+            "Structure Raw Rewards…", self._structure_all_rewards,
+            tooltip="Convert every focus's raw reward script into editable "
+                    "reward cards, where fully recognized. One undo restores "
+                    "everything.")
         self._bridge_action = QAction("AI Bridge", self)
         self._bridge_action.setCheckable(True)
         self._bridge_action.setToolTip(
@@ -339,7 +345,8 @@ class MainWindow(QMainWindow):
         clear_act = act("Clear Focuses", self._on_clear_focuses,
                         tooltip="Remove every focus from this project (asks first).")
         more_menu = QMenu(self)
-        for a in (import_act, save_as_act, export_as_act, shortcuts_act):
+        for a in (import_act, save_as_act, export_as_act, structure_act,
+                  shortcuts_act):
             more_menu.addAction(a)
         more_menu.addSeparator()
         more_menu.addAction(self._bridge_action)
@@ -892,6 +899,33 @@ class MainWindow(QMainWindow):
             provider().set_roots(roots + [target])
         self._model.status_message.emit(f"Created mod folder {target}")
         return True
+
+    def _structure_all_rewards(self) -> None:
+        """Project-wide raw-script conversion: one undo step, one summary —
+        instead of visiting focuses one by one in the reward editor."""
+        self._flush_focused_editor()
+        candidates = sum(
+            1 for f in self._model.project.focuses
+            if f.completionReward and (f.completionReward.rawLines or []))
+        if not candidates:
+            QMessageBox.information(self, "Structure Raw Rewards",
+                                    "No focuses have raw reward script.")
+            return
+        with self._model.batch():
+            converted, effects, skipped = structure_all_rewards(self._model.project)
+        parts = [f"Structured {converted} of {candidates} focuses with raw "
+                 f"reward script — {effects} effect"
+                 f"{'s' if effects != 1 else ''} lifted into editable cards."]
+        if skipped:
+            shown = ", ".join(skipped[:5])
+            more = f" (+{len(skipped) - 5} more)" if len(skipped) > 5 else ""
+            parts.append(
+                f"{len(skipped)} kept their raw script — unrecognized or "
+                f"partially recognized effects (conversion is all-or-nothing "
+                f"per focus, so script order is preserved): {shown}{more}")
+        if converted:
+            parts.append("One undo restores everything.")
+        QMessageBox.information(self, "Structure Raw Rewards", "\n\n".join(parts))
 
     def _export_to_mod(self) -> None:
         self._flush_focused_editor()

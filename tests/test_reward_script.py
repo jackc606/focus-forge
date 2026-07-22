@@ -132,3 +132,34 @@ def test_empty_and_blank_lines():
     assert parse_reward_lines([]) == ([], [])
     items, rem = parse_reward_lines(["", "   "])
     assert items == [] and rem == []
+
+
+def test_structure_all_rewards_mixed_project():
+    from core.reward_script import structure_all_rewards
+    from core.types import CompletionReward, FocusForgeProject, FocusNodeData
+
+    full = FocusNodeData(id="a", completionReward=CompletionReward(rawLines=[
+        "add_political_power = 50",
+        "set_temp_variable = { treasury_change = 8 }",
+        "modify_treasury_effect = yes",
+    ]))
+    partial = FocusNodeData(id="b", completionReward=CompletionReward(rawLines=[
+        "add_stability = 0.02",
+        "some_unknown_scripted_effect = yes",
+    ]))
+    none = FocusNodeData(id="c", completionReward=CompletionReward(
+        politicalPower=25))
+    project = FocusForgeProject(countryTag="EGY",
+                                focuses=[full, partial, none])
+
+    converted, effects, skipped = structure_all_rewards(project)
+    assert (converted, effects, skipped) == (1, 2, ["b"])
+    # Converted focus: raw gone, items in source order.
+    assert not full.completionReward.rawLines
+    assert [i.kind for i in full.completionReward.items] == [
+        "political_power", "treasury_change"]
+    # Partial focus untouched — all-or-nothing per focus.
+    assert partial.completionReward.rawLines == [
+        "add_stability = 0.02",
+        "some_unknown_scripted_effect = yes"]
+    assert not partial.completionReward.items

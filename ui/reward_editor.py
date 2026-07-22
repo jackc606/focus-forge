@@ -22,7 +22,7 @@ from core.reward_presets import (
     create_reward_item,
     get_reward_preset,
 )
-from core.reward_script import parse_reward_lines
+from core.reward_script import parse_reward_lines, structure_completion_reward
 from core.types import CompletionReward, RewardItem
 
 from . import theme as T
@@ -195,7 +195,6 @@ class RewardEditor(QWidget):
         parsed, remainder = parse_reward_lines(raw)
         if remainder or not parsed:
             recognized = len(parsed)
-            total = recognized + 1  # at least one statement didn't parse
             QMessageBox.information(
                 self, "Structure raw script",
                 f"Recognized {recognized} effect{'s' if recognized != 1 else ''}, "
@@ -204,15 +203,12 @@ class RewardEditor(QWidget):
                 f"is preserved. First unrecognized line:\n"
                 f"  {remainder[0].strip() if remainder else '(none)'}")
             return
-        reward.items = list(reward.items or []) + [
-            RewardItem(kind=it["kind"], params=dict(it["params"]), enabled=True)
-            for it in parsed]
-        reward.rawLines = None
+        n = structure_completion_reward(reward)
         focus.completionReward = reward
         self._model.notify_changed()
         self._render()
         self._model.status_message.emit(
-            f"Structured {len(parsed)} effect{'s' if len(parsed) != 1 else ''} "
+            f"Structured {n} effect{'s' if n != 1 else ''} "
             f"from raw script — undo restores the raw form.")
 
     # ----- raw/preview visibility (driven by the inspector checkbox) -----

@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 
 from .reward_presets import build_reward_item_lines
+from .types import RewardItem
 
 # Statement-joined regexes assume single-space token separation (see _joined).
 _NUM = r"(-?\d+(?:\.\d+)?)"
@@ -321,3 +322,42 @@ def parse_reward_lines(lines):
         remainder.extend(stmt)
         i += 1
     return items, remainder
+
+
+def structure_completion_reward(reward) -> int:
+    """All-or-nothing lift of ``reward.rawLines`` into ``reward.items``.
+    Mutates the reward and returns the number of items created; returns 0 and
+    changes nothing when any statement fails to parse (the raw script's exact
+    order must survive)."""
+    raw = list(getattr(reward, "rawLines", None) or [])
+    if not raw:
+        return 0
+    parsed, remainder = parse_reward_lines(raw)
+    if remainder or not parsed:
+        return 0
+    reward.items = list(reward.items or []) + [
+        RewardItem(kind=it["kind"], params=dict(it["params"]), enabled=True)
+        for it in parsed]
+    reward.rawLines = None
+    return len(parsed)
+
+
+def structure_all_rewards(project):
+    """Structure the raw reward script of every focus that fully parses.
+    → ``(converted_focus_count, lifted_effect_count, skipped_focus_ids)``
+    where skipped focuses had raw script that was only partially (or not at
+    all) recognized and were left untouched."""
+    converted = 0
+    effects = 0
+    skipped: list = []
+    for f in project.focuses:
+        reward = f.completionReward
+        if reward is None or not (reward.rawLines or []):
+            continue
+        n = structure_completion_reward(reward)
+        if n:
+            converted += 1
+            effects += n
+        else:
+            skipped.append(f.id)
+    return converted, effects, skipped
