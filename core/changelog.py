@@ -9,6 +9,28 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.1",
+        "date": "2026-09-02",
+        "title": "Converting existing projects to the Millennium Dawn Beta",
+        "changes": [
+            "Switching a project's Millennium Dawn edition in Settings now also "
+            "re-points its stored mod descriptor (dependency name and game "
+            "version) at the new edition, so the first export declares the "
+            "right base mod.",
+            "Export to Mod fixes an already-exported mod folder too: if its "
+            "descriptor.mod and launcher .mod still name the other edition's "
+            "base mod, they are rewritten in place. Custom dependencies and "
+            "hand-typed versions are left alone.",
+            "Validation warns about raw script that calls a helper the target "
+            "edition doesn't have (the main branch's party-popularity helper, "
+            "or the radicalization system the beta removed), pointing to the "
+            "preset that adapts automatically.",
+            "Validation also warns when a country tag in the project, a reward "
+            "or a condition doesn't exist in the target edition — the beta "
+            "renamed about fifteen tags.",
+        ],
+    },
+    {
         "version": "0.4.0",
         "date": "2026-09-02",
         "title": "Millennium Dawn Beta support",

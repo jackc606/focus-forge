@@ -39,6 +39,7 @@ from core.mod_scaffold import (
     find_mod_root,
     is_hoi4_mod_root,
     read_descriptor_name,
+    retarget_descriptor,
     sanitize_folder,
     scaffold_submod,
 )
@@ -886,6 +887,19 @@ class MainWindow(QMainWindow):
         """Materialise the HOI4 mod folder (descriptor + skeleton) if it doesn't
         exist yet, using the project's stored modMeta (falling back to defaults)."""
         if os.path.isfile(os.path.join(target, "descriptor.mod")):
+            # An existing mod folder keeps its descriptor — unless it still
+            # declares the OTHER Millennium Dawn edition (the project was
+            # converted in Settings after its first export).
+            try:
+                changed = retarget_descriptor(target, getattr(self._model.project, "mdEdition", "main"))
+            except OSError as exc:
+                changed = []
+                self._model.status_message.emit(f"Could not update descriptor.mod: {exc}")
+            if changed:
+                ed = md_edition(getattr(self._model.project, "mdEdition", "main"))
+                self._model.status_message.emit(
+                    f"Updated {len(changed)} descriptor file(s) to depend on {ed.dependency} "
+                    f"({ed.supported_version}).")
             return True
         meta = self._model.project.modMeta or {}
         name = meta.get("name") or self._model.project.projectName or os.path.basename(target)

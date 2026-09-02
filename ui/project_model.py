@@ -108,7 +108,22 @@ class ProjectModel(QObject):
     def issues(self) -> list:
         return validate_project(self._project, icon_exists=self._icon_exists(),
                                 known_decision_categories=self._known_decision_categories(),
-                                known_idea_ids=self._known_idea_ids())
+                                known_idea_ids=self._known_idea_ids(),
+                                known_country_tags=self._known_country_tags())
+
+    @staticmethod
+    def _known_country_tags():
+        """Tags defined by the configured game/MD roots (cached in core), so
+        validation can flag tags the active MD edition renamed — or None when
+        no roots are configured (then the check is skipped)."""
+        try:
+            from .icon_provider import provider
+            if not provider().roots():
+                return None
+            from .country_tags_live import current_country_tags
+            return {t.tag for t in current_country_tags()}
+        except Exception:
+            return None
 
     @staticmethod
     def _icon_exists():
@@ -1034,4 +1049,5 @@ class ProjectModel(QObject):
         self.validation_changed.emit(
             validate_project(self._project, icon_exists=self._icon_exists(),
                              known_decision_categories=self._known_decision_categories(),
-                             known_idea_ids=self._known_idea_ids()))
+                             known_idea_ids=self._known_idea_ids(),
+                             known_country_tags=self._known_country_tags()))

@@ -20,6 +20,38 @@ DEFAULT_TAGS = ["Gameplay", "National Focuses"]
 DEFAULT_SUPPORTED_VERSION = _MAIN_EDITION.supported_version
 
 
+def retarget_descriptor(mod_dir, edition_key: str) -> list:
+    """Re-point an EXISTING mod folder's descriptors at another Millennium Dawn
+    edition: the inner ``descriptor.mod`` and the outer ``<folder>.mod`` beside it
+    get the other edition's dependency name and default supported_version swapped
+    for this edition's. Custom dependencies and hand-typed versions are untouched.
+    Returns the paths that were rewritten (empty = nothing referenced another
+    edition). Export calls this so a project converted in Settings does not keep
+    shipping a descriptor for the edition it no longer targets."""
+    from .md_edition import EDITIONS, edition as _edition
+    e = _edition(edition_key)
+    others = [x for x in EDITIONS if x is not e]
+    mod_dir = Path(mod_dir)
+    targets = [mod_dir / "descriptor.mod", mod_dir.parent / f"{mod_dir.name}.mod"]
+    changed = []
+    for path in targets:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        new = text
+        for o in others:
+            new = new.replace(f'"{o.dependency}"', f'"{e.dependency}"')
+            new = re.sub(rf'(supported_version\s*=\s*"){re.escape(o.supported_version)}(")',
+                         rf'\g<1>{e.supported_version}\g<2>', new)
+        if new != text:
+            atomic_write_text(path, new)
+            changed.append(str(path))
+    return changed
+
+
 def scaffold_defaults(edition_key: str = "main") -> dict:
     """``{"dependencies": [...], "supported_version": "..."}`` for the Millennium
     Dawn edition a submod targets (the beta is a separate Workshop item with its

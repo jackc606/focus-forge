@@ -167,6 +167,54 @@ def roots_with_md_root(roots, new_md_root: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Converting a project between editions
+# ---------------------------------------------------------------------------
+def retarget_mod_meta(meta, new_edition) -> dict:
+    """A copy of a project's stored ``modMeta`` re-pointed at ``new_edition``:
+    any dependency that names ANOTHER edition's base mod becomes the new one's,
+    and a supported_version that is another edition's default (or blank)
+    becomes the new default. A user's custom dependencies and a hand-typed
+    version are left alone."""
+    e = new_edition if isinstance(new_edition, MDEdition) else edition(new_edition)
+    out = dict(meta or {})
+    other_deps = {x.dependency for x in EDITIONS if x is not e}
+    other_versions = {x.supported_version for x in EDITIONS if x is not e}
+    deps = list(out.get("dependencies") or [])
+    if deps:
+        deps = [e.dependency if d in other_deps else d for d in deps]
+        # collapse duplicates if two editions were somehow both listed
+        seen, cleaned = set(), []
+        for d in deps:
+            if d not in seen:
+                seen.add(d)
+                cleaned.append(d)
+        out["dependencies"] = cleaned
+    sv = (out.get("supported_version") or "").strip()
+    if not sv or sv in other_versions:
+        out["supported_version"] = e.supported_version
+    return out
+
+
+def foreign_helpers(for_edition=None) -> dict:
+    """Scripted-effect helper names that do NOT exist in ``for_edition`` because
+    they belong to another edition (or to a system it removed), mapped to a short
+    human hint. Validation uses this to catch raw script carried over from a
+    project that targeted the other edition."""
+    e = for_edition or active_edition()
+    out = {}
+    for other in EDITIONS:
+        if other is e:
+            continue
+        if other.party_popularity_effect != e.party_popularity_effect:
+            out[other.party_popularity_effect] = (
+                f"the {other.label} name; in {e.label} it is {e.party_popularity_effect} "
+                f"(the Relative Party Popularity preset emits the right one)")
+    if not e.has_radicalization:
+        out["modify_radicalization_effect"] = f"{e.label} removed the radicalization system"
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Process-wide active edition (what preset builders emit)
 # ---------------------------------------------------------------------------
 _active: MDEdition = DEFAULT_EDITION

@@ -22,6 +22,7 @@ from core.md_edition import (
     EDITIONS,
     edition as md_edition,
     edition_of_root,
+    retarget_mod_meta,
     set_active_edition,
 )
 from core.version import version_label
@@ -305,7 +306,10 @@ class SettingsPanel(QWidget):
         set_active_edition(key)
         # The main window's project_changed handler swaps the game-data roots to
         # match; if that edition isn't installed the status line below says so.
-        self._model.update_project_meta(mdEdition=key)
+        # The stored descriptor metadata follows too, so the next export (or
+        # first scaffold) declares the right dependency and game version.
+        meta = retarget_mod_meta(self._model.project.modMeta, key)
+        self._model.update_project_meta(mdEdition=key, modMeta=meta)
         self._update_md_edition_status()
 
     def _update_md_edition_status(self) -> None:

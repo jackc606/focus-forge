@@ -4,9 +4,10 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
-from .availability_presets import validate_availability_item
+from .availability_presets import get_availability_preset, validate_availability_item
 from .exporters import _FILENAME_BAD_RE, sanitize_filename_component
 from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
+from .md_edition import active_edition, foreign_helpers
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import get_reward_preset, validate_reward_item
 from .types import FocusForgeProject, ValidationIssue, iter_prereq_ids
@@ -47,7 +48,8 @@ def lint_raw_script(lines) -> str:
 
 def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_decision_categories=None,
-                     known_idea_ids=None) -> list:
+                     known_idea_ids=None, edition=None,
+                     known_country_tags=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
@@ -143,7 +145,79 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _detect_unreachable(project, issues)
     _validate_shortcuts(project, focus_ids, issues)
     _validate_metadata(project, issues, known_decision_categories)
+    _validate_edition(project, issues, edition, known_country_tags)
     return issues
+
+
+_TAG_RE = re.compile(r"^[A-Z][A-Z0-9]{2}$")
+
+
+def _validate_edition(project: FocusForgeProject, issues: list, edition=None,
+                      known_country_tags=None) -> None:
+    """Things that break when a project targets a different Millennium Dawn
+    edition than it was written for:
+
+    * raw script calling a helper that only exists in the OTHER edition (the
+      structured presets adapt by themselves; raw lines are exported verbatim);
+    * country tags that the active edition does not define (the beta renamed
+      about fifteen) — checked when the live tag list is available."""
+    e = edition or active_edition()
+    foreign = foreign_helpers(e)
+    pat = re.compile(r"\b(" + "|".join(re.escape(h) for h in foreign) + r")\b") if foreign else None
+
+    def scan(lines, code, where, focus_id=None):
+        if not pat:
+            return
+        hits = sorted({m.group(1) for ln in (lines or []) for m in pat.finditer(ln)})
+        for h in hits:
+            issues.append(ValidationIssue(
+                severity="warning", code=code, focusId=focus_id,
+                message=f"{where}: raw script calls {h} — {foreign[h]}."))
+
+    for focus in project.focuses:
+        if focus.completionReward is not None:
+            scan(focus.completionReward.rawLines, "focus.reward.editionHelper",
+                 f"{focus.id} completion reward", focus.id)
+    for event in project.events:
+        for i, opt in enumerate(event.options or [], start=1):
+            scan(opt.effectRawLines, "event.option.editionHelper",
+                 f"event {event.id} option {i} effects")
+
+    if known_country_tags is None:
+        return
+    known = set(known_country_tags)
+    if not known:
+        return
+
+    def tag_params(preset):
+        return [p.key for p in (preset.params if preset else []) if getattr(p, "type", "") == "country_tag"]
+
+    def check_tag(value, code, where, focus_id=None):
+        v = (value or "").strip()
+        if v and _TAG_RE.match(v) and v not in known:
+            issues.append(ValidationIssue(
+                severity="warning", code=code, focusId=focus_id,
+                message=f"{where}: country tag {v} does not exist in {e.label} "
+                        f"(tags differ between MD editions — pick it again from the list)."))
+
+    check_tag(project.countryTag, "project.countryTag.unknown", "Project country tag")
+    for focus in project.focuses:
+        items = (focus.completionReward.items or []) if focus.completionReward else []
+        for index, item in enumerate(items, start=1):
+            for key in tag_params(get_reward_preset(item.kind)):
+                check_tag((item.params or {}).get(key), "focus.reward.tag.unknown",
+                          f"{focus.id} reward {index}", focus.id)
+        for label, rule in (("availability", focus.available), ("bypass", getattr(focus, "bypass", None))):
+            for index, item in enumerate((rule.items or []) if rule else [], start=1):
+                for key in tag_params(get_availability_preset(item.kind)):
+                    check_tag((item.params or {}).get(key), "focus.available.tag.unknown",
+                              f"{focus.id} {label} condition {index}", focus.id)
+    for event in project.events:
+        for i, opt in enumerate(event.options or [], start=1):
+            for index, item in enumerate(opt.items or [], start=1):
+                for key in tag_params(get_reward_preset(item.kind)):
+                    check_tag((item.params or {}).get(key), "event.option.tag.unknown",
+                              f"event {event.id} option {i} effect {index}")
 
 
 def _validate_shortcuts(project: FocusForgeProject, focus_ids: set, issues: list) -> None:

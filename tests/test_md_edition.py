@@ -249,3 +249,99 @@ def test_scaffold_defaults_per_edition(tmp_path):
     assert '"Millennium Dawn: A Beta Test Mod"' in inner
     assert 'supported_version="1.19.*"' in inner
     assert "A Modern Day Mod" not in inner
+
+
+# ----- converting an existing project ---------------------------------------------
+
+def test_retarget_mod_meta_swaps_only_edition_facts():
+    from core.md_edition import retarget_mod_meta
+    meta = {"name": "Chile", "tags": ["Gameplay"],
+            "dependencies": [MD_DEPENDENCY, "Some Other Mod"], "supported_version": "1.17.*"}
+    out = retarget_mod_meta(meta, "beta")
+    assert out["dependencies"] == ["Millennium Dawn: A Beta Test Mod", "Some Other Mod"]
+    assert out["supported_version"] == "1.19.*"
+    assert out["name"] == "Chile" and meta["dependencies"][0] == MD_DEPENDENCY  # input untouched
+    # back again
+    back = retarget_mod_meta(out, "main")
+    assert back["dependencies"] == [MD_DEPENDENCY, "Some Other Mod"]
+    assert back["supported_version"] == "1.17.*"
+    # hand-typed version and custom-only deps are respected; blank version filled
+    custom = retarget_mod_meta({"dependencies": ["Only Mine"], "supported_version": "1.18.2"}, "beta")
+    assert custom == {"dependencies": ["Only Mine"], "supported_version": "1.18.2"}
+    assert retarget_mod_meta({}, "beta")["supported_version"] == "1.19.*"
+    assert "dependencies" not in retarget_mod_meta({}, "beta")
+
+
+def test_retarget_descriptor_rewrites_both_files(tmp_path):
+    from core.mod_scaffold import retarget_descriptor
+    scaffold_submod(str(tmp_path), "md_chile", "MD: Chile")      # main-branch descriptors
+    changed = retarget_descriptor(tmp_path / "md_chile", "beta")
+    assert len(changed) == 2
+    inner = (tmp_path / "md_chile" / "descriptor.mod").read_text(encoding="utf-8")
+    outer = (tmp_path / "md_chile.mod").read_text(encoding="utf-8")
+    for text in (inner, outer):
+        assert '"Millennium Dawn: A Beta Test Mod"' in text
+        assert 'supported_version="1.19.*"' in text
+        assert MD_DEPENDENCY not in text
+    assert 'path="' in outer                       # outer keeps its path line
+    # already targeting beta → no-op
+    assert retarget_descriptor(tmp_path / "md_chile", "beta") == []
+    # missing folder → no-op, no error
+    assert retarget_descriptor(tmp_path / "nope", "beta") == []
+
+
+def test_retarget_descriptor_keeps_custom_version(tmp_path):
+    from core.mod_scaffold import retarget_descriptor
+    scaffold_submod(str(tmp_path), "md_x", "X", supported_version="1.18.7")
+    retarget_descriptor(tmp_path / "md_x", "beta")
+    inner = (tmp_path / "md_x" / "descriptor.mod").read_text(encoding="utf-8")
+    assert 'supported_version="1.18.7"' in inner
+    assert '"Millennium Dawn: A Beta Test Mod"' in inner
+
+
+def test_foreign_helpers_per_edition():
+    from core.md_edition import foreign_helpers
+    assert set(foreign_helpers(MAIN)) == {"change_relative_party_popularity"}
+    assert set(foreign_helpers(BETA)) == {"add_relative_party_popularity", "modify_radicalization_effect"}
+
+
+def test_validation_flags_other_editions_raw_helpers_and_unknown_tags():
+    from core.validation import validate_project
+    project = make_sample_project()
+    f = project.focuses[0]
+    f.completionReward = CompletionReward(
+        items=[RewardItem(kind="puppet", params={"target": "GRL"})],
+        rawLines=["set_temp_variable = { rad_change = -5 }", "modify_radicalization_effect = yes",
+                  "add_relative_party_popularity = yes"])
+    project.countryTag = "MEX"
+    known = {"MEX", "GRN", "USA"}
+    with edition_context("beta"):
+        issues = validate_project(project, known_country_tags=known)
+    codes = [i.code for i in issues]
+    assert codes.count("focus.reward.editionHelper") == 2
+    helper_msgs = " ".join(i.message for i in issues if i.code == "focus.reward.editionHelper")
+    assert "modify_radicalization_effect" in helper_msgs and "add_relative_party_popularity" in helper_msgs
+    tag_issues = [i for i in issues if i.code == "focus.reward.tag.unknown"]
+    assert len(tag_issues) == 1 and "GRL" in tag_issues[0].message and tag_issues[0].focusId == f.id
+    assert all(i.severity == "warning" for i in issues if "edition" in i.code or "tag.unknown" in i.code)
+    # Under main the raw radicalization line is fine and GRL exists there
+    with edition_context("main"):
+        issues = validate_project(project, known_country_tags={"MEX", "GRL"})
+    assert not [i for i in issues if i.code in ("focus.reward.tag.unknown",)]
+    assert [i.message for i in issues if i.code == "focus.reward.editionHelper"] == []
+    # No tag list → tag check skipped entirely
+    with edition_context("beta"):
+        issues = validate_project(project)
+    assert not [i for i in issues if "tag.unknown" in i.code]
+
+
+def test_validation_flags_unknown_project_tag_and_condition_tag():
+    from core.validation import validate_project
+    from core.types import AvailabilityRule
+    project = make_sample_project()
+    project.countryTag = "NOR"                                   # renamed NRY in the beta
+    project.focuses[0].available = AvailabilityRule(items=[RewardItem(kind="in_faction_with", params={"tag": "LOG"})])
+    issues = validate_project(project, known_country_tags={"NRY", "MEX"})
+    codes = {i.code for i in issues}
+    assert "project.countryTag.unknown" in codes
+    assert "focus.available.tag.unknown" in codes
