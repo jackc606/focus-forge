@@ -109,7 +109,20 @@ class ProjectModel(QObject):
         return validate_project(self._project, icon_exists=self._icon_exists(),
                                 known_decision_categories=self._known_decision_categories(),
                                 known_idea_ids=self._known_idea_ids(),
-                                known_country_tags=self._known_country_tags())
+                                known_country_tags=self._known_country_tags(),
+                                script_vocab=self._script_index("script_vocabulary_cached"),
+                                state_index=self._script_index("state_index_cached"),
+                                equipment_types=self._script_index("equipment_types_cached"))
+
+    @staticmethod
+    def _script_index(getter: str):
+        """One of the tech provider's self-warming script indexes (vocabulary /
+        states / equipment), or None while it is still building."""
+        try:
+            from .tech_provider import tech_provider
+            return getattr(tech_provider(), getter)()
+        except Exception:
+            return None
 
     @staticmethod
     def _known_country_tags():
@@ -1050,4 +1063,7 @@ class ProjectModel(QObject):
             validate_project(self._project, icon_exists=self._icon_exists(),
                              known_decision_categories=self._known_decision_categories(),
                              known_idea_ids=self._known_idea_ids(),
-                             known_country_tags=self._known_country_tags()))
+                             known_country_tags=self._known_country_tags(),
+                                script_vocab=self._script_index("script_vocabulary_cached"),
+                                state_index=self._script_index("state_index_cached"),
+                                equipment_types=self._script_index("equipment_types_cached")))

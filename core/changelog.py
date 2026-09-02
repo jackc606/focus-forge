@@ -29,6 +29,17 @@ CHANGELOG = [
             "factors, modifiers with no weight, modifiers with no trigger (fold "
             "them into the base), and broken trigger script.",
             "Projects that never set a modifier export exactly as before.",
+            "Raw script is now checked against what the game and your MD "
+            "edition actually define. Every effect or trigger in raw lines "
+            "(rewards, availability, bypass, AI triggers, events, decisions) is "
+            "looked up in an index of the real script files: typos and renamed "
+            "helpers get a warning instead of failing silently in-game.",
+            "State ids in raw script and in building/resource cards are checked "
+            "too: a state that doesn't exist is an error, one your country "
+            "doesn't own at game start is a warning. Equipment types are "
+            "checked against the edition's real archetypes — the beta renamed "
+            "several (Inf_equipment is now infantry_weapons_type), and the "
+            "equipment picker now lists the edition's own names.",
         ],
     },
     {

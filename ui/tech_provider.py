@@ -33,9 +33,17 @@ class TechProvider(QObject):
         self._decision_categories = None
         self._known_idea_ids = None
         self._idea_ids_building = False
+        # Script-token indexes for validation (see core.script_index); each is
+        # None until its background build lands.
+        self._script_index = {"vocab": None, "states": None, "equipment": None, "archetypes": None}
+        self._script_building: set = set()
         icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
+        from core.script_index import clear_script_index_cache
+        clear_script_index_cache()
+        self._script_index = {"vocab": None, "states": None, "equipment": None, "archetypes": None}
+        self._script_building = set()
         self._groups = None
         self._categories = None
         self._buildings = None
@@ -120,6 +128,46 @@ class TechProvider(QObject):
             threading.Thread(target=_build, daemon=True,
                              name="idea-id-index").start()
         return self._known_idea_ids
+
+    def _script_index_cached(self, which: str):
+        """Self-warming background build of one core.script_index index
+        ('vocab' | 'states' | 'equipment'); None until it lands."""
+        if self._script_index.get(which) is None and which not in self._script_building:
+            self._script_building.add(which)
+            roots = list(icon_provider().roots())
+            from core.script_index import (build_equipment_archetypes, build_equipment_types,
+                                           build_script_vocabulary, build_state_index)
+            builder = {"vocab": build_script_vocabulary, "states": build_state_index,
+                       "equipment": build_equipment_types,
+                       "archetypes": build_equipment_archetypes}[which]
+
+            def _build() -> None:
+                try:
+                    result = builder(roots)
+                except Exception:
+                    result = None
+                self._script_index[which] = result if result is not None else {}
+                self._script_building.discard(which)
+
+            threading.Thread(target=_build, daemon=True, name=f"script-index-{which}").start()
+        val = self._script_index.get(which)
+        # An empty index (no roots / nothing found) must not produce a wall of
+        # "unknown" warnings — treat it as "not available".
+        return val if val else None
+
+    def script_vocabulary_cached(self):
+        return self._script_index_cached("vocab")
+
+    def state_index_cached(self):
+        return self._script_index_cached("states")
+
+    def equipment_types_cached(self):
+        return self._script_index_cached("equipment")
+
+    def equipment_archetypes_cached(self):
+        """Archetype names for pickers (list), or None while building/unavailable."""
+        val = self._script_index_cached("archetypes")
+        return list(val) if val else None
 
 
 _INSTANCE = None

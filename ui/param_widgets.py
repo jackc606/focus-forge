@@ -55,7 +55,10 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
         cb.currentTextChanged.connect(lambda val: set_value(val))
         return cb
     if param.type == "equipment":
-        items = [(e, e) for e in EQUIPMENT_TYPES]
+        # Archetypes of the configured MD edition (main and beta name them
+        # differently); the static list only until the index has built.
+        live = tech_provider().equipment_archetypes_cached()
+        items = [(e, e) for e in (live or EQUIPMENT_TYPES)]
         return _id_combo(items, current, set_value, numeric=False, completer=True,
                          empty_tip="Type an MD equipment id")
     if param.type == "state":

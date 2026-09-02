@@ -49,7 +49,8 @@ def lint_raw_script(lines) -> str:
 def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_decision_categories=None,
                      known_idea_ids=None, edition=None,
-                     known_country_tags=None) -> list:
+                     known_country_tags=None, script_vocab=None,
+                     state_index=None, equipment_types=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
@@ -147,7 +148,130 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_metadata(project, issues, known_decision_categories)
     _validate_edition(project, issues, edition, known_country_tags)
     _validate_ai_weights(project, issues)
+    _validate_script_tokens(project, issues, edition, script_vocab, state_index,
+                            equipment_types, known_country_tags)
     return issues
+
+
+def _raw_script_sites(project: FocusForgeProject):
+    """Yield ``(lines, where, focus_id)`` for every raw-script location and
+    ``(items, where, focus_id)`` is handled separately — this is the raw side."""
+    for focus in project.focuses:
+        if focus.completionReward is not None and focus.completionReward.rawLines:
+            yield focus.completionReward.rawLines, f"{focus.id} completion reward", focus.id
+        for label, rule in (("availability", focus.available), ("bypass", getattr(focus, "bypass", None))):
+            if rule is not None and rule.rawLines:
+                yield rule.rawLines, f"{focus.id} {label}", focus.id
+        for i, mod in enumerate(getattr(focus, "aiModifiers", None) or [], start=1):
+            if mod.trigger is not None and mod.trigger.rawLines:
+                yield mod.trigger.rawLines, f"{focus.id} AI modifier {i} trigger", focus.id
+    for event in project.events:
+        if event.trigger is not None and event.trigger.rawLines:
+            yield event.trigger.rawLines, f"event {event.id} trigger", None
+        for i, opt in enumerate(event.options or [], start=1):
+            if opt.effectRawLines:
+                yield opt.effectRawLines, f"event {event.id} option {i} effects", None
+            if opt.trigger is not None and opt.trigger.rawLines:
+                yield opt.trigger.rawLines, f"event {event.id} option {i} trigger", None
+    for d in getattr(project, "decisions", None) or []:
+        for attr in ("visible", "available", "completeEffect", "removeEffect", "timeoutEffect"):
+            rule = getattr(d, attr, None)
+            lines = getattr(rule, "rawLines", None) if rule is not None else None
+            if lines:
+                yield lines, f"decision {d.id} {attr}", None
+    for s in getattr(project, "shortcuts", None) or []:
+        if getattr(s, "triggerRawLines", None):
+            yield s.triggerRawLines, f"shortcut {s.label or s.target} trigger", None
+
+
+def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=None,
+                            script_vocab=None, state_index=None, equipment_types=None,
+                            known_country_tags=None) -> None:
+    """Check raw script (and the state/equipment params of structured items)
+    against what the configured game/MD roots actually define:
+
+    * effect/trigger keys not used anywhere in the game or MD → warning
+      (typo, renamed helper, or the other edition's helper);
+    * state ids that do not exist → error; states the project's country does
+      not own at game start → warning (fine for claims/cores, wrong for
+      buildings);
+    * equipment types not defined by the edition → warning.
+
+    Every index is optional (None = not built yet) so validation never blocks
+    on a background scan."""
+    from .script_index import scan_raw_script
+    e = edition or active_edition()
+    foreign = set(foreign_helpers(e))       # already reported with a better message
+    tag = (project.countryTag or "").upper()
+    owned = ({sid for sid, d in state_index.items() if d.get("owner") == tag}
+             if state_index else None)
+    known_tags = set(known_country_tags) if known_country_tags else None
+
+    def report_state(sid, where, focus_id, claim_only=False):
+        if state_index is None:
+            return
+        if sid not in state_index:
+            (_err_focus if focus_id else _err)(issues, "script.state.missing", *(
+                [focus_id] if focus_id else []),
+                f"{where}: state {sid} does not exist in {e.label} — the export would be rejected.")
+        elif claim_only:
+            return   # cores / claims / transfers on foreign states are the point
+        elif owned is not None and owned and sid not in owned:
+            name = state_index[sid]["name"]
+            (_warn_focus if focus_id else _warn)(issues, "script.state.notOwned", *(
+                [focus_id] if focus_id else []),
+                f"{where}: state {sid} ({name}) is not owned by {tag or 'this country'} at game "
+                f"start — fine for claims/cores, wrong for buildings.")
+
+    def report_equipment(name, where, focus_id):
+        if equipment_types is None or not name or name in equipment_types:
+            return
+        (_warn_focus if focus_id else _warn)(issues, "script.equipment.unknown", *(
+            [focus_id] if focus_id else []),
+            f"{where}: equipment type {name} is not defined in {e.label} "
+            f"(common/units/equipment) — pick one from the list.")
+
+    for lines, where, focus_id in _raw_script_sites(project):
+        found = scan_raw_script(lines)
+        if script_vocab is not None:
+            for key in found["keys"]:
+                if key in script_vocab or key in foreign:
+                    continue
+                (_warn_focus if focus_id else _warn)(issues, "script.unknownToken", *(
+                    [focus_id] if focus_id else []),
+                    f"{where}: `{key}` is not an effect or trigger used anywhere in the game or "
+                    f"{e.label} — check the spelling, or it may belong to the other MD edition.")
+        for sid in found["states"]:
+            report_state(sid, where, focus_id, claim_only=sid in found["claim_only"])
+        if known_tags:
+            for t in found["tags"]:
+                if t not in known_tags:
+                    (_warn_focus if focus_id else _warn)(issues, "script.tag.unknown", *(
+                        [focus_id] if focus_id else []),
+                        f"{where}: country tag {t} does not exist in {e.label}.")
+        for eq in found["equipment"]:
+            report_equipment(eq, where, focus_id)
+
+    # Structured items: state / equipment params.
+    def structured_items(focus):
+        items = (focus.completionReward.items or []) if focus.completionReward else []
+        for index, item in enumerate(items, start=1):
+            yield item, f"{focus.id} reward {index}"
+
+    for focus in project.focuses:
+        for item, where in structured_items(focus):
+            preset = get_reward_preset(item.kind)
+            for p in (preset.params if preset else []):
+                v = (item.params or {}).get(p.key)
+                if v in (None, ""):
+                    continue
+                if getattr(p, "type", "") == "state":
+                    try:
+                        report_state(int(float(v)), where, focus.id)
+                    except (TypeError, ValueError):
+                        pass
+                elif getattr(p, "type", "") == "equipment":
+                    report_equipment(str(v), where, focus.id)
 
 
 def _validate_ai_weights(project: FocusForgeProject, issues: list) -> None:

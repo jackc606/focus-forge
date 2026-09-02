@@ -245,6 +245,40 @@ def _reference_country_tags() -> list:
     return country_tags_for_roots(roots) if roots else MD_COUNTRY_TAGS
 
 
+def _reference_roots():
+    if _roots_provider is None:
+        return None
+    try:
+        roots = list(_roots_provider() or ())
+    except Exception:
+        return None
+    return roots or None
+
+
+def _reference_equipment_types() -> list:
+    """Equipment archetypes of the configured MD edition (they differ between
+    main and beta); the static list only when no roots are configured."""
+    roots = _reference_roots()
+    if roots:
+        from .script_index import build_equipment_archetypes
+        live = build_equipment_archetypes(roots)
+        if live:
+            return live
+    return list(EQUIPMENT_TYPES)
+
+
+def _reference_country_states(model) -> list:
+    """States the project's country owns at game start: ``[{id, name}]`` — the
+    ids state-scoped rewards (buildings, resources) should target."""
+    roots = _reference_roots()
+    tag = (model.project.countryTag or "").upper() if model is not None else ""
+    if not roots or not tag:
+        return []
+    from .script_index import build_state_index
+    return [{"id": sid, "name": d["name"]}
+            for sid, d in sorted(build_state_index(roots).items()) if d["owner"] == tag]
+
+
 def _op_reference_data(model, args):
     return {
         "countryTags": [{"tag": t.tag, "name": t.name} for t in _reference_country_tags()],
@@ -253,7 +287,8 @@ def _op_reference_data(model, args):
         "iconPresets": list(MD_ICON_PRESETS),
         "techCategories": list(MD_TECH_CATEGORIES),
         "resourceTypes": list(RESOURCE_TYPES),
-        "equipmentTypes": list(EQUIPMENT_TYPES),
+        "equipmentTypes": _reference_equipment_types(),
+        "countryStates": _reference_country_states(model),
         "wargoalTypes": list(WARGOAL_TYPES),
         "buildingTypes": list(BUILDING_TYPES),
         "layoutConvention": LAYOUT_CONVENTION,
