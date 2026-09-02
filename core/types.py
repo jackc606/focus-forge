@@ -191,6 +191,17 @@ class AvailabilityRule:
 
 
 @dataclass
+class AiModifier:
+    """One ``modifier = { factor/add … trigger }`` block inside a focus's
+    ``ai_will_do``. The trigger reuses the availability-condition machinery
+    (structured preset items and/or raw trigger lines). ``factor`` multiplies
+    the running weight, ``add`` adds to it; either may be omitted."""
+    factor: Optional[float] = None
+    add: Optional[float] = None
+    trigger: Optional[AvailabilityRule] = None
+
+
+@dataclass
 class FocusNodeData:
     id: str = ""
     title: str = ""
@@ -205,7 +216,8 @@ class FocusNodeData:
     completionReward: CompletionReward = field(default_factory=CompletionReward)
     available: Optional[AvailabilityRule] = None
     bypass: Optional[AvailabilityRule] = None  # conditions that SKIP the focus
-    aiWillDo: Optional[float] = None           # AI priority; None = HOI4-default 10
+    aiWillDo: Optional[float] = None           # AI priority base; None = HOI4-default 10
+    aiModifiers: Optional[list] = None         # list[AiModifier] — conditional ai_will_do tweaks
     notes: Optional[str] = None
 
 

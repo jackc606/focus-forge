@@ -5,6 +5,7 @@ from dataclasses import fields, is_dataclass
 from typing import Any
 
 from .types import (
+    AiModifier,
     AvailabilityRule,
     CompletionReward,
     CountryData,
@@ -32,7 +33,8 @@ from .types import (
 
 # Optional fields that should be omitted from JSON when None.
 _OPTIONAL_FIELDS = {
-    FocusNodeData: {"available", "bypass", "aiWillDo", "notes"},
+    FocusNodeData: {"available", "bypass", "aiWillDo", "aiModifiers", "notes"},
+    AiModifier: {"factor", "add", "trigger"},
     CompletionReward: {
         "politicalPower", "stability", "warSupport", "commandPower",
         "armyExperience", "airExperience", "navyExperience",
@@ -244,7 +246,24 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         available=_availability_from_dict(d["available"]) if d.get("available") else None,
         bypass=_availability_from_dict(d["bypass"]) if d.get("bypass") else None,
         aiWillDo=d.get("aiWillDo"),
+        aiModifiers=([_ai_modifier_from_dict(m) for m in d["aiModifiers"] if isinstance(m, dict)]
+                     if d.get("aiModifiers") else None),
         notes=d.get("notes"),
+    )
+
+
+def _ai_modifier_from_dict(d: dict) -> AiModifier:
+    def num(v):
+        if v is None or isinstance(v, bool):
+            return None
+        try:
+            return v if isinstance(v, (int, float)) else float(v)
+        except (TypeError, ValueError):
+            return None
+    return AiModifier(
+        factor=num(d.get("factor")),
+        add=num(d.get("add")),
+        trigger=_availability_from_dict(d["trigger"]) if d.get("trigger") else None,
     )
 
 

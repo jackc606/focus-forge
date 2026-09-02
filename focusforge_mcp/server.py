@@ -67,6 +67,14 @@ tech bonus — see `list_reward_presets`). For MD-specific effects use the focus
 - construction: `add_building_construction = { type = X level = N instant_build = yes }`
 - add a `custom_effect_tooltip = KEY` to scripted / `hidden_effect` blocks.
 
+## AI weighting (every real MD focus has it)
+Set `aiWillDo` (base; 10 = default, 0 = the AI never takes it) and `aiModifiers`:
+`[{"factor": 0, "trigger": {"items": [{"kind": "has_country_flag", "params": {"flag": "X"}}]}}, …]`
+(`add` works too). Idioms: factor 0 on the non-historical side of a mutex fork, or
+gate each side on a flag / government; factor 0 for war paths unless war support is
+high; factor 5–10 on the historical opening moves with a `date < …` raw trigger;
+economy focuses factor 0 while at war. A tree without weights plays randomly.
+
 ## Namespaces & tone
 Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
 Write terse, dry, flavorful prose — a sentence or two of description per focus.

@@ -6,7 +6,8 @@ prerequisites, mutually_exclusive, search_filters) are parsed into the data
 model, while ``available`` and ``completion_reward`` bodies are kept verbatim as
 raw lines (which the exporter re-emits). Focus titles/descriptions are pulled
 from the matching ``localisation/english/*.yml``. Advanced focus statements not
-modelled by the editor (ai_will_do, bypass, allow_branch, …) are not preserved.
+modelled by the editor (bypass, allow_branch, …) are not preserved; ai_will_do IS
+(base + modifiers, triggers kept as raw lines).
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from .types import (
+    AiModifier,
     AvailabilityRule,
     CompletionReward,
     ExportSettings,
@@ -31,6 +33,7 @@ _TREE_START = re.compile(r"\bfocus_tree\s*=\s*\{", re.IGNORECASE)
 _FOCUS_COUNT = re.compile(r"\bfocus\s*=\s*\{")
 _TAG = re.compile(r"\b(?:original_tag|tag)\s*=\s*([A-Za-z0-9_]+)")
 _ID = re.compile(r"\bid\s*=\s*([A-Za-z0-9_.]+)")
+_AI_WEIGHT_LINE = re.compile(r"^(factor|add)\s*=\s*(\S+)$", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +150,39 @@ class _PFocus:
     filters: list = field(default_factory=list)
     available_raw: list = field(default_factory=list)
     reward_raw: list = field(default_factory=list)
+    ai_base: object = None            # float, or None when ai_will_do has no base
+    ai_mods: list = field(default_factory=list)   # [(factor, add, [trigger lines])]
+
+
+def _parse_ai_will_do(body: str):
+    """``(base, [(factor, add, trigger_lines)])`` from an ai_will_do body. A bare
+    top-level ``factor`` with no ``base`` (a common MD shorthand) is the base."""
+    base, factor_top, mods = None, None, []
+    for key, kind, val in _statements(body):
+        k = key.lower()
+        if kind == "scalar":
+            if k == "base":
+                base = _to_float(val)
+            elif k == "factor":
+                factor_top = _to_float(val)
+        elif k == "modifier":
+            # factor/add are lifted; every other line is the trigger, kept
+            # verbatim (so `date > 2006.1.1` and multi-line blocks survive —
+            # _statements only understands `=`).
+            factor, add, trig = None, None, []
+            for ln in _raw_lines(val):
+                m = _AI_WEIGHT_LINE.match(ln)
+                if m:
+                    if m.group(1).lower() == "factor":
+                        factor = _to_float(m.group(2))
+                    else:
+                        add = _to_float(m.group(2))
+                    continue
+                trig.append(ln)
+            mods.append((factor, add, trig))
+    if base is None and factor_top is not None:
+        base = factor_top
+    return base, mods
 
 
 def _parse_focus(body: str) -> _PFocus:
@@ -185,6 +221,8 @@ def _parse_focus(body: str) -> _PFocus:
                 pf.available_raw = _raw_lines(val)
             elif k == "completion_reward":
                 pf.reward_raw = _raw_lines(val, drop_log=True)
+            elif k == "ai_will_do":
+                pf.ai_base, pf.ai_mods = _parse_ai_will_do(val)
     return pf
 
 
@@ -445,7 +483,15 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
         x, y = abs_pos.get(pf.id, (pf.x, pf.y))
         reward = CompletionReward(rawLines=pf.reward_raw or None)
         available = AvailabilityRule(rawLines=pf.available_raw) if pf.available_raw else None
+        # ai_will_do: base 10 is HOI4's default and the editor's "unset"; modifiers
+        # keep their triggers as raw lines (Structure Raw Script can lift them).
+        ai_base = None if pf.ai_base is None or pf.ai_base == 10 else pf.ai_base
+        ai_mods = [AiModifier(factor=f, add=a,
+                              trigger=AvailabilityRule(rawLines=t) if t else None)
+                   for f, a, t in pf.ai_mods] or None
         focuses.append(FocusNodeData(
+            aiWillDo=ai_base,
+            aiModifiers=ai_mods,
             id=pf.id,
             title=loc.get(pf.id, pf.id),
             description=loc.get(pf.id + "_desc", ""),

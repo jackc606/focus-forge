@@ -146,7 +146,39 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_shortcuts(project, focus_ids, issues)
     _validate_metadata(project, issues, known_decision_categories)
     _validate_edition(project, issues, edition, known_country_tags)
+    _validate_ai_weights(project, issues)
     return issues
+
+
+def _validate_ai_weights(project: FocusForgeProject, issues: list) -> None:
+    """ai_will_do sanity: a negative base or factor makes the AI avoid the focus
+    in a way modders rarely intend; a modifier with neither factor nor add does
+    nothing; a modifier with no trigger applies unconditionally (probably a
+    mistake — fold it into the base); condition items must be valid."""
+    for focus in project.focuses:
+        base = getattr(focus, "aiWillDo", None)
+        if base is not None and base < 0:
+            _warn_focus(issues, "focus.ai.negativeBase", focus.id,
+                        f"{focus.id}: ai_will_do base {base:g} is negative — use 0 to make the AI skip it.")
+        for i, mod in enumerate(getattr(focus, "aiModifiers", None) or [], start=1):
+            has_weight = mod.factor is not None or mod.add is not None
+            if not has_weight:
+                _warn_focus(issues, "focus.ai.modifier.noWeight", focus.id,
+                            f"{focus.id} AI modifier {i} has neither a factor nor an add — it does nothing.")
+            if mod.factor is not None and mod.factor < 0:
+                _warn_focus(issues, "focus.ai.modifier.negative", focus.id,
+                            f"{focus.id} AI modifier {i}: factor {mod.factor:g} is negative.")
+            trig = mod.trigger
+            has_trigger = bool(trig and ((trig.completedFocuses or []) or (trig.flagsRequired or [])
+                                         or (trig.flagsBlocked or []) or (trig.items or [])
+                                         or (trig.rawLines or [])))
+            if has_weight and not has_trigger:
+                _warn_focus(issues, "focus.ai.modifier.unconditional", focus.id,
+                            f"{focus.id} AI modifier {i} has no trigger, so it always applies — fold it into the base weight.")
+            for index, item in enumerate(trig.items or [], start=1) if trig else []:
+                for message in validate_availability_item(item):
+                    _err_focus(issues, "focus.ai.modifier.invalid", focus.id,
+                               f"{focus.id} AI modifier {i} condition {index}: {message}")
 
 
 _TAG_RE = re.compile(r"^[A-Z][A-Z0-9]{2}$")
@@ -265,6 +297,10 @@ def _lint_all_raw_script(project: FocusForgeProject, issues: list) -> None:
             if rule is not None:
                 check(rule.rawLines, "focus.available.script",
                       f"{focus.id} {label}", focus.id)
+        for i, mod in enumerate(getattr(focus, "aiModifiers", None) or [], start=1):
+            if mod.trigger is not None:
+                check(mod.trigger.rawLines, "focus.ai.script",
+                      f"{focus.id} AI modifier {i} trigger", focus.id)
     for idea in project.ideas:
         check(idea.modifierRawLines, "idea.modifier.script",
               f"idea {idea.id} modifiers")

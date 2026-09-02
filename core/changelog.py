@@ -9,6 +9,29 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.2",
+        "date": "2026-09-02",
+        "title": "AI weighting: make the AI play your tree properly",
+        "changes": [
+            "Every real Millennium Dawn focus carries ai_will_do modifiers, and "
+            "now yours can too. Inspector → AI Priority → \"Modifiers…\" opens an "
+            "editor for conditional weights: factor or add, plus a trigger built "
+            "from the same condition cards as Availability (or raw lines). One-"
+            "click templates cover the common shapes: never take this, only "
+            "after a date, prefer early, skip while at war, gate on a flag or "
+            "government.",
+            "Importing an MD tree now keeps its ai_will_do blocks (base and "
+            "modifiers, triggers preserved verbatim) instead of dropping them.",
+            "The AI bridge accepts aiWillDo and aiModifiers on add_focus / "
+            "update_focus and documents the idioms in reference_data, so an "
+            "agent-built tree comes with sensible AI behaviour.",
+            "Validation warns about AI weights that misbehave: negative bases or "
+            "factors, modifiers with no weight, modifiers with no trigger (fold "
+            "them into the base), and broken trigger script.",
+            "Projects that never set a modifier export exactly as before.",
+        ],
+    },
+    {
         "version": "0.4.1",
         "date": "2026-09-02",
         "title": "Converting existing projects to the Millennium Dawn Beta",

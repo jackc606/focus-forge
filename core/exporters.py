@@ -759,11 +759,34 @@ def _export_focus(focus: FocusNodeData) -> list:
     lines.extend(export_completion_reward_lines(focus.completionReward))
     lines.append(f"{TAB}{TAB}}}")
     lines.append("")
-    ai_base = getattr(focus, "aiWillDo", None)
-    lines.append(f"{TAB}{TAB}ai_will_do = {{")
-    lines.append(f"{TAB}{TAB}{TAB}base = {_format_number(ai_base) if ai_base is not None else 10}")
-    lines.append(f"{TAB}{TAB}}}")
+    lines.extend(f"{TAB}{TAB}{ln}" for ln in ai_will_do_lines(focus))
     lines.append(f"{TAB}}}")
+    return lines
+
+
+def ai_will_do_lines(focus) -> list:
+    """The ``ai_will_do = { … }`` block (unindented) for a focus: the base weight
+    (HOI4/MD default 10 when unset) followed by one ``modifier = { }`` per
+    AiModifier — ``factor`` / ``add`` first, then its trigger, rendered by the
+    same code as ``available``. Modifiers without a factor, an add or a
+    trigger are skipped (they would be dead script)."""
+    ai_base = getattr(focus, "aiWillDo", None)
+    lines = ["ai_will_do = {",
+             f"{TAB}base = {_format_number(ai_base) if ai_base is not None else 10}"]
+    for mod in (getattr(focus, "aiModifiers", None) or []):
+        factor = getattr(mod, "factor", None)
+        add = getattr(mod, "add", None)
+        trig = _availability_inner_lines(getattr(mod, "trigger", None))
+        if factor is None and add is None and not trig:
+            continue
+        lines.append(f"{TAB}modifier = {{")
+        if factor is not None:
+            lines.append(f"{TAB}{TAB}factor = {_format_number(factor)}")
+        if add is not None:
+            lines.append(f"{TAB}{TAB}add = {_format_number(add)}")
+        lines.extend(f"{TAB}{TAB}{ln}" for ln in trig)
+        lines.append(f"{TAB}}}")
+    lines.append("}")
     return lines
 
 

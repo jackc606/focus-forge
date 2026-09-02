@@ -31,6 +31,7 @@ from core.presets import MD_FOCUS_FILTERS, MD_ICON_PRESETS
 from core.types import CompletionReward, FocusPosition, normalize_prereq_groups
 
 from . import theme as T
+from .ai_weight_dialog import AiWeightDialog
 from .availability_editor import AvailabilityEditor
 from .chip_selector import ChipSelector
 from .country_editor import _IMG_FILTER, _scaled_b64_png
@@ -226,7 +227,23 @@ class InspectorPanel(QWidget):
         self._ai_priority.setToolTip(
             "ai_will_do base — how strongly the AI prioritizes this focus. 10 is "
             "the default; higher means picked sooner, 0 makes the AI avoid it.")
-        form.addRow("AI Priority", self._ai_priority)
+        ai_holder = QWidget()
+        al = QHBoxLayout(ai_holder)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.setSpacing(T.SPACE_SM)
+        al.addWidget(self._ai_priority)
+        self._ai_mods_btn = QPushButton("Modifiers…")
+        self._ai_mods_btn.setToolTip(
+            "Conditional ai_will_do modifiers (factor / add + trigger) — how real MD "
+            "trees steer the AI: historical path first, the other side of a fork never, "
+            "war paths only when war support is high.")
+        self._ai_mods_btn.clicked.connect(self._open_ai_dialog)
+        al.addWidget(self._ai_mods_btn)
+        self._ai_mods_count = QLabel()
+        self._ai_mods_count.setObjectName("hint")
+        al.addWidget(self._ai_mods_count)
+        al.addStretch(1)
+        form.addRow("AI Priority", ai_holder)
 
         # ----- Graph links -----
         form = _section("GRAPH LINKS")
@@ -411,9 +428,13 @@ class InspectorPanel(QWidget):
         self._meta_cost.setText(f"{cost:g} cost · {days}d")
         self._cost_days.setText(f"≈ {days} in-game days")
         ai = getattr(focus, "aiWillDo", None)
-        self._meta_ai.setVisible(ai is not None)
-        if ai is not None:
-            self._meta_ai.setText(f"AI {float(ai):g}")
+        n_mods = len(getattr(focus, "aiModifiers", None) or [])
+        self._meta_ai.setVisible(ai is not None or n_mods > 0)
+        if ai is not None or n_mods:
+            base = 10.0 if ai is None else float(ai)
+            self._meta_ai.setText(f"AI {base:g}" + (f" · {n_mods} mod" if n_mods else ""))
+        self._ai_mods_count.setText(
+            "" if not n_mods else f"{n_mods} modifier{'s' if n_mods != 1 else ''}")
 
     def _on_cost_changed(self, value: float) -> None:
         self._commit("cost", value)
@@ -421,6 +442,23 @@ class InspectorPanel(QWidget):
 
     def _on_ai_changed(self, value: float) -> None:
         self._commit("aiWillDo", None if value == 10 else value)
+        self._refresh_meta()
+
+    def _open_ai_dialog(self) -> None:
+        focus = self._model.find_focus(self._model.selected_id)
+        if not focus:
+            return
+        dlg = AiWeightDialog(
+            focus, country_tag=self._model.project.countryTag,
+            focus_ids=[f.id for f in self._model.project.focuses if f.id != focus.id],
+            parent=self)
+        if not dlg.exec():
+            return
+        # One undo step for base + modifiers together.
+        self._model.update_focus(focus.id, aiWillDo=dlg.base(), aiModifiers=dlg.modifiers())
+        self._suspend = True
+        self._ai_priority.setValue(10.0 if dlg.base() is None else float(dlg.base()))
+        self._suspend = False
         self._refresh_meta()
 
     # ----- validation status dot -----

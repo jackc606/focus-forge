@@ -26,6 +26,7 @@ from .reward_presets import (
     WARGOAL_TYPES,
 )
 from .serialization import (
+    _ai_modifier_from_dict,
     _availability_from_dict,
     _completion_reward_from_dict,
     _decision_category_from_dict,
@@ -67,6 +68,8 @@ def _focus_summary(f) -> dict:
         "cost": f.cost,
         "prerequisites": list(f.prerequisites),
         "mutuallyExclusive": list(f.mutuallyExclusive),
+        "aiWillDo": getattr(f, "aiWillDo", None),
+        "aiModifierCount": len(getattr(f, "aiModifiers", None) or []),
     }
 
 
@@ -135,6 +138,29 @@ def _focus_fields_from_args(args: dict) -> dict:
     if "available" in args:
         fields["available"] = (_availability_from_dict(args["available"])
                                if args["available"] else None)
+    if "aiWillDo" in args:
+        v = args["aiWillDo"]
+        if v is None:
+            fields["aiWillDo"] = None
+        else:
+            try:
+                fields["aiWillDo"] = float(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"aiWillDo must be a number or null (got {v!r}).")
+    if "aiModifiers" in args:
+        mods = args["aiModifiers"]
+        if mods is None or mods == []:
+            fields["aiModifiers"] = None
+        else:
+            if not isinstance(mods, list) or not all(isinstance(m, dict) for m in mods):
+                raise ValueError('aiModifiers must be a list of {"factor"|"add": number, '
+                                 '"trigger": {"items": [...], "rawLines": [...]}} objects.')
+            parsed = [_ai_modifier_from_dict(m) for m in mods]
+            for i, (m, p) in enumerate(zip(mods, parsed)):
+                for key in ("factor", "add"):
+                    if m.get(key) is not None and getattr(p, key) is None:
+                        raise ValueError(f"aiModifiers[{i}].{key} must be a number (got {m[key]!r}).")
+            fields["aiModifiers"] = parsed
     return fields
 
 
@@ -247,6 +273,17 @@ def _op_reference_data(model, args):
                 "Rewards."),
         },
         # MD focus-cost convention (measured from real submods) — don't use a uniform cost.
+        "aiWeightAuthoring": {
+            "note": ("EVERY real MD focus carries ai_will_do. Set aiWillDo (base; 10 = "
+                     "HOI4 default, 0 = AI never picks it) and aiModifiers: a list of "
+                     '{"factor": n | "add": n, "trigger": {"items": [condition preset '
+                     'items], "rawLines": [...]}}. Idioms: factor 0 on the non-historical '
+                     "side of a mutex fork (or gate on has_country_flag / has_government); "
+                     "factor 0 while at war for economy focuses; factor 5-10 on the "
+                     "historical opening moves with a date < trigger; factor 0 for war "
+                     "paths unless war_support is high. Triggers use the same condition "
+                     "presets as `available`."),
+        },
         "costConvention": {
             "default": 10, "leaf": 5, "trivial": 1,
             "note": "10 = standard spine/branch-head/capstone (~70 days); 5 = granular "
