@@ -348,10 +348,15 @@ class MainWindow(QMainWindow):
         self._bridge_action.toggled.connect(self._toggle_bridge)
         clear_act = act("Clear Focuses", self._on_clear_focuses,
                         tooltip="Remove every focus from this project (asks first).")
+        scan_log_act = act("Scan HOI4 error.log", self._scan_error_log,
+                           tooltip="After launching the game with this mod: show the error.log "
+                                   "lines about it, mapped back to your focuses.")
         more_menu = QMenu(self)
         for a in (import_act, save_as_act, export_as_act, structure_act,
                   shortcuts_act):
             more_menu.addAction(a)
+        more_menu.addSeparator()
+        more_menu.addAction(scan_log_act)
         more_menu.addSeparator()
         more_menu.addAction(self._bridge_action)
         more_menu.addSeparator()
@@ -988,6 +993,73 @@ class MainWindow(QMainWindow):
         if self._do_export(Path(target)):
             self._remember_export_dir(target)
             self._model.status_message.emit(f"Exported to mod: {target}")
+            self._smoke_report(target)
+
+    # ----- pre-flight / post-flight checks on the exported mod -----
+    def _smoke_report(self, target: str) -> None:
+        """Parse every file that was just written with the app's own script
+        reader and apply the load-time rules the game enforces. Silent when
+        clean (the status bar already says 'Exported'); a dialog otherwise."""
+        from core.export_check import smoke_check
+        from core.exporters import export_project_files
+        try:
+            issues = smoke_check(export_project_files(self._model.project))
+        except Exception as exc:  # never let a checker failure look like an export failure
+            self._model.status_message.emit(f"Smoke check skipped: {exc}")
+            return
+        if not issues:
+            self._model.status_message.emit(
+                f"Exported to mod: {target} — smoke check passed (every file parses, all localised).")
+            return
+        errors = [i for i in issues if i.severity == "error"]
+        lines = [f"[{i.severity}] {i.message}" for i in issues[:25]]
+        more = f"\n… and {len(issues) - 25} more" if len(issues) > 25 else ""
+        QMessageBox.warning(
+            self, "Smoke check",
+            f"The mod was written, but the exported files have {len(errors)} error(s) and "
+            f"{len(issues) - len(errors)} warning(s) the game would trip on:\n\n"
+            + "\n".join(lines) + more)
+
+    def _scan_error_log(self) -> None:
+        """Read HOI4's error.log after the user has launched the game and show
+        only the lines about this mod, each mapped back to its focus."""
+        from core.export_check import default_error_log, format_hits, log_is_stale, scan_error_log
+        from core.exporters import export_project_files
+        path = default_error_log()
+        if not os.path.isfile(path):
+            QMessageBox.information(
+                self, "Scan HOI4 error.log",
+                f"No error.log found at:\n{path}\n\nLaunch Hearts of Iron IV with the mod enabled "
+                f"once, quit, and run this again.")
+            return
+        mod_dir = self._resolve_mod_dir() or ""
+        files = export_project_files(self._model.project)
+        hits = scan_error_log(files, self._model.project, path, mod_dir=mod_dir)
+        note = ""
+        if log_is_stale(path, mod_dir):
+            note = ("\n\nNote: the mod folder was exported AFTER this log was written — launch the "
+                    "game again for a fresh log; line references below may point at old lines.")
+        if not hits:
+            QMessageBox.information(
+                self, "Scan HOI4 error.log",
+                f"No lines in error.log mention this mod. {os.path.basename(path)} last written "
+                f"{_mtime_label(path)}.{note}")
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Scan HOI4 error.log")
+        box.setIcon(QMessageBox.Warning)
+        focus_hits = [h for h in hits if h.focusId]
+        box.setText(f"{len(hits)} line(s) in error.log mention this mod"
+                    + (f"; {len(focus_hits)} map to a focus." if focus_hits else ".") + note)
+        box.setDetailedText(format_hits(hits))
+        box.setStandardButtons(QMessageBox.Ok)
+        if focus_hits:
+            jump = box.addButton("Select first focus", QMessageBox.ActionRole)
+            box.exec()
+            if box.clickedButton() is jump:
+                self._model.set_selection(focus_hits[0].focusId)
+        else:
+            box.exec()
 
     def _confirm_mod_identity(self, target: str) -> bool:
         """Refuse-to-surprise guard: if ``target`` already holds a mod whose
@@ -1280,3 +1352,15 @@ class MainWindow(QMainWindow):
     def _finish_close(self, event) -> None:
         self._bridge.stop()  # release the port + remove the discovery file
         event.accept()
+
+
+def _mtime_label(path: str) -> str:
+    """'today 17:57' / '2026-09-01 22:10' for a file's last write, for log notes."""
+    import datetime
+    try:
+        ts = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+    except OSError:
+        return "at an unknown time"
+    if ts.date() == datetime.date.today():
+        return f"today at {ts:%H:%M}"
+    return f"{ts:%Y-%m-%d %H:%M}"

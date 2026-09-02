@@ -40,6 +40,22 @@ CHANGELOG = [
             "checked against the edition's real archetypes — the beta renamed "
             "several (Inf_equipment is now infantry_weapons_type), and the "
             "equipment picker now lists the edition's own names.",
+            "Does it load? Export to Mod now runs a smoke check on every file "
+            "it wrote: each is parsed with the app's own script reader and "
+            "checked for what the game trips on at load — unbalanced braces or "
+            "quotes, a focus tree without an id, prerequisites pointing at "
+            "focuses that aren't in the tree, events outside their namespace "
+            "or with no option or no way to fire, localisation without the "
+            "l_english header or BOM, and any focus, idea or event left "
+            "without text. Also on demand from the Export tab.",
+            "Scan HOI4 error.log (… menu and Export tab): after you launch the "
+            "game with the mod, Focus Forge reads the game's error.log, keeps "
+            "only the lines about your mod, and maps each one back to the "
+            "focus it came from — with a jump to that focus. It tells you when "
+            "the log is older than your last export.",
+            "Both checks are available to AI agents over the bridge "
+            "(smoke_check, scan_error_log) so a generated tree can be verified "
+            "end to end.",
         ],
     },
     {

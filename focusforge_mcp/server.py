@@ -181,6 +181,25 @@ def validate() -> dict:
 
 
 @mcp.tool()
+def smoke_check() -> dict:
+    """Parse every file the export would write with the app's own script reader and
+    apply the game's load-time rules (balanced braces, focus/event structure, localisation
+    header + BOM, every focus/idea/event localised). Nothing is written. Returns
+    {files, errors, warnings, summary}. Run it before telling the user the mod is ready."""
+    return _call("smoke_check")
+
+
+@mcp.tool()
+def scan_error_log(since: str = "", path: str = "") -> dict:
+    """After the user launched Hearts of Iron IV with the mod: the error.log lines that
+    mention this mod, each mapped to the focus it comes from (focusId). `since` is an
+    optional HH:MM:SS to keep only the latest launch; `path` overrides the default
+    Documents/Paradox Interactive/Hearts of Iron IV/logs/error.log. `stale` = the mod was
+    exported after the log was written (line references may be off)."""
+    return _call("scan_error_log", _compact(since=since or None, path=path or None))
+
+
+@mcp.tool()
 def list_reward_presets() -> list:
     """List the available focus-reward / event-effect presets (kind, label, params).
     Use a preset's kind + params to build a completionReward item or event option effect."""

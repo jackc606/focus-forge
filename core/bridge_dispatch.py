@@ -534,6 +534,40 @@ def _op_export(model, args):
     return out
 
 
+def _op_smoke_check(model, args):
+    """Parse every file the export WOULD write and apply the game's load-time
+    structural rules (see core.export_check). Nothing is written."""
+    from .export_check import smoke_check
+    files = export_project_files(model.project)
+    issues = smoke_check(files)
+    out = {"files": len(files), "errors": [], "warnings": []}
+    for i in issues:
+        rec = {"code": i.code, "message": i.message, "focusId": i.focusId}
+        (out["errors"] if i.severity == "error" else out["warnings"]).append(rec)
+    out["summary"] = {"errors": len(out["errors"]), "warnings": len(out["warnings"])}
+    return out
+
+
+def _op_scan_error_log(model, args):
+    """Lines of HOI4's error.log (after a launch) that mention this mod, each
+    with the focus it maps to. Args: optional `path` (log file), `mod_dir`
+    (defaults to the project's export folder), `since` ('HH:MM:SS')."""
+    from .export_check import default_error_log, log_is_stale, scan_error_log
+    path = args.get("path") or default_error_log()
+    if not Path(path).is_file():
+        return {"log": path, "exists": False, "hits": [],
+                "note": "No error.log yet — launch HOI4 with the mod enabled, quit, and rerun."}
+    mod_dir = args.get("mod_dir") or (model.project.exportDir or "")
+    files = export_project_files(model.project)
+    hits = scan_error_log(files, model.project, path, mod_dir=mod_dir, since=args.get("since") or "")
+    return {
+        "log": path, "exists": True,
+        "stale": log_is_stale(path, mod_dir),
+        "hits": [{"time": h.time, "message": h.message, "file": h.file, "line": h.line,
+                  "focusId": h.focusId, "matched": h.matched} for h in hits],
+    }
+
+
 # ----- batch ---------------------------------------------------------------------
 
 _BATCH_MAX_OPS = 200
@@ -612,6 +646,8 @@ _OPS = {
     "load_project": _op_load_project,
     "save": _op_save,
     "export": _op_export,
+    "smoke_check": _op_smoke_check,
+    "scan_error_log": _op_scan_error_log,
     "batch": _op_batch,
 }
 
