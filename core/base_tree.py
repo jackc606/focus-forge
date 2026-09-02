@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .country_tags import MD_COUNTRY_TAGS
+from .country_tags import MD_COUNTRY_TAGS, country_tags_for_roots
 from .types import CompletionReward, FocusForgeProject, FocusNodeData, FocusPosition
 
 
@@ -60,8 +60,12 @@ def normalize_country_tag(tag: str) -> str:
     return cleaned or "TAG"
 
 
-def _country_name(tag: str) -> str:
-    for entry in MD_COUNTRY_TAGS:
+def _country_name(tag: str, roots=None) -> str:
+    """Core has no access to the configured game roots; a caller that has them
+    passes ``roots`` to get the live (main/beta) name, otherwise the static
+    list keeps the historic behaviour."""
+    entries = country_tags_for_roots(roots) if roots is not None else MD_COUNTRY_TAGS
+    for entry in entries:
         if entry.tag == tag:
             return entry.name
     return tag
@@ -92,11 +96,11 @@ def create_base_focus_tree(tag_input: str) -> list:
     return nodes
 
 
-def apply_base_tree_to_project(project: FocusForgeProject) -> None:
+def apply_base_tree_to_project(project: FocusForgeProject, roots=None) -> None:
     tag = normalize_country_tag(project.countryTag)
     lower_tag = tag.lower()
     project.countryTag = tag
-    project.projectName = f"{_country_name(tag)} Base Tree"
+    project.projectName = f"{_country_name(tag, roots)} Base Tree"
     project.treeId = f"{lower_tag}_focus"
     project.exportSettings.modPrefix = tag
     project.exportSettings.focusFileName = f"{lower_tag}_focus_forge"

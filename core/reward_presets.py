@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from .ideologies import IDEOLOGY_TREE
+from .md_edition import active_edition
 from .presets import MD_TECH_CATEGORIES
 
 # sub-ideology -> top ideology, for putting a leader's party in power.
@@ -445,11 +446,13 @@ def _b_foreign_influence(p):
 
 
 def _b_relative_party_popularity(p):
+    # The helper was renamed in the MD beta (add_ → change_); its inputs are the
+    # same. Emit whichever the active edition defines.
     return [
         f"set_temp_variable = {{ party_index = {_number_value(p, 'partyIndex')} }}",
         f"set_temp_variable = {{ party_popularity_increase = {_number_value(p, 'popularity')} }}",
         f"set_temp_variable = {{ temp_outlook_increase = {_number_value(p, 'outlook')} }}",
-        "add_relative_party_popularity = yes",
+        f"{active_edition().party_popularity_effect} = yes",
     ]
 
 
@@ -808,6 +811,36 @@ for _p in REWARD_PRESETS:
         _seen.add(_p.group)
 
 
+# Presets whose scripted-effect helper only exists in some MD editions.
+# kind -> predicate(edition) telling whether the edition supports it.
+_EDITION_GATES = {
+    "radicalization": lambda e: e.has_radicalization,
+}
+
+
+def preset_available(preset, edition=None) -> bool:
+    """Whether ``preset`` produces script the given (default: active) MD edition
+    actually defines."""
+    gate = _EDITION_GATES.get(preset.kind)
+    return True if gate is None else bool(gate(edition or active_edition()))
+
+
+def reward_presets(edition=None) -> list:
+    """The presets offered for an MD edition (default: the active one)."""
+    return [p for p in REWARD_PRESETS if preset_available(p, edition)]
+
+
+def reward_preset_groups(edition=None) -> list:
+    """``REWARD_PRESET_GROUPS`` filtered to what the edition supports (a group
+    that empties out is dropped)."""
+    out = []
+    for group, presets in REWARD_PRESET_GROUPS:
+        kept = [p for p in presets if preset_available(p, edition)]
+        if kept:
+            out.append((group, kept))
+    return out
+
+
 def get_reward_preset(kind: str) -> Optional[RewardPreset]:
     for preset in REWARD_PRESETS:
         if preset.kind == kind:
@@ -842,6 +875,10 @@ def validate_reward_item(item) -> list:
         return [f"Unknown reward preset {kind}."]
 
     issues: list = []
+    if not preset_available(preset):
+        issues.append(f"{preset.label} is not available in {active_edition().label} "
+                      f"(its scripted effect does not exist there) — remove it or "
+                      f"switch the project's Millennium Dawn edition in Settings.")
     for param in preset.params:
         current = params.get(param.key)
         s = "" if current is None else str(current).strip()

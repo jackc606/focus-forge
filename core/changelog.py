@@ -9,6 +9,28 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.0",
+        "date": "2026-09-02",
+        "title": "Millennium Dawn Beta support",
+        "changes": [
+            "Focus Forge now works with the Millennium Dawn BETA as well as "
+            "the main mod. Pick the edition when creating a submod, or switch "
+            "it any time in Settings → Millennium Dawn Edition; each project "
+            "remembers its target.",
+            "Exports match the edition: the right dependency name and game "
+            "version in descriptor.mod, and the beta's renamed party-popularity "
+            "helper. The Radicalization reward (a system the beta removed) is "
+            "hidden for beta projects and flagged by validation if a project "
+            "still carries one.",
+            "Game data follows the edition too — icons, parties, leaders, techs "
+            "and importable focus trees are read from the beta's own folder, "
+            "found automatically in your Steam library.",
+            "Country tag lists are now read from the mod itself instead of a "
+            "built-in copy, so new or renamed beta countries show up in every "
+            "country picker.",
+        ],
+    },
+    {
         "version": "0.3.4",
         "date": "2026-07-22",
         "title": "Minimap, lineage tracing, and one language for rewards",

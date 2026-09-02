@@ -370,6 +370,10 @@ class FocusForgeProject:
     schemaVersion: int = 1
     app: str = "Focus Forge"
     mode: str = "millennium-dawn"
+    # Which Millennium Dawn the export targets: "main" (Workshop release) or
+    # "beta" (the public beta test mod). See core.md_edition. Defaults to main so
+    # every project saved before this field existed keeps exporting identically.
+    mdEdition: str = "main"
 
 
 @dataclass

@@ -26,6 +26,13 @@ from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtGui import QPixmap
 
 from core.gfx_index import build_sprite_index, resolve_sprite
+from core.md_edition import (
+    EDITIONS,
+    edition as md_edition,
+    edition_of_root,
+    edition_of_roots,
+    roots_with_md_root,
+)
 from core.portrait_index import build_leader_portraits, resolve_portrait
 
 from .dds_image import load_dds_qimage
@@ -118,11 +125,16 @@ def _steam_library_steamapps() -> list:
     return out
 
 
-def _find_millennium_dawn(steamapps_dirs: list):
-    """The MD base-mod folder across libraries: the known workshop id first, else
-    any 394360 workshop item whose descriptor names Millennium Dawn (forks/updates)."""
+def _find_millennium_dawn(steamapps_dirs: list, edition=None):
+    """The MD base-mod folder across libraries.
+
+    With ``edition`` (an ``MDEdition``): that edition's workshop id first, else
+    any 394360 workshop item whose descriptor identifies as that edition.
+    Without: the main workshop id first, else any item whose descriptor names
+    Millennium Dawn (forks/updates) — the historical behaviour."""
+    want_id = edition.workshop_id if edition else _MD_WORKSHOP_ID
     for sa in steamapps_dirs:
-        md = os.path.join(sa, "workshop", "content", _HOI4_APPID, _MD_WORKSHOP_ID)
+        md = os.path.join(sa, "workshop", "content", _HOI4_APPID, want_id)
         if os.path.isdir(md):
             return md
     for sa in steamapps_dirs:
@@ -130,21 +142,61 @@ def _find_millennium_dawn(steamapps_dirs: list):
         if not os.path.isdir(wc):
             continue
         for sub in sorted(os.listdir(wc)):
-            desc = os.path.join(wc, sub, "descriptor.mod")
+            folder = os.path.join(wc, sub)
+            desc = os.path.join(folder, "descriptor.mod")
             if not os.path.isfile(desc):
+                continue
+            if edition is not None:
+                if edition_of_root(folder) is edition:
+                    return folder
                 continue
             try:
                 if "millennium dawn" in open(
                         desc, "r", encoding="utf-8-sig", errors="replace").read().lower():
-                    return os.path.join(wc, sub)
+                    return folder
             except OSError:
                 continue
     return None
 
 
-def autodetect_roots() -> list:
-    """Base game + Millennium Dawn base mod, found via Steam's own config on any
-    drive (registry + libraryfolders.vdf), with common-path fallbacks."""
+def _true_case(path: str) -> str:
+    """The path as it is actually spelled on disk. Steam's registry value is
+    lower-cased ("c:\\program files (x86)\\steam"), which looks wrong next to the
+    user's own entries in Settings and defeats simple string comparisons."""
+    try:
+        drive, rest = os.path.splitdrive(os.path.normpath(path))
+        cur = (drive.upper() + os.sep) if drive else os.sep
+        for part in [p for p in rest.split(os.sep) if p]:
+            try:
+                match = next((n for n in os.listdir(cur) if n.lower() == part.lower()), part)
+            except OSError:
+                match = part
+            cur = os.path.join(cur, match)
+        return cur
+    except (OSError, ValueError):
+        return path
+
+
+def find_md_editions(steamapps_dirs=None) -> dict:
+    """``{edition_key: folder}`` for every Millennium Dawn edition installed in
+    any Steam library (main release, beta test mod)."""
+    if steamapps_dirs is None:
+        steamapps_dirs = _steam_library_steamapps()
+    out = {}
+    for e in EDITIONS:
+        md = _find_millennium_dawn(steamapps_dirs, e)
+        if md:
+            out[e.key] = _true_case(md)
+    return out
+
+
+def autodetect_roots(edition=None) -> list:
+    """Base game + ONE Millennium Dawn base mod, found via Steam's own config on
+    any drive (registry + libraryfolders.vdf), with common-path fallbacks.
+
+    ``edition`` picks which MD (an ``MDEdition`` or its key). Without it: the
+    main release if installed, else the beta, else any MD-named fork — so a
+    beta-only machine still gets working game data on first run."""
     steamapps = _steam_library_steamapps()
     found = []
     for sa in steamapps:
@@ -152,7 +204,18 @@ def autodetect_roots() -> list:
         if os.path.isdir(game):
             found.append(os.path.normpath(game))
             break
-    md = _find_millennium_dawn(steamapps)
+    if edition is not None and not hasattr(edition, "workshop_id"):
+        edition = md_edition(edition)
+    md = None
+    if edition is not None:
+        md = _find_millennium_dawn(steamapps, edition)
+    else:
+        for e in EDITIONS:
+            md = _find_millennium_dawn(steamapps, e)
+            if md:
+                break
+        if not md:
+            md = _find_millennium_dawn(steamapps)
     if md:
         found.append(os.path.normpath(md))
     return found
@@ -246,6 +309,35 @@ class IconProvider(QObject):
             auto = autodetect_roots()
             if auto:
                 self.set_roots(auto)
+
+    # ----- Millennium Dawn edition (which MD base mod the roots point at) -----
+    def md_edition(self):
+        """The ``MDEdition`` of the configured roots (last MD base mod in load
+        order wins), or None when no Millennium Dawn folder is configured."""
+        return edition_of_roots(self._roots)
+
+    def installed_md_editions(self) -> dict:
+        """``{edition_key: folder}`` of the MD editions Steam has installed."""
+        return find_md_editions()
+
+    def switch_md_edition(self, key_or_edition):
+        """Point the roots at a different Millennium Dawn edition: the MD folder
+        in the list is swapped for the requested edition's (found via Steam),
+        keeping the base game and the user's submods where they are.
+
+        Returns ``(ok, message)``. Fails without touching the roots when that
+        edition isn't installed."""
+        target = key_or_edition if hasattr(key_or_edition, "workshop_id") else md_edition(key_or_edition)
+        current = self.md_edition()
+        if current is target:
+            return True, f"Game data already set to {target.label}."
+        folder = self.installed_md_editions().get(target.key)
+        if not folder:
+            return False, (f"{target.label} isn't installed — subscribe to it on the Steam "
+                           f"Workshop (item {target.workshop_id}) and let Steam download "
+                           f"it, or add its folder under Settings → In-game Icons.")
+        self.set_roots(roots_with_md_root(self._roots, folder))
+        return True, f"Game data now reads from {target.label}."
 
     # ----- lookup -----
     def _build_index(self) -> None:

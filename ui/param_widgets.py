@@ -11,16 +11,30 @@ import re
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCompleter, QLineEdit, QPlainTextEdit
 
-from core.country_tags import MD_COUNTRY_TAGS
 from core.md_parties import MD_PARTIES
 from core.reward_presets import EQUIPMENT_TYPES
 
+from .country_tags_live import current_country_tags
 from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .state_provider import state_provider
 from .tech_provider import tech_provider
 
-_COUNTRY_ITEMS = [(t.tag, f"{t.tag} — {t.name}") for t in MD_COUNTRY_TAGS]
+# (source list, formatted items). Keyed on the *identity* of the list
+# ``current_country_tags`` returns: core hands back the same cached object until
+# the roots change, so a new object is exactly the "rebuild" signal — no Qt
+# wiring needed, and nothing is frozen at import time.
+_country_items_cache: tuple = (None, [])
+
+
+def _country_items() -> list:
+    global _country_items_cache
+    tags = current_country_tags()
+    source, items = _country_items_cache
+    if source is not tags:
+        items = [(t.tag, f"{t.tag} — {t.name}") for t in tags]
+        _country_items_cache = (tags, items)
+    return items
 
 
 def _fmt_opinion(val) -> str:
@@ -71,7 +85,7 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
         return _id_combo(items, current, set_value, numeric=False, completer=True,
                          empty_tip="No MD opinion modifiers — type a modifier id")
     if param.type == "country_tag":
-        return _id_combo(_COUNTRY_ITEMS, current, set_value, numeric=False,
+        return _id_combo(_country_items(), current, set_value, numeric=False,
                          completer=True, empty_tip="Type a country tag")
     if param.type == "party_index":
         items = [(idx, f"{name}  ({idx})") for idx, name in MD_PARTIES]

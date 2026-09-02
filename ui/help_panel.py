@@ -278,6 +278,17 @@ HELP_TOPICS = [
          "The event editor suggests correct ids automatically, so this mostly "
          "bites hand-renamed events. Validation flags it either way. Also check "
          "the focus that fires it is actually completable!"),
+        ("I play the Millennium Dawn BETA, not the main mod",
+         "Focus Forge supports both. They are separate Workshop mods: the beta "
+         "has a different dependency name, targets a newer HOI4 version, and "
+         "renamed or removed a few scripted effects.\n\n"
+         "Pick the edition when you create a submod (New Submod → Millennium "
+         "Dawn edition), or change it any time in Settings → Millennium Dawn "
+         "Edition. Focus Forge then reads icons, parties and techs from that "
+         "edition's folder and writes the matching descriptor and effects on "
+         "export.\n\n"
+         "A mod built for one edition won't load cleanly under the other — "
+         "keep separate submods if you play both."),
         ("Millennium Dawn has no tree for my country",
          "Lots of countries (Mexico, Morocco, Portugal…) just use MD's generic "
          "tree.\n\n"

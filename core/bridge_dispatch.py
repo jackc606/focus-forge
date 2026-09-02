@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .availability_presets import AVAILABILITY_PRESETS
-from .country_tags import MD_COUNTRY_TAGS
+from .country_tags import MD_COUNTRY_TAGS, country_tags_for_roots
 from .exporters import export_project_files
 from .md_parties import MD_PARTIES
 from .presets import MD_FOCUS_FILTERS, MD_ICON_PRESETS, MD_TECH_CATEGORIES
@@ -197,9 +197,31 @@ def _op_list_condition_presets(model, args):
     return [_preset_dict(p) for p in AVAILABILITY_PRESETS]
 
 
+# Callable returning the configured game-data roots, or None. This module is
+# Qt-free and the model carries no roots, so the UI injects one
+# (``ui.country_tags_live.install_country_tag_hooks``); headless/bridge tests
+# leave it unset and get the static list.
+_roots_provider = None
+
+
+def set_roots_provider(fn) -> None:
+    global _roots_provider
+    _roots_provider = fn
+
+
+def _reference_country_tags() -> list:
+    roots = None
+    if _roots_provider is not None:
+        try:
+            roots = list(_roots_provider() or ())
+        except Exception:
+            roots = None
+    return country_tags_for_roots(roots) if roots else MD_COUNTRY_TAGS
+
+
 def _op_reference_data(model, args):
     return {
-        "countryTags": [{"tag": t.tag, "name": t.name} for t in MD_COUNTRY_TAGS],
+        "countryTags": [{"tag": t.tag, "name": t.name} for t in _reference_country_tags()],
         "parties": [{"index": idx, "name": name} for idx, name in MD_PARTIES],
         "focusFilters": list(MD_FOCUS_FILTERS),
         "iconPresets": list(MD_ICON_PRESETS),

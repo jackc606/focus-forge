@@ -15,16 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.mod_scaffold import (
-    DEFAULT_SUPPORTED_VERSION,
-    DEFAULT_TAGS,
-    MD_DEPENDENCY,
-    default_mod_root,
-    sanitize_folder,
-)
+from core.md_edition import EDITIONS, edition as md_edition
+from core.mod_scaffold import DEFAULT_TAGS, default_mod_root, sanitize_folder
 
 from . import theme as T
 from .country_tag_picker import CountryTagPicker
+from .icon_provider import provider
+from .no_scroll import NoScrollComboBox
 from .widgets import hint, panel_header, section_header
 
 _ALL_TAGS = ["Gameplay", "National Focuses", "Events", "Alternative History",
@@ -76,8 +73,24 @@ class NewSubmodDialog(QDialog):
         self._country = CountryTagPicker()
         form.addRow("Country tag", self._country)
 
-        self._supported = QLineEdit(DEFAULT_SUPPORTED_VERSION)
+        # Which Millennium Dawn the submod targets. Defaults to whatever the
+        # configured game-data folders point at, so it matches what the user plays.
+        self._edition = NoScrollComboBox()
+        for e in EDITIONS:
+            self._edition.addItem(e.label, e.key)
+        current = provider().md_edition()
+        idx = self._edition.findData(current.key if current else "main")
+        self._edition.setCurrentIndex(idx if idx >= 0 else 0)
+        self._edition.setToolTip(
+            "The beta is a separate Workshop mod (different dependency name, newer "
+            "game version, some renamed scripted effects). Pick the one you play.")
+        form.addRow("Millennium Dawn edition", self._edition)
+
+        self._supported_edited = False
+        self._supported = QLineEdit(self._current_edition().supported_version)
+        self._supported.textEdited.connect(lambda *_: setattr(self, "_supported_edited", True))
         form.addRow("Supported version", self._supported)
+        self._edition.currentIndexChanged.connect(self._on_edition_changed)
 
         # Tags
         v.addWidget(section_header("Tags"))
@@ -96,8 +109,9 @@ class NewSubmodDialog(QDialog):
 
         # Options
         v.addWidget(section_header("Options"))
-        self._dep_md = QCheckBox(f'Depends on "{MD_DEPENDENCY}"')
+        self._dep_md = QCheckBox()
         self._dep_md.setChecked(True)
+        self._refresh_dep_label()
         v.addWidget(self._dep_md)
         self._make_project = QCheckBox("Create a focus-tree project and open it")
         self._make_project.setChecked(True)
@@ -121,6 +135,17 @@ class NewSubmodDialog(QDialog):
         v.addWidget(self._buttons)
 
     # ----- helpers -----
+    def _current_edition(self):
+        return md_edition(self._edition.currentData() or "main")
+
+    def _refresh_dep_label(self) -> None:
+        self._dep_md.setText(f'Depends on "{self._current_edition().dependency}"')
+
+    def _on_edition_changed(self) -> None:
+        self._refresh_dep_label()
+        if not self._supported_edited:
+            self._supported.setText(self._current_edition().supported_version)
+
     def _on_name(self, text: str) -> None:
         if not self._folder_edited:
             self._folder.setText(sanitize_folder(text))
@@ -133,13 +158,15 @@ class NewSubmodDialog(QDialog):
     def values(self) -> dict:
         self._settings.setValue("mod_root", self._location.text())
         tags = [t for t, cb in self._tag_boxes.items() if cb.isChecked()]
-        deps = [MD_DEPENDENCY] if self._dep_md.isChecked() else []
+        ed = self._current_edition()
+        deps = [ed.dependency] if self._dep_md.isChecked() else []
         return {
             "name": self._name.text().strip() or self._folder.text().strip(),
             "folder": sanitize_folder(self._folder.text()),
             "mod_root": self._location.text().strip(),
             "country_tag": self._country.current_tag(),
-            "supported_version": self._supported.text().strip() or DEFAULT_SUPPORTED_VERSION,
+            "md_edition": ed.key,
+            "supported_version": self._supported.text().strip() or ed.supported_version,
             "tags": tags or list(DEFAULT_TAGS),
             "dependencies": deps,
             "make_project": self._make_project.isChecked(),

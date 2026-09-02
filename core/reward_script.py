@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 
+from .md_edition import PARTY_POPULARITY_EFFECTS
 from .reward_presets import build_reward_item_lines
 from .types import RewardItem
 
@@ -162,11 +163,21 @@ def _item(kind: str, params: dict) -> dict:
     return {"kind": kind, "enabled": True, "params": dict(params)}
 
 
+def _canon_helpers(joined: str) -> str:
+    """Fold helper names that differ only by MD edition onto one spelling, so
+    script written for either edition structures into the same preset (the
+    export then emits the *project's* edition's name)."""
+    canon = PARTY_POPULARITY_EFFECTS[0]
+    for alias in PARTY_POPULARITY_EFFECTS[1:]:
+        joined = joined.replace(alias, canon)
+    return joined
+
+
 def _verify(item: dict, source_lines) -> bool:
     """The parse contract: rebuilding the item must reproduce the source —
     token-identical for sequences, key/value-identical for _KV_BLOCKS."""
     built = build_reward_item_lines(item)
-    if _joined(built) == _joined(source_lines):
+    if _canon_helpers(_joined(built)) == _canon_helpers(_joined(source_lines)):
         return True
     # Key-order-insensitive comparison for the kv-block effects.
     name = _tokens(" ".join(source_lines))[0] if source_lines else ""
@@ -246,6 +257,26 @@ def parse_reward_lines(lines):
                              {"percent": m_pct.group(1),
                               "influencerTag": m_tag.group(1),
                               "targetTag": m_tgt.group(1)})
+                if _verify(item, [ln for s in group for ln in s]):
+                    items.append(item)
+                    i += 4
+                    matched = True
+        # Relative party popularity: 3 temp vars + the helper, whose name differs
+        # between MD editions (add_… in main, change_… in the beta) — both parse.
+        if joined.startswith("set_temp_variable = { party_index") and i + 3 < len(stmts):
+            group = stmts[i:i + 4]
+            g = [_joined(s) for s in group]
+            m_idx = re.match(rf"^set_temp_variable = \{{ party_index = {_NUM} \}}$", g[0])
+            m_pop = re.match(
+                rf"^set_temp_variable = \{{ party_popularity_increase = {_NUM} \}}$", g[1])
+            m_out = re.match(
+                rf"^set_temp_variable = \{{ temp_outlook_increase = {_NUM} \}}$", g[2])
+            if (m_idx and m_pop and m_out
+                    and g[3] in {f"{h} = yes" for h in PARTY_POPULARITY_EFFECTS}):
+                item = _item("relative_party_popularity",
+                             {"partyIndex": m_idx.group(1),
+                              "popularity": m_pop.group(1),
+                              "outlook": m_out.group(1)})
                 if _verify(item, [ln for s in group for ln in s]):
                     items.append(item)
                     i += 4

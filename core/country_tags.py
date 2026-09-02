@@ -1,5 +1,20 @@
-"""Millennium Dawn country tag presets — ported from countryTags.ts."""
+"""Millennium Dawn country tag presets.
+
+``MD_COUNTRY_TAGS`` is the static list ported from countryTags.ts (MD *main*
+branch at port time). It is now only the FALLBACK: the app supports the MD
+*beta* whose tag list differs (GRN/NRY/ADS/... added, GRL/LOG/NOR/... gone),
+so the live list is read from the configured game-data roots via
+``country_tags_for_roots``. Core code never touches Qt — the UI layer fetches
+roots from ``ui.icon_provider.provider()`` and passes them in.
+"""
+from __future__ import annotations
+
+import os
+import re
 from dataclasses import dataclass
+
+from .mod_paths import effective_roots_for_path
+from .pdx_loc import load_english_localisation
 
 
 @dataclass(frozen=True)
@@ -508,3 +523,151 @@ MD_COUNTRY_TAGS: list[CountryTagPreset] = [
     CountryTagPreset(tag='ZIM', name='Zimbabwe'),
     CountryTagPreset(tag='ZOM', name='Zombies'),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Live tag list from game-data roots
+# ---------------------------------------------------------------------------
+
+# `USA = "countries/USA.txt"` — tag is 3 alphanumerics (dynamic tags are D01..).
+# The `dynamic_tags = yes` marker line has a 12-char key so it never matches.
+_TAG_LINE = re.compile(r'^\s*([A-Za-z0-9]{3})\s*=\s*"([^"]*)"')
+
+# Name-key preference per tag. MD defines NO bare `TAG:` keys — only
+# ideology-specific ones (`TAG_neutrality`, `TAG_democratic`, ...) — while
+# vanilla defines only bare keys. Bare first (the game's own fallback key),
+# then the "neutral" MD name, then the other ideologies. Resolution is per
+# root, latest root first, so MD's `MAN_neutrality "Manipur"` beats vanilla's
+# bare `MAN "Manchukuo"` for a tag both roots define.
+_NAME_SUFFIXES = ("", "_neutrality", "_democratic", "_communism", "_fascism",
+                  "_nationalist")
+
+_ICON_PREFIX = re.compile(r"£\S+\s*")   # `£GFX_flag ` icon tokens
+_COLOUR_CODE = re.compile(r"§.")         # `§Y` ... `§!` colour spans
+
+
+def clean_loc_name(value: str) -> str:
+    """Strip HOI4 rich-text markup so a country name reads as plain text."""
+    value = _ICON_PREFIX.sub("", value)
+    value = _COLOUR_CODE.sub("", value)
+    return " ".join(value.split())
+
+
+def _country_tag_files(roots) -> list:
+    """Tag files to parse, in load order.
+
+    HOI4 layers content by *relative path*: a mod file with the same name as a
+    vanilla file fully shadows it (MD's ``00_countries.txt`` replaces vanilla's
+    — which is why MD ships the whole tag list without declaring
+    ``replace_path = "common/country_tags"``). Honouring that here is what
+    keeps the 177 vanilla-only ghost tags out of the picker. ``replace_path``
+    is honoured too, for mods that do declare it."""
+    picked: dict = {}  # lowercase filename -> (root_index, abspath)
+    for idx, root in enumerate(effective_roots_for_path(roots, "common/country_tags")):
+        folder = os.path.join(root, "common", "country_tags")
+        if not os.path.isdir(folder):
+            continue
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for fn in names:
+            if fn.lower().endswith(".txt"):
+                picked[fn.lower()] = (idx, os.path.join(folder, fn))
+    # Root order first so a later root's file wins tag collisions, then
+    # filename so the order is deterministic within a root.
+    return [path for _idx, path in sorted(picked.values())]
+
+
+def parse_country_tag_file(path: str) -> list:
+    """Tags declared in one ``common/country_tags/*.txt`` file, in file order.
+    Comments and the ``dynamic_tags = yes`` marker are skipped."""
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    out: list = []
+    for line in lines:
+        line = line.split("#", 1)[0]
+        m = _TAG_LINE.match(line)
+        if m:
+            out.append(m.group(1).upper())
+    return out
+
+
+def _lookup_country_names(roots, tags) -> dict:
+    """{tag: display name} for every tag that has an English name.
+
+    One localisation walk per root (latest first), stopping early once every
+    tag is named — the same shape as ``load_english_localisation`` itself, but
+    per root so the *root* that names a tag is the latest one that knows it,
+    regardless of which key flavour it uses (see ``_NAME_SUFFIXES``)."""
+    names: dict = {}
+    remaining = set(tags)
+    for root in reversed(list(roots)):
+        if not remaining:
+            break
+        needed = {t + s for t in remaining for s in _NAME_SUFFIXES}
+        loc = load_english_localisation([root], needed)
+        if not loc:
+            continue
+        for tag in list(remaining):
+            for suffix in _NAME_SUFFIXES:
+                value = loc.get(tag + suffix)
+                if value:
+                    cleaned = clean_loc_name(value)
+                    if cleaned:
+                        names[tag] = cleaned
+                        remaining.discard(tag)
+                        break
+    return names
+
+
+def build_country_tags(roots) -> list:
+    """Parse the tag list from ``roots`` (load order). Pure — no cache.
+
+    Sorted by tag; a tag with no English name uses the tag itself. Returns
+    ``[]`` when no tag file exists under any root so the caller can fall back."""
+    roots = [r for r in (roots or ()) if r]
+    tags: dict = {}
+    for path in _country_tag_files(roots):
+        for tag in parse_country_tag_file(path):
+            tags[tag] = True
+    if not tags:
+        return []
+    names = _lookup_country_names(roots, tags)
+    return sorted((CountryTagPreset(tag=t, name=names.get(t, t)) for t in tags),
+                  key=lambda p: p.tag)
+
+
+_CACHE: dict = {}  # tuple(roots) -> list[CountryTagPreset]
+
+
+def country_tags_for_roots(roots) -> list:
+    """The tag list for ``roots``, memoised on ``tuple(roots)``; falls back to
+    the static ``MD_COUNTRY_TAGS`` when the roots yield nothing (no roots
+    configured, or none of them ships ``common/country_tags``).
+
+    Memoised because the UI asks for this on every picker/param-widget build
+    and the loc walk costs ~1 s; ``clear_country_tag_cache`` is wired to
+    ``roots_changed`` by ``ui.country_tags_live``. Treat the result as
+    read-only — it is shared between callers."""
+    key = tuple(r for r in (roots or ()) if r)
+    hit = _CACHE.get(key)
+    if hit is None:
+        hit = build_country_tags(key) or MD_COUNTRY_TAGS
+        _CACHE[key] = hit
+    return hit
+
+
+def clear_country_tag_cache() -> None:
+    _CACHE.clear()
+
+
+def country_name(roots, tag: str) -> str:
+    """Display name for ``tag`` under ``roots``, or the tag itself."""
+    for entry in country_tags_for_roots(roots):
+        if entry.tag == tag:
+            return entry.name
+    return tag

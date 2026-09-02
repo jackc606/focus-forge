@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .availability_presets import build_availability_item_lines
+from .md_edition import edition_context
 from .md_parties import MD_PARTY_LABEL_BY_INDEX, MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import build_reward_item_lines
 from .types import (
@@ -33,6 +34,14 @@ def sanitize_filename_component(name: str, fallback: str = "") -> str:
 
 
 def export_project_files(project: FocusForgeProject) -> list:
+    """Every file the project exports, built for the project's Millennium Dawn
+    edition (so the file on disk matches the target even if the UI is showing
+    a different edition's preview)."""
+    with edition_context(getattr(project, "mdEdition", "main")):
+        return _export_project_files(project)
+
+
+def _export_project_files(project: FocusForgeProject) -> list:
     settings = project.exportSettings
     files: list = [
         ExportedFile(

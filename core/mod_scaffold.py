@@ -11,10 +11,21 @@ import re
 from pathlib import Path
 
 from .file_io import atomic_write_text
+from .md_edition import MAIN as _MAIN_EDITION, edition as md_edition
 
-MD_DEPENDENCY = "Millennium Dawn: A Modern Day Mod"
+# Main-edition defaults, kept for callers that don't know about editions.
+# Edition-aware callers should use ``scaffold_defaults(edition_key)``.
+MD_DEPENDENCY = _MAIN_EDITION.dependency
 DEFAULT_TAGS = ["Gameplay", "National Focuses"]
-DEFAULT_SUPPORTED_VERSION = "1.17.*"
+DEFAULT_SUPPORTED_VERSION = _MAIN_EDITION.supported_version
+
+
+def scaffold_defaults(edition_key: str = "main") -> dict:
+    """``{"dependencies": [...], "supported_version": "..."}`` for the Millennium
+    Dawn edition a submod targets (the beta is a separate Workshop item with its
+    own dependency name and a newer supported HOI4 version)."""
+    e = md_edition(edition_key)
+    return {"dependencies": [e.dependency], "supported_version": e.supported_version}
 
 # Directories a focus-oriented submod typically needs.
 SKELETON_DIRS = [

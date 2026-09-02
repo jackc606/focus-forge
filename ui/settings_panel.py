@@ -18,6 +18,12 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
+from core.md_edition import (
+    EDITIONS,
+    edition as md_edition,
+    edition_of_root,
+    set_active_edition,
+)
 from core.version import version_label
 
 from . import theme as T
@@ -158,6 +164,25 @@ class SettingsPanel(QWidget):
         a.addWidget(btn)
         v.addWidget(action)
 
+        # ----- Millennium Dawn edition -----
+        v.addWidget(section_header("Millennium Dawn Edition"))
+        v.addWidget(hint(
+            "Which Millennium Dawn this project is for. The beta is a separate "
+            "Workshop mod with a different dependency name, a newer game version "
+            "and a few renamed scripted effects — Focus Forge exports the right "
+            "ones and reads game data (icons, parties, techs) from that edition."))
+        ed_form = QFormLayout()
+        ed_form.setSpacing(T.SPACE_SM)
+        v.addLayout(ed_form)
+        self._md_edition = NoScrollComboBox()
+        for e in EDITIONS:
+            self._md_edition.addItem(e.label, e.key)
+        self._md_edition.currentIndexChanged.connect(self._on_md_edition_changed)
+        ed_form.addRow("Target edition", self._md_edition)
+        self._md_edition_status = hint("")
+        v.addWidget(self._md_edition_status)
+        provider().roots_changed.connect(self._update_md_edition_status)
+
         # ----- In-game Icons -----
         v.addWidget(section_header("In-game Icons"))
         v.addWidget(hint(
@@ -267,7 +292,38 @@ class SettingsPanel(QWidget):
         self._include_ideas.setChecked(p.exportSettings.includeIdeas)
         self._include_events.setChecked(p.exportSettings.includeEvents)
         self._include_decisions.setChecked(p.exportSettings.includeDecisions)
+        idx = self._md_edition.findData(md_edition(getattr(p, "mdEdition", "main")).key)
+        self._md_edition.setCurrentIndex(idx if idx >= 0 else 0)
         self._suspend = False
+        self._update_md_edition_status()
+
+    # ----- Millennium Dawn edition -----
+    def _on_md_edition_changed(self) -> None:
+        if self._suspend:
+            return
+        key = self._md_edition.currentData() or "main"
+        set_active_edition(key)
+        # The main window's project_changed handler swaps the game-data roots to
+        # match; if that edition isn't installed the status line below says so.
+        self._model.update_project_meta(mdEdition=key)
+        self._update_md_edition_status()
+
+    def _update_md_edition_status(self) -> None:
+        target = md_edition(self._md_edition.currentData() or "main")
+        current = provider().md_edition()
+        installed = provider().installed_md_editions()
+        if current is target:
+            self._md_edition_status.setText(
+                f"Game data is read from {target.label} ({installed.get(target.key, 'configured folder')}).")
+        elif target.key not in installed and not any(
+                edition_of_root(r) is target for r in provider().roots()):
+            self._md_edition_status.setText(
+                f"⚠ {target.label} isn't installed — subscribe to Workshop item "
+                f"{target.workshop_id} in Steam, or add its folder below. Exports still "
+                f"target {target.label}, but dropdowns show the other edition's data.")
+        else:
+            self._md_edition_status.setText(
+                f"Switching game data to {target.label}…")
 
     def _commit(self, attr: str, value) -> None:
         if self._suspend:
@@ -351,7 +407,7 @@ class SettingsPanel(QWidget):
             )
             if ans != QMessageBox.Yes:
                 return
-        apply_base_tree_to_project(self._model.project)
+        apply_base_tree_to_project(self._model.project, roots=provider().roots())
         if self._model.project.focuses:
             self._model.set_selection(self._model.project.focuses[0].id)
         self._model.notify_changed()

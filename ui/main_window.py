@@ -30,12 +30,11 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
+from core.md_edition import edition as md_edition, set_active_edition
 from core.reward_script import structure_all_rewards
 from core.focus_import import find_focus_trees, import_focus_tree
 from core.mod_scaffold import (
-    DEFAULT_SUPPORTED_VERSION,
     DEFAULT_TAGS,
-    MD_DEPENDENCY,
     default_mod_root,
     find_mod_root,
     is_hoi4_mod_root,
@@ -49,6 +48,7 @@ from core.version import __version__, version_label
 
 from . import theme as T
 from .country_editor import CountryEditorDialog
+from .country_tags_live import install_country_tag_hooks
 from .country_export import (
     export_country_assets,
     export_decision_assets,
@@ -214,6 +214,9 @@ class MainWindow(QMainWindow):
         # In-game icon provider: seed roots on first run, repaint when they change.
         provider().changed.connect(self._on_icons_changed)
         provider().ensure_default_roots()
+        # Country-tag lists follow the configured roots (MD main vs beta differ);
+        # also lets the AI bridge serve live tags before any picker exists.
+        install_country_tag_hooks()
         # Warm the sprite index and the game-data providers (tech, states,
         # traits, MD politics) off-thread so the first canvas paint and the
         # first dropdown open don't scan the game files on the UI thread.
@@ -641,14 +644,18 @@ class MainWindow(QMainWindow):
         # so the player can build on what's already there; "Start blank" opts out.
         project = None
         imported = False
+        # Read game data from the edition this submod targets, so the imported
+        # tree (and every dropdown afterwards) comes from the right MD.
+        self._apply_md_edition_to_roots(vals.get("md_edition") or "main")
         if not vals.get("start_blank"):
             project = self._import_md_tree_for_tag(vals["country_tag"])
             imported = project is not None
         if project is None:
             project = FocusForgeProject(countryTag=vals["country_tag"])
-            apply_base_tree_to_project(project)  # placeholder tree + tag prefixes
+            apply_base_tree_to_project(project, roots=provider().roots())  # placeholder tree + tag prefixes
         project.projectName = vals["name"]       # the real mod name
         project.countryTag = vals["country_tag"]
+        project.mdEdition = vals.get("md_edition") or "main"
         # Remember where to publish and how to scaffold it on first export.
         project.exportDir = mod_target
         project.modMeta = {
@@ -883,10 +890,11 @@ class MainWindow(QMainWindow):
         meta = self._model.project.modMeta or {}
         name = meta.get("name") or self._model.project.projectName or os.path.basename(target)
         tags = meta.get("tags") or list(DEFAULT_TAGS)
+        target_ed = md_edition(getattr(self._model.project, "mdEdition", "main"))
         deps = meta.get("dependencies")
         if deps is None:
-            deps = [MD_DEPENDENCY]
-        sv = meta.get("supported_version") or DEFAULT_SUPPORTED_VERSION
+            deps = [target_ed.dependency]
+        sv = meta.get("supported_version") or target_ed.supported_version
         try:
             scaffold_submod(os.path.dirname(target), os.path.basename(target), name,
                             tags=tags, dependencies=deps, supported_version=sv)
@@ -1177,7 +1185,31 @@ class MainWindow(QMainWindow):
         if msg:
             self._model.status_message.emit(msg)
 
+    # ----- Millennium Dawn edition (main release vs beta) -----
+    _last_md_edition_key = None
+
+    def _apply_md_edition_to_roots(self, key: str) -> None:
+        """Point the game-data roots at the MD edition ``key`` if they aren't
+        already (no-op when that edition isn't installed — the user is told
+        once in the status bar and can fix the folders in Settings)."""
+        ok, msg = provider().switch_md_edition(key)
+        if not ok or "now reads" in msg:
+            self._model.status_message.emit(msg)
+
+    def _sync_md_edition(self) -> None:
+        """Keep three things in step with the open project's target edition:
+        the preset builders (so previews/exports emit the right helper names),
+        the game-data roots (so dropdowns, parties and imports come from the
+        right MD), and the Settings combo. Only acts when the key changes."""
+        key = getattr(self._model.project, "mdEdition", "main") or "main"
+        if key == self._last_md_edition_key:
+            return
+        self._last_md_edition_key = key
+        set_active_edition(key)
+        self._apply_md_edition_to_roots(key)
+
     def _on_project_changed(self) -> None:
+        self._sync_md_edition()
         self._scene.reconcile(self._model.project, self._model.selected_id)
         self._delete_action.setEnabled(bool(self._model.selected_id))
         self._apply_search_highlight()  # re-apply after nodes are rebuilt
