@@ -185,8 +185,13 @@ def test_bridge_reference_data_uses_roots_provider_when_set(tmp_path) -> None:
         assert ref["countryTags"] == [{"tag": "GRN", "name": "Greenland"}]
     finally:
         bridge_dispatch.set_roots_provider(None)
-    ref = bridge_dispatch._op_reference_data(None, {})
+    # Dynamic tags (D01..D75) are noise for an agent and dropped by default;
+    # include_dynamic_tags=True restores the full static list.
+    ref = bridge_dispatch._op_reference_data(None, {"include_dynamic_tags": True})
     assert len(ref["countryTags"]) == len(MD_COUNTRY_TAGS)
+    ref = bridge_dispatch._op_reference_data(None, {})
+    assert not any(t["tag"].startswith("D") and t["tag"][1:].isdigit() for t in ref["countryTags"])
+    assert len(ref["countryTags"]) == len(MD_COUNTRY_TAGS) - 75
 
 
 def test_param_widget_country_items_follow_live_list(monkeypatch) -> None:

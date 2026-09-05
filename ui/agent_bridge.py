@@ -19,7 +19,8 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QTcpServer
 
 from core.bridge_discovery import bridge_info_path, clear_bridge_info, write_bridge_info
-from core.bridge_dispatch import BRIDGE_PROTOCOL, dispatch
+from core import bridge_dispatch
+from core.bridge_dispatch import BRIDGE_PROTOCOL, dispatch, normalize_args
 
 from . import theme as T
 
@@ -44,7 +45,7 @@ _DROP_FORCE_CLOSE_MS = 3000
 _QUIET_OPS = {
     "hello", "get_project", "list_focuses", "get_focus", "get_selection",
     "validate", "list_reward_presets", "list_condition_presets", "reference_data",
-    "screenshot", "search_icons",
+    "screenshot", "search_icons", "describe_op", "guide", "list_decisions",
 }
 
 
@@ -62,6 +63,9 @@ class AgentBridge(QObject):
         self._clients = 0
         self._token = ""           # shared secret; only a process that can read
                                    # the per-user discovery file knows it
+        # Lets core reject an unresolved icon WITH suggestions (the sprite index
+        # is a UI-layer object; core only sees this callable).
+        bridge_dispatch.set_icon_search_provider(self._sprite_names)
 
     # ----- lifecycle -----
     def is_listening(self) -> bool:
@@ -189,11 +193,16 @@ class AgentBridge(QObject):
         op = request.get("op", "")
         args = request.get("args") or {}
         # `screenshot`/`search_icons` are GUI-only (need the scene / the sprite
-        # index provider) — handled here, not in core dispatch.
-        if op == "screenshot":
-            result = self._screenshot(args)
-        elif op == "search_icons":
-            result = self._search_icons(args)
+        # index provider) — handled here, not in core dispatch. They still get
+        # the same alias / unknown-arg treatment as every other op.
+        if op in ("screenshot", "search_icons"):
+            try:
+                args = normalize_args(op, args)
+            except ValueError as exc:
+                result = {"ok": False, "error": str(exc)}
+            else:
+                result = (self._screenshot(args) if op == "screenshot"
+                          else self._search_icons(args))
         else:
             result = dispatch(self._model, op, args)
         if "id" in request:
@@ -257,6 +266,11 @@ class AgentBridge(QObject):
             return {"ok": False, "error": f"Screenshot failed: {type(exc).__name__}: {exc}"}
 
     # ----- icon search -----
+    @staticmethod
+    def _sprite_names() -> list:
+        from .icon_provider import provider  # lazy: may build the sprite index
+        return [name for name, _path in provider().focus_sprites()]
+
     @staticmethod
     def _search_icons(args: dict) -> dict:
         """Substring-search the indexed focus-icon sprite names, so the agent can

@@ -20,65 +20,9 @@ mcp = FastMCP("focusforge")
 _EDITOR_OFF = ("Focus Forge isn't running, or its AI Bridge is off. Open Focus Forge and "
                "click 'AI Bridge' in the toolbar, then retry.")
 
-# Empirically-grounded conventions (measured from a real 227-focus MD submod). Load
-# this before authoring focuses so output matches Millennium Dawn idioms instead of
-# generic defaults. Exposed as both a prompt (author_md_focuses) and a tool
-# (md_focus_guide); reference_data carries the machine-readable cost/filter data.
-MD_FOCUS_GUIDE = """\
-# Authoring Millennium Dawn focuses via the Focus Forge bridge
-
-Real MD trees follow tight conventions. Match them — generic defaults read as AI slop.
-
-## Cost (never uniform)
-- `10` is the MD default (~70 days) — use for spine / branch-head / capstone focuses.
-- `5` for granular leaf or follow-up focuses.
-- `1`–`3` for trivial, near-free picks.
-Roughly: early backbone trends to 10, deep sub-branches to 5. Don't inflate capstones above 10.
-
-## Icons (distinct & thematic)
-One specific icon PER focus — real trees are ~1:1 unique. Reuse ONLY inside a tight
-thematic cluster (e.g. several nuclear focuses sharing a nuclear icon is fine). Prefer
-specific, evocative names over generic ones. Check `reference_data.iconPresets` and
-existing focus icons via `get_focus` before picking. VERIFY every icon name with
-`search_icons` before assigning it — a guessed GFX_ name that doesn't resolve renders
-as a blank in-game; `search_icons` only returns names from the real sprite index.
-
-## Search filters (almost always present)
-~80% of focuses carry 1–2 `FOCUS_FILTER_*` tags matching their theme. Pick from:
-POLITICAL, INDUSTRY, INFLUENCE, RESEARCH, INTERNAL_FACTION, STABILITY, ANNEXATION,
-MANPOWER, RESOURCE, FOREIGN_POLICY, WAR_SUPPORT, ECONOMY, EXPENDITURE. (Pass via the
-focus `filters` list.)
-
-## Structure (lean into choice)
-- ~⅔ of focuses have an `available` gate; ~⅓ are part of a `mutually_exclusive` fork.
-- Prerequisites are a list of blocks. A plain id is one required block; several
-  blocks are AND-ed (`["a","b"]` = need both). A nested list is one OR block
-  (`[["a","b"]]` = need either). Use OR to let mutually-exclusive paths reconverge
-  (e.g. a peace-OR-war fork merging back); separate AND blocks of mutex focuses
-  are unreachable.
-- Pay off a `set_country_flag` with a downstream `available = { has_country_flag = X }`.
-
-## Rewards
-Use structured presets for common bonuses (political power, stability, flags, ideas,
-tech bonus — see `list_reward_presets`). For MD-specific effects use the focus
-`completionReward.rawLines`, e.g.:
-- treasury: `set_temp_variable = { treasury_change = N }` + `modify_treasury_effect = yes`
-- party shifts: `add_popularity = { ... }`, ruling-party / coalition arrays
-- construction: `add_building_construction = { type = X level = N instant_build = yes }`
-- add a `custom_effect_tooltip = KEY` to scripted / `hidden_effect` blocks.
-
-## AI weighting (every real MD focus has it)
-Set `aiWillDo` (base; 10 = default, 0 = the AI never takes it) and `aiModifiers`:
-`[{"factor": 0, "trigger": {"items": [{"kind": "has_country_flag", "params": {"flag": "X"}}]}}, …]`
-(`add` works too). Idioms: factor 0 on the non-historical side of a mutex fork, or
-gate each side on a flag / government; factor 0 for war paths unless war support is
-high; factor 5–10 on the historical opening moves with a `date < …` raw trigger;
-economy focuses factor 0 while at war. A tree without weights plays randomly.
-
-## Namespaces & tone
-Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
-Write terse, dry, flavorful prose — a sentence or two of description per focus.
-"""
+# The Millennium Dawn authoring guide lives in core (Qt-free) so the bridge's
+# own `guide` op and this server serve the SAME text; see core/md_focus_guide.py.
+from core.md_focus_guide import MD_FOCUS_GUIDE  # noqa: E402
 
 
 class BridgeError(Exception):
@@ -130,8 +74,26 @@ def _compact(**kwargs) -> dict:
 
 @mcp.tool()
 def ping() -> dict:
-    """Check the connection. Returns app version, protocol, and a project summary."""
+    """Check the connection. Returns app version, protocol, a project summary, the list
+    of bridge op names and where to start (guide, then describe_op)."""
     return _call("hello")
+
+
+@mcp.tool()
+def describe_op(op: str | None = None) -> dict:
+    """The spec of one bridge op — description, args (type, required, aliases), returns,
+    a complete example — or, with no `op`, a compact table of every op. Call it for any
+    op you have not used yet; arg names it does not list are REJECTED by the bridge."""
+    return _call("describe_op", _compact(op=op))
+
+
+@mcp.tool()
+def guide() -> str:
+    """The Millennium Dawn focus-authoring guide, starting with the procedure to follow
+    (hello -> guide -> describe_op; read narrowly; plan cells; build in one batch; fix
+    every inline issue; validate + screenshot). Same text as md_focus_guide, served by
+    the live editor."""
+    return _call("guide")["text"]
 
 
 @mcp.tool()
@@ -142,9 +104,17 @@ def get_project() -> dict:
 
 
 @mcp.tool()
-def list_focuses() -> list:
-    """List focuses: id, title, position (x,y), icon, cost, prerequisites, mutuallyExclusive."""
-    return _call("list_focuses")
+def list_focuses(prefix: str | None = None, ids: list | None = None,
+                 x_min: int | None = None, x_max: int | None = None,
+                 y_min: int | None = None, y_max: int | None = None,
+                 fields: list | None = None, limit: int | None = None):
+    """List focus summaries (id, title, x, y, icon, cost, prerequisites, mutuallyExclusive,
+    aiWillDo, aiModifierCount). On a large tree narrow it: `prefix` (id starts with),
+    `ids`, inclusive `x_min/x_max/y_min/y_max` bounds, `fields` (subset of summary keys;
+    id always included) and `limit`. With no args returns the bare list; with any filter
+    returns {focuses, total, returned}."""
+    return _call("list_focuses", _compact(prefix=prefix, ids=ids, x_min=x_min, x_max=x_max,
+                                          y_min=y_min, y_max=y_max, fields=fields, limit=limit))
 
 
 @mcp.tool()
@@ -200,23 +170,34 @@ def scan_error_log(since: str = "", path: str = "") -> dict:
 
 
 @mcp.tool()
-def list_reward_presets() -> list:
-    """List the available focus-reward / event-effect presets (kind, label, params).
-    Use a preset's kind + params to build a completionReward item or event option effect."""
-    return _call("list_reward_presets")
+def list_reward_presets(compact: bool = True, kind: str | None = None):
+    """compact=True (default): one line per focus-reward / event-effect preset — kind, group,
+    label and a params signature like 'amount:number*' (* = required). Pass kind=<name> for
+    ONE preset in full (help text, defaults, options); compact=False for everything in full
+    (~33 KB). Build completionReward items as {"kind": ..., "params": {...}}; unknown kinds
+    and unknown/missing params are rejected by the bridge."""
+    return _call("list_reward_presets", _compact(compact=compact or None, kind=kind))
 
 
 @mcp.tool()
-def list_condition_presets() -> list:
-    """List the available availability / trigger condition presets (kind, label, params)."""
-    return _call("list_condition_presets")
+def list_condition_presets(compact: bool = True, kind: str | None = None):
+    """compact=True (default): one line per availability / trigger condition preset — kind,
+    group, label and a params signature (* = required). kind=<name> for one preset in full;
+    compact=False for everything in full. Use these for `available.items` and AI-modifier
+    triggers."""
+    return _call("list_condition_presets", _compact(compact=compact or None, kind=kind))
 
 
 @mcp.tool()
-def reference_data() -> dict:
-    """Millennium Dawn reference data: country tags, parties, focus filters, icon presets,
-    tech categories, resource/equipment/wargoal/building types. Use these for valid values."""
-    return _call("reference_data")
+def reference_data(sections: list | None = None, include_dynamic_tags: bool = False) -> dict:
+    """Millennium Dawn reference data — pass `sections` to fetch only what you need (e.g.
+    ["focusFilters", "costConvention"]); the result always lists `sections_available`
+    (countryTags, parties, focusFilters, iconPresets, techCategories, resourceTypes,
+    equipmentTypes, countryStates, wargoalTypes, buildingTypes, layoutConvention,
+    rewardAuthoring, aiWeightAuthoring, costConvention). HOI4's dynamic tags D01..D75 are
+    dropped from countryTags unless include_dynamic_tags=True."""
+    return _call("reference_data", _compact(sections=sections,
+                                            include_dynamic_tags=include_dynamic_tags or None))
 
 
 @mcp.tool()
@@ -236,8 +217,11 @@ def add_focus(title: str | None = None, x: int | None = None, y: int | None = No
               focus_id: str | None = None, icon: str | None = None,
               cost: float | None = None, description: str | None = None,
               prerequisites: list | None = None, place_below: str | None = None,
-              completion_reward: dict | None = None, available: dict | None = None) -> dict:
-    """Create a focus and return its id. Provide x and y (grid cells) to place it, pass
+              completion_reward: dict | None = None, available: dict | None = None,
+              filters: list | None = None, ai_will_do: float | None = None,
+              ai_modifiers: list | None = None, mutually_exclusive: list | None = None,
+              allow_overlap: bool = False) -> dict:
+    """Create a focus and return {id, issues}. Provide x and y (grid cells) to place it, pass
     place_below=<focus_id> to drop it in the nearest free cell on the row under that focus
     (mutually exclusive with x/y), or omit all three to auto-place below the tree.
     place_below is PLACEMENT ONLY — it does not link the parent; also pass
@@ -245,10 +229,16 @@ def add_focus(title: str | None = None, x: int | None = None, y: int | None = No
     explicitly (else it's an auto placeholder you can rename). completion_reward/available
     take the JSON shape from get_focus (use list_reward_presets / list_condition_presets to
     build items). prerequisites is a list of blocks: a plain id is required (AND); a nested
-    list is an OR group, e.g. [["a","b"]] means a OR b, [["a","b"],"c"] means (a OR b) AND c."""
+    list is an OR group, e.g. [["a","b"]] means a OR b, [["a","b"],"c"] means (a OR b) AND c.
+    REJECTED up front (nothing applied): an occupied cell (unless allow_overlap), an id with
+    spaces/punctuation, an unknown preset kind or param, a missing required param, a
+    prerequisite that doesn't exist, an icon that doesn't resolve. `issues` lists the
+    validation errors/warnings touching the new focus — fix every error."""
     args = _compact(title=title, x=x, y=y, id=focus_id, icon=icon, cost=cost,
                     description=description, prerequisites=prerequisites,
-                    place_below=place_below,
+                    place_below=place_below, filters=filters, aiWillDo=ai_will_do,
+                    aiModifiers=ai_modifiers, mutuallyExclusive=mutually_exclusive,
+                    allow_overlap=allow_overlap or None,
                     completionReward=completion_reward, available=available)
     return _call("add_focus", args)
 
@@ -259,15 +249,20 @@ def update_focus(focus_id: str, title: str | None = None, description: str | Non
                  x: int | None = None, y: int | None = None, filters: list | None = None,
                  prerequisites: list | None = None, mutually_exclusive: list | None = None,
                  notes: str | None = None, completion_reward: dict | None = None,
-                 available: dict | None = None) -> dict:
+                 available: dict | None = None, ai_will_do: float | None = None,
+                 ai_modifiers: list | None = None, allow_overlap: bool = False) -> dict:
     """Update fields on an existing focus (id stays the same — use rename_focus to change it).
-    To move it, pass BOTH x and y. completion_reward/available replace those blocks entirely.
-    prerequisites is a list of blocks: plain ids are AND-ed; a nested list is an OR group
-    (e.g. [["a","b"]] = a OR b). Passing prerequisites replaces the focus's prereqs entirely."""
+    To move it, pass BOTH x and y (an occupied cell is rejected unless allow_overlap).
+    completion_reward/available replace those blocks entirely. prerequisites is a list of
+    blocks: plain ids are AND-ed; a nested list is an OR group (e.g. [["a","b"]] = a OR b).
+    Passing prerequisites replaces the focus's prereqs entirely. Same up-front rejections as
+    add_focus; returns the focus summary plus `issues` for this focus."""
     args = _compact(id=focus_id, title=title, description=description, icon=icon, cost=cost,
                     filters=filters, prerequisites=prerequisites,
                     mutuallyExclusive=mutually_exclusive, notes=notes,
-                    completionReward=completion_reward, available=available)
+                    completionReward=completion_reward, available=available,
+                    aiWillDo=ai_will_do, aiModifiers=ai_modifiers,
+                    allow_overlap=allow_overlap or None)
     if x is not None and y is not None:
         args["position"] = {"x": x, "y": y}
     return _call("update_focus", args)
@@ -326,9 +321,12 @@ def apply_batch(ops: list) -> dict:
     `ops` = [{"op": "add_focus", "args": {...}}, ...] (max 200), using the same op names
     and args as the underlying bridge ops (add_focus, update_focus, link_prerequisite,
     delete_focus, add_idea, add_event, ...). add_focus place_below may reference a focus
-    created earlier in the same batch. Not allowed inside: batch, load_project, save,
-    export. If any op fails, NOTHING is applied and the error names the failing op.
-    Returns {"results": [per-op result, ...], "count": N}."""
+    created earlier in the same batch, and prerequisites/mutuallyExclusive may reference
+    focuses created LATER in the batch (checked at the end); link ops need both focuses to
+    exist already, so add focuses first, then links. Not allowed inside: batch,
+    load_project, save, export. If any op fails, NOTHING is applied and the error names the
+    failing op. Returns {"results": [...], "count": N, "issues": [validation issues on
+    every touched focus], "summary": {"errors", "warnings"}} — fix every error."""
     return _call("batch", {"ops": ops})
 
 

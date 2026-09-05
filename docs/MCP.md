@@ -74,16 +74,55 @@ and validate."*
 
 ## Tools
 
-Read: `ping`, `get_project`, `list_focuses`, `get_focus`, `get_selection`, `validate`,
-`list_reward_presets`, `list_condition_presets`, `reference_data`, `search_icons`.
+| Group | MCP tool | Bridge op | Notes |
+|---|---|---|---|
+| Discovery | `ping` | `hello` | version, project summary, `ops` list, `start_here` |
+| | `guide` / `md_focus_guide` | `guide` | MD authoring guide; starts with the **procedure** to follow |
+| | `describe_op(op=None)` | `describe_op` | one op's args/aliases/example, or a table of every op |
+| Read | `get_project` | `get_project` | whole project — avoid on large trees |
+| | `list_focuses(prefix, ids, x_min…y_max, fields, limit)` | `list_focuses` | bare list with no args; `{focuses, total, returned}` when filtered |
+| | `get_focus`, `get_selection`, `validate`, `smoke_check`, `scan_error_log` | same | |
+| | `list_reward_presets(compact=True, kind=None)` | `list_reward_presets` | compact = ~1/5 the size; `kind=` for one preset in full |
+| | `list_condition_presets(compact=True, kind=None)` | `list_condition_presets` | |
+| | `reference_data(sections=None, include_dynamic_tags=False)` | `reference_data` | ask for the sections you need; D01..D75 dropped by default |
+| | `search_icons`, `canvas_screenshot` | `search_icons`, `screenshot` | GUI-only |
+| Focus edits | `add_focus`, `update_focus`, `rename_focus`, `delete_focus` | same | |
+| | `link_prerequisite`, `unlink_prerequisite`, `set_mutually_exclusive`, `remove_mutex`, `select_focus` | same | |
+| | `apply_batch` | `batch` | atomic, one undo step, up to 200 ops |
+| Content | `set_metadata`, `set_export_settings`, `add_idea`/`update_idea`/`delete_idea`, `add_event`/`update_event`/`delete_event` | same | |
+| IO | `open_project`, `save_project`, `export_mod` | `load_project`, `save`, `export` | only when the user asks |
 
-Focus edits: `add_focus`, `update_focus`, `rename_focus`, `delete_focus`, `link_prerequisite`,
-`unlink_prerequisite`, `set_mutually_exclusive`, `remove_mutex`, `select_focus`, `apply_batch`.
+### Arg names and aliases
 
-Project / content: `set_metadata`, `set_export_settings`, `add_idea`/`update_idea`/`delete_idea`,
-`add_event`/`update_event`/`delete_event`.
+Every op has a spec (`describe_op`). Arg names outside the spec are **rejected** with the
+accepted list and a "did you mean" hint — a misspelt arg can never be silently dropped.
+Aliases are accepted everywhere: `focus_id` → `id`, `focus`/`prerequisite` → `target`/`prereq`,
+`focus_a`/`focus_b` → `a`/`b`, and snake_case `completion_reward` / `mutually_exclusive` /
+`ai_will_do` / `ai_modifiers` for the camelCase fields. `update_focus` takes top-level `x` + `y`
+(both) as well as `position`. A single string for `filters` is treated as a one-item list.
 
-IO: `save_project`, `export_mod`.
+### Fail-fast checks on writes
+
+`add_focus`, `update_focus`, `rename_focus`, `link_prerequisite`, `set_mutually_exclusive` (and
+every batch entry) reject up front, before anything is applied:
+
+- an id that isn't `^[A-Za-z_][A-Za-z0-9_]*$` (a slug is suggested);
+- an **occupied cell** (nearest legal free cells are suggested; `allow_overlap=true` overrides);
+- an unknown reward/condition preset `kind`, an undeclared param key, a missing required param,
+  a non-numeric number, or a reward/condition block passed as a string instead of an object;
+- a prerequisite / mutual exclusion / link that names a focus that does not exist — inside a
+  batch, forward references to focuses created later in the same batch are fine (checked at the
+  end; a still-missing id rolls the whole batch back);
+- a filter that isn't a `FOCUS_FILTER_*` token (non-standard ones are allowed but warn);
+- an icon that does not resolve, when icon roots are configured (otherwise a `note` says it
+  wasn't verified).
+
+### Inline issues
+
+Every successful focus write returns `issues: [{severity, code, message}]` — the validation
+issues touching the edited focus(es), including cycle / unreachable issues that mention them.
+`apply_batch` returns the deduped `issues` across every touched focus plus
+`summary: {errors, warnings}`. Fix every error before moving on.
 
 Tip: `get_focus` shows the JSON shape for `completionReward` / `available`; `list_reward_presets`
 and `list_condition_presets` give the valid effect/condition `kind`s and their params.

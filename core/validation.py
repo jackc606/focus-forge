@@ -9,6 +9,7 @@ from .exporters import _FILENAME_BAD_RE, sanitize_filename_component
 from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
 from .md_edition import active_edition, foreign_helpers
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
+from .presets import EDITION_ONLY_FOCUS_FILTERS, FOCUS_FILTER_PATTERN, MD_FOCUS_FILTERS
 from .reward_presets import get_reward_preset, validate_reward_item
 from .types import FocusForgeProject, ValidationIssue, iter_prereq_ids
 
@@ -148,9 +149,36 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_metadata(project, issues, known_decision_categories)
     _validate_edition(project, issues, edition, known_country_tags)
     _validate_ai_weights(project, issues)
+    _validate_filters(project, issues, edition)
     _validate_script_tokens(project, issues, edition, script_vocab, state_index,
                             equipment_types, known_country_tags)
     return issues
+
+
+def standard_focus_filters(edition=None) -> set:
+    """Every FOCUS_FILTER_* the given (default: active) MD edition localises:
+    the shared list plus that edition's own extras."""
+    e = edition or active_edition()
+    return set(MD_FOCUS_FILTERS) | set(EDITION_ONLY_FOCUS_FILTERS.get(e.key, ()))
+
+
+def _validate_filters(project: FocusForgeProject, issues: list, edition=None) -> None:
+    """A search filter the mod never localises is silently ignored in-game
+    (the filter button just never appears), so a typo like FOCUS_FILTER_AIR is
+    invisible until a player looks for it. Country-specific FOCUS_FILTER_<TAG>_*
+    filters are legitimate when the mod defines them — hence a warning, not an
+    error. A token that isn't even FOCUS_FILTER_-shaped is a hard error."""
+    known = standard_focus_filters(edition)
+    for focus in project.focuses:
+        for flt in (focus.filters or []):
+            if not isinstance(flt, str) or not FOCUS_FILTER_PATTERN.match(flt):
+                _err_focus(issues, "focus.filter.invalid", focus.id,
+                           f"{focus.id} filter {flt!r} is not a FOCUS_FILTER_* token "
+                           f"(uppercase letters, digits and _ only).")
+            elif flt not in known:
+                _warn_focus(issues, "focus.filter.nonstandard", focus.id,
+                            f"{focus.id}: {flt} is not a standard Millennium Dawn filter; "
+                            f"make sure the mod defines it or the filter button will not appear.")
 
 
 def _raw_script_sites(project: FocusForgeProject):

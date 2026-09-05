@@ -84,12 +84,12 @@ def test_add_focus_with_structured_reward_items():
     assert "add_political_power = 75" in exported
     assert "treasury_change = -6.5" in exported
     assert "modify_treasury_effect = yes" in exported
-    # An unknown kind must be caught by validation, not silently export nothing.
-    _ok(m, "update_focus", id=r["id"], completionReward={
-        "items": [{"kind": "not_a_real_kind", "enabled": True, "params": {}}]})
-    issues = _ok(m, "validate")
-    assert any("not_a_real_kind" in i["message"] or "Unknown" in i["message"]
-               for i in issues["errors"]), issues
+    # An unknown kind is rejected at write time (fail-fast), never stored.
+    res = dispatch(m, "update_focus", {"id": r["id"], "completionReward": {
+        "items": [{"kind": "not_a_real_kind", "enabled": True, "params": {}}]}})
+    assert res["ok"] is False and "Unknown reward preset 'not_a_real_kind'" in res["error"]
+    assert [i.kind for i in m.find_focus(r["id"]).completionReward.items] == [
+        "political_power", "treasury_change"]
 
 
 def test_reference_data_teaches_structured_authoring():
