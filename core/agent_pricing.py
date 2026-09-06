@@ -57,6 +57,12 @@ def format_usage(usage, model: str) -> str:
     '1.0M in (82% cached) · 30.0k out · ~$0.03'."""
     prompt = int(usage.prompt_tokens or 0)
     cached = int(getattr(usage, "cached_tokens", 0) or 0)
-    cached_note = f" ({round(100 * cached / prompt)}% cached)" if prompt and cached else ""
+    writes = int(getattr(usage, "cache_write_tokens", 0) or 0)
+    if prompt and cached:
+        cached_note = f" ({round(100 * cached / prompt)}% cached)"
+    elif writes:
+        cached_note = " (cache primed)"   # written this session, not read back yet
+    else:
+        cached_note = ""
     return (f"{_short_tokens(prompt)} in{cached_note} · "
             f"{_short_tokens(usage.completion_tokens)} out · {format_cost(usage, model)}")

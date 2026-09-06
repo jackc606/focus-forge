@@ -573,6 +573,7 @@ class _UsageView:
         self.prompt_tokens = int(data.get("prompt_tokens") or 0)
         self.completion_tokens = int(data.get("completion_tokens") or 0)
         self.cached_tokens = int(data.get("cached_tokens") or 0)
+        self.cache_write_tokens = int(data.get("cache_write_tokens") or 0)
 
     def cost_usd(self, price_in_per_m: float, price_out_per_m: float,
                  price_cached_per_m=None) -> float:

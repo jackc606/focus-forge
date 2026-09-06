@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import socket
+import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 from urllib.error import HTTPError, URLError
@@ -65,6 +66,11 @@ class AgentConfig:
     # focus list it read twenty calls ago) at roughly a third of the cost.
     max_tool_result_chars: int = 8_000    # longer tool results are truncated with a note
     context_budget_chars: int = 140_000   # when exceeded, elide the oldest tool results
+    # Provider prompt caching: a stable session_id pins follow-up requests to
+    # the provider holding the warm cache, and the top-level cache_control
+    # marker asks OpenRouter to cache up to the last cacheable block. Cache
+    # reads on Muse Spark contributor cost 1/50th of fresh input.
+    prompt_caching: bool = True
     extra_headers: dict = field(default_factory=dict)  # OpenRouter likes HTTP-Referer / X-Title
 
 
@@ -191,6 +197,7 @@ class Usage:
     completion_tokens: int = 0
     cached_tokens: int = 0
     requests: int = 0
+    cache_write_tokens: int = 0
 
     def cost_usd(self, price_in_per_m: float, price_out_per_m: float,
                  price_cached_per_m: "float | None" = None) -> float:
@@ -212,6 +219,7 @@ class Usage:
         details = usage.get("prompt_tokens_details")
         if isinstance(details, dict):
             self.cached_tokens += int(details.get("cached_tokens") or 0)
+            self.cache_write_tokens += int(details.get("cache_write_tokens") or 0)
 
 
 # ----- events ------------------------------------------------------------------------
@@ -240,6 +248,7 @@ class AgentEvent:
                 "completion_tokens": self.usage.completion_tokens,
                 "cached_tokens": self.usage.cached_tokens,
                 "requests": self.usage.requests,
+                "cache_write_tokens": self.usage.cache_write_tokens,
             },
         }
 
@@ -339,6 +348,7 @@ class AgentSession:
         self.on_event = on_event
         self.messages: list = []
         self.usage = Usage()
+        self.session_id = ""
         self._call_counter = 0
         self.reset()
 
@@ -348,6 +358,9 @@ class AgentSession:
         if self.system_prompt:
             self.messages.append({"role": "system", "content": self.system_prompt})
         self.usage = Usage()
+        # One id per conversation: the provider cache is keyed on the prefix,
+        # and sticky routing is keyed on this.
+        self.session_id = "ff-" + uuid.uuid4().hex
 
     def tool_names(self) -> list:
         return [t.get("function", {}).get("name", "") for t in self.tools]
@@ -422,6 +435,9 @@ class AgentSession:
         if self.tools:
             payload["tools"] = self.tools
             payload["tool_choice"] = "auto"
+        if self.config.prompt_caching:
+            payload["session_id"] = self.session_id
+            payload["cache_control"] = {"type": "ephemeral"}
         return payload
 
     def _call_id(self, call) -> str:
@@ -505,10 +521,19 @@ class AgentSession:
 
     def _enforce_budget(self) -> None:
         """Elide the oldest tool results (never the system prompt, never the
-        newest KEEP_RECENT messages) until the history fits the budget."""
+        newest KEEP_RECENT messages) once the history exceeds the budget.
+
+        Hysteresis on purpose: rewriting an old message changes the request
+        prefix, which throws away the provider's prompt cache for everything
+        after it. Eliding one message per round would do that every round for
+        the rest of the session; eliding down to half the budget in one pass
+        breaks the cache rarely, and the rounds in between are cache reads."""
         budget = self.config.context_budget_chars
         total = sum(_message_chars(m) for m in self.messages)
-        while total > budget:
+        if total <= budget:
+            return
+        target = budget // 2
+        while total > target:
             cutoff = len(self.messages) - KEEP_RECENT
             victim = None
             for i in range(cutoff):

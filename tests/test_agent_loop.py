@@ -507,7 +507,52 @@ def test_event_to_dict_is_plain():
     e = al.AgentEvent("usage", usage=Usage(1, 2, 3, 4))
     d = e.to_dict()
     assert d["kind"] == "usage" and d["usage"] == {
-        "prompt_tokens": 1, "completion_tokens": 2, "cached_tokens": 3, "requests": 4}
+        "prompt_tokens": 1, "completion_tokens": 2, "cached_tokens": 3, "requests": 4,
+        "cache_write_tokens": 0}
+
+
+def test_payload_carries_session_id_and_cache_control():
+    s, _ex, _g, _e = _session([reply("hi")])
+    s.run_turn("hello")
+    sent = s.transport.payloads[0]
+    assert sent["cache_control"] == {"type": "ephemeral"}
+    assert sent["session_id"].startswith("ff-") and len(sent["session_id"]) < 256
+    first = sent["session_id"]
+    s.transport.responses = [reply("again")]
+    s.run_turn("more")
+    assert s.transport.payloads[1]["session_id"] == first, "stable within a conversation"
+    s.reset()
+    assert s.session_id != first, "new chat, new cache identity"
+    off, _ex, _g, _e = _session([reply("hi")], config=AgentConfig(api_key="k", prompt_caching=False))
+    off.run_turn("hello")
+    assert "session_id" not in off.transport.payloads[0] and "cache_control" not in off.transport.payloads[0]
+
+
+def test_elision_uses_hysteresis_so_the_prefix_changes_rarely():
+    payload = {"ok": True, "result": {"blob": "y" * 3_000}}
+    cfg = AgentConfig(api_key="k", context_budget_chars=40_000)
+    # Ten 3k results in turn 1 (~31k, under budget: nothing elided).
+    s, _ex, _g, _e = _session([tool_reply([(f"c{i}", "list_focuses", {}) for i in range(10)]), reply("ok")],
+                              executor=RecordingExecutor(lambda op, a: payload), config=cfg)
+    s.run_turn("go")
+    assert all(m.get("content") != al.ELIDED_TEXT for m in s.messages)
+    # Turn 2 adds four more (~43k > 40k): one pass drops to <= half the budget,
+    # not just barely under it — so turn 3 (another ~3k) is a pure cache read.
+    s.transport.responses = [tool_reply([(f"d{i}", "list_focuses", {}) for i in range(4)]), reply("ok")]
+    s.run_turn("more")
+    total_after = sum(al._message_chars(m) for m in s.messages)
+    assert total_after <= 20_000
+    snapshot = [dict(m) for m in s.messages]
+    s.transport.responses = [tool_reply([("e0", "list_focuses", {})]), reply("ok")]
+    s.run_turn("again")
+    assert s.messages[:len(snapshot)] == snapshot, "no earlier message was rewritten"
+
+
+def test_cache_primed_label():
+    u = Usage(prompt_tokens=20_000, completion_tokens=500, cache_write_tokens=9_000)
+    assert format_usage(u, "meta/muse-spark-1.3-contributor").startswith("20.0k in (cache primed)")
+    u = Usage(prompt_tokens=20_000, completion_tokens=500, cached_tokens=9_000, cache_write_tokens=9_000)
+    assert "(45% cached)" in format_usage(u, "meta/muse-spark-1.3-contributor")
 
 
 # ----- executor integration: real model through bridge_dispatch ---------------------
