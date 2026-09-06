@@ -131,8 +131,10 @@ Do NOT borrow another country's sprites (names starting with a tag or country su
 sprite for a civilian idea (`cruisers2` is a warship, not a cruise ship). Company and
 brand logos (`tatamotors`, `kiira_motors`, `general_motors`, `fiat_cars`) count as borrowed
 too — use one only for a focus about THAT company in THAT country; otherwise pick a
-generic sprite for the idea (factory, car, battery, road). A tag at the END of the name
-(`siberian_pipeline_rus`, `..._ger`) is borrowed too. And the picture must match the
+generic sprite for the idea (factory, car, battery, road). A country tag ANYWHERE in the
+name (`GFX_focus_CHL_silverworking`, `GFX_focus_CONGO_copper_cartridges`,
+`siberian_pipeline_rus`) is borrowed too — prefer the `generic` sprite for the same idea
+(`GFX_focus_generic_...`). And the picture must match the
 idea: no hydro dam for a gas pipeline, no coal plant for a green-energy capstone. Check
 `reference_data.iconPresets` and existing focus icons via `get_focus` before picking.
 VERIFY every icon name with
@@ -142,10 +144,15 @@ the bridge rejects an unresolved icon when icon roots are configured.
 
 {_filter_paragraph()}
 ## Structure (lean into choice)
-- REQUIRED: every branch of 6+ focuses contains at least one `mutually_exclusive` fork —
-  a real choice (different rewards, different `aiModifiers`) placed before the capstone,
-  reconverging via an OR prerequisite block. A pure ladder or diamond with no decision
-  is wrong for MD; add the fork. In real trees ~⅓ of focuses sit in a fork.
+- Every branch of 6+ focuses contains ONE `mutually_exclusive` fork (two at most in a
+  15-focus branch) — a real dilemma with different rewards and different `aiModifiers`,
+  placed where the story actually splits, reconverging via an OR prerequisite block.
+  A branch with no decision is wrong for MD. So is a branch that is nothing but
+  fork → merge → fork → merge: that is a formula, not a tree. Vary the shape — a
+  spine with side leaves, a wide fan of 3-4 siblings under one parent, one long
+  chain, and the fork — the way real MD trees mix them.
+- Shape check before you send the batch: if more than a third of the focuses sit in a
+  fork, or the branch alternates fork/merge more than twice, redesign it.
 - ~⅔ of focuses have an `available` gate (a flag, a government, a date, a completed focus).
 - Prerequisites are a list of blocks. A plain id is one required block; several
   blocks are AND-ed (`["a","b"]` = need both). A nested list is one OR block
@@ -165,7 +172,11 @@ A tree without weights plays randomly.
 
 ## Namespaces & tone
 Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
-Write terse, dry, flavorful prose — a sentence or two of description per focus.
+Write terse, dry, flavorful prose — TWO full sentences of description per focus, each
+with a concrete detail (a place, a company, a number, a name). "Cananea copper feeds
+wire and pipe." is a fragment, not a description; "Cananea has mined copper since 1899.
+Sonora's smelters now feed wire, pipe and the maquilas that need both." is one.
+The root focus of a branch needs filters and aiWillDo like every other focus.
 """
 
 
