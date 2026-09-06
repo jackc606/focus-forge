@@ -121,15 +121,24 @@ Roughly: early backbone trends to 10, deep sub-branches to 5. Don't inflate caps
 ## Icons (distinct & thematic)
 One specific icon PER focus — real trees are ~1:1 unique. Reuse ONLY inside a tight
 thematic cluster (e.g. several nuclear focuses sharing a nuclear icon is fine). Prefer
-specific, evocative names over generic ones. Check `reference_data.iconPresets` and
-existing focus icons via `get_focus` before picking. VERIFY every icon name with
+specific, evocative names over generic ones. Search by THEME WORDS first
+(`search_icons` "tourism", "airport", "food", "beach"), not by whatever resolves.
+Do NOT borrow another country's sprites (names starting with a tag or country such as
+`ukr_`, `BRA_`, `POL_`) unless the focus is about that country, and never use a military
+sprite for a civilian idea (`cruisers2` is a warship, not a cruise ship). Check
+`reference_data.iconPresets` and existing focus icons via `get_focus` before picking.
+VERIFY every icon name with
 `search_icons` before assigning it — a guessed GFX_ name that doesn't resolve renders
 as a blank in-game; `search_icons` only returns names from the real sprite index, and
 the bridge rejects an unresolved icon when icon roots are configured.
 
 {_filter_paragraph()}
 ## Structure (lean into choice)
-- ~⅔ of focuses have an `available` gate; ~⅓ are part of a `mutually_exclusive` fork.
+- REQUIRED: every branch of 6+ focuses contains at least one `mutually_exclusive` fork —
+  a real choice (different rewards, different `aiModifiers`) placed before the capstone,
+  reconverging via an OR prerequisite block. A pure ladder or diamond with no decision
+  is wrong for MD; add the fork. In real trees ~⅓ of focuses sit in a fork.
+- ~⅔ of focuses have an `available` gate (a flag, a government, a date, a completed focus).
 - Prerequisites are a list of blocks. A plain id is one required block; several
   blocks are AND-ed (`["a","b"]` = need both). A nested list is one OR block
   (`[["a","b"]]` = need either). Use OR to let mutually-exclusive paths reconverge
