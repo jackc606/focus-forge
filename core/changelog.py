@@ -10,7 +10,7 @@ from __future__ import annotations
 CHANGELOG = [
     {
         "version": "0.4.3",
-        "date": "unreleased",
+        "date": "2026-09-06",
         "title": "AI bridge: fail fast, explain, and stay cheap for smaller models",
         "changes": [
             "Custom tooltips now carry their text: fill in Tooltip text and it is "
