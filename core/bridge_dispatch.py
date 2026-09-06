@@ -606,8 +606,26 @@ def _op_get_selection(model, args):
     return {"id": model.selected_id}
 
 
+def _collision_issues(model) -> list:
+    """Existing-tree collision errors against the configured roots (empty when
+    the UI hasn't installed a roots provider)."""
+    from .export_check import collision_issues_for
+    roots = _reference_roots()
+    if not roots:
+        return []
+    try:
+        return collision_issues_for(model.project, roots)
+    except Exception:
+        return []
+
+
 def _op_validate(model, args):
-    issues = model.issues()
+    issues = list(model.issues())
+    # The model's own validation includes the collision check once its
+    # background index has landed; until then (or headless) add it here so an
+    # agent never exports a tree that loads twice in-game.
+    seen = {(i.code, i.message) for i in issues}
+    issues += [i for i in _collision_issues(model) if (i.code, i.message) not in seen]
     out = {"errors": [], "warnings": []}
     for i in issues:
         rec = {"code": i.code, "message": i.message, "focusId": i.focusId}
@@ -989,7 +1007,7 @@ def _op_smoke_check(model, args):
     structural rules (see core.export_check). Nothing is written."""
     from .export_check import smoke_check
     files = export_project_files(model.project)
-    issues = smoke_check(files)
+    issues = smoke_check(files) + _collision_issues(model)
     out = {"files": len(files), "errors": [], "warnings": []}
     for i in issues:
         rec = {"code": i.code, "message": i.message, "focusId": i.focusId}

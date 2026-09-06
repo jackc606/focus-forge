@@ -318,6 +318,22 @@ def smoke_check(files) -> list:
     return issues
 
 
+def collision_issues_for(project, roots) -> list:
+    """The "replace, don't duplicate" check against the trees ``roots`` ship
+    (see core.tree_index): errors when the export would load NEXT TO a base
+    tree that defines the same focus ids. Empty with no roots. Builds the
+    shared index on this thread if it isn't cached yet — the smoke check and
+    the AI bridge are explicit, one-off calls, not keystroke validation."""
+    from .tree_index import collision_issues, current_index, find_collisions
+    roots = list(roots or ())
+    if not roots or project is None:
+        return []
+    index = current_index(lambda: roots)
+    if index is None:
+        return []
+    return collision_issues(find_collisions(project, index))
+
+
 # ---------------------------------------------------------------------------
 # Post-flight: HOI4 error.log
 # ---------------------------------------------------------------------------

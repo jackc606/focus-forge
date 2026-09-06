@@ -34,6 +34,9 @@ _FOCUS_COUNT = re.compile(r"\bfocus\s*=\s*\{")
 _TAG = re.compile(r"\b(?:original_tag|tag)\s*=\s*([A-Za-z0-9_]+)")
 _ID = re.compile(r"\bid\s*=\s*([A-Za-z0-9_.]+)")
 _AI_WEIGHT_LINE = re.compile(r"^(factor|add)\s*=\s*(\S+)$", re.IGNORECASE)
+# A focus-id prefix for "start a separate copy" imports: HOI4 id characters
+# only, and it must start with a letter so the result is a legal focus id.
+ID_PREFIX_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +284,10 @@ class FocusTreeRef:
     roots: tuple = ()         # roots to use for loc/replace_path on import; empty
                               # → the caller's default. Set for ad-hoc folders the
                               # user browses to that aren't in the configured roots.
+    id_prefix: str = ""       # "start a separate copy": every focus id becomes
+                              # <id_prefix>_<id>, the tree id / export file become
+                              # <id_prefix>_focus, so the copy can never collide
+                              # with the base tree it was cloned from.
 
 
 def _focus_files(roots):
@@ -518,15 +525,34 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
     ]
 
     tag = ref.tag if ref.tag and ref.tag != "?" else "TAG"
+    base_name = os.path.basename(ref.file)
+    base_stem = base_name[:-4] if base_name.lower().endswith(".txt") else base_name
 
     tree_id = ref.tree_id
     project_name = f"{ref.tree_id} (imported)"
-    if ref.prefix_ids and tag != "TAG":
-        # "Start from the generic tree": the generic focus ids are global and
-        # would collide with MD's own generic_focus in-game, so namespace every
-        # id under the country tag and remap the prerequisite/mutex graph to match.
-        pref = tag + "_"
-        rename = {f.id: (f.id if f.id.startswith(pref) else pref + f.id) for f in focuses}
+    # Default: the export REPLACES the file it came from. HOI4 loads every
+    # national_focus file it sees, so exporting the edited tree under any other
+    # name would define every focus twice and break the tree in-game (no
+    # prerequisite lines, nothing startable) — a real user hit exactly that.
+    focus_file = base_stem
+    mode = "replace"
+    id_prefix = (ref.id_prefix or "").strip()
+    if id_prefix and not ID_PREFIX_PATTERN.match(id_prefix):
+        raise ValueError(
+            f"'{id_prefix}' can't be used as a prefix: use letters, digits and "
+            f"underscores, starting with a letter (for example {tag}_NEW).")
+    if id_prefix or (ref.prefix_ids and tag != "TAG"):
+        # A separate COPY of the tree: namespace every id (explicit prefix, or
+        # the country tag for "start from the generic tree" — the generic focus
+        # ids are global and would collide with MD's own generic_focus) and
+        # remap the prerequisite/mutex graph to match. An explicit prefix is
+        # applied to EVERY id, even ones that already start with it, so the
+        # copy shares no id at all with the original.
+        pref = (id_prefix or tag) + "_"
+        if id_prefix:
+            rename = {f.id: pref + f.id for f in focuses}
+        else:
+            rename = {f.id: (f.id if f.id.startswith(pref) else pref + f.id) for f in focuses}
         for f in focuses:
             f.id = rename.get(f.id, f.id)
             f.prerequisites = map_prereq_groups(f.prerequisites, lambda p: rename.get(p, p))
@@ -536,8 +562,12 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
         # Shortcut targets point at renamed focuses too.
         for sc in shortcuts:
             sc.target = rename.get(sc.target, sc.target)
-        tree_id = f"{tag.lower()}_focus"
-        project_name = f"{tag} focus tree (from generic)"
+        stem = (id_prefix or tag).lower()
+        tree_id = f"{stem}_focus"
+        focus_file = f"{stem}_focus"
+        project_name = (f"{tag} focus tree (copy)" if id_prefix
+                        else f"{tag} focus tree (from generic)")
+        mode = "copy"
 
     return FocusForgeProject(
         projectName=project_name,
@@ -548,7 +578,8 @@ def import_focus_tree(ref: FocusTreeRef, roots) -> FocusForgeProject:
         shortcuts=shortcuts,
         exportSettings=ExportSettings(
             modPrefix=tag,
-            focusFileName=f"{tag.lower()}_focus",
+            focusFileName=focus_file,
             localisationPrefix=tag,
         ),
+        source={"file": base_name, "treeId": ref.tree_id, "tag": ref.tag, "mode": mode},
     )

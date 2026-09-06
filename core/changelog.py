@@ -56,6 +56,14 @@ CHANGELOG = [
             "it reads to the provider you configure, and only when you send a "
             "message. The key is stored on this computer only. The existing LLM "
             "tab and the MCP bridge are unchanged.",
+            "Editing an existing Millennium Dawn tree now replaces it instead of "
+            "silently loading next to it: importing an MD tree exports under MD's "
+            "own file name, and the import dialog offers a prefixed separate copy "
+            "if you'd rather keep MD's tree too.",
+            "If an export would still clash with an MD tree (same focus ids, "
+            "different file), Validation says so in plain words, the Export tab "
+            "shows a red status with a Fix button, and Export itself stops to "
+            "offer the one-click fixes before writing anything broken.",
         ],
     },
     {

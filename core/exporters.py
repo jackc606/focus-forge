@@ -33,6 +33,13 @@ def sanitize_filename_component(name: str, fallback: str = "") -> str:
     return cleaned or fallback
 
 
+def focus_file_basename(settings) -> str:
+    """The focus-tree file name the export writes (``<focusFileName>.txt``).
+    The collision guard compares THIS against the base mod's files, so it is
+    the one place the name is spelled out."""
+    return f"{settings.focusFileName}.txt"
+
+
 def export_project_files(project: FocusForgeProject) -> list:
     """Every file the project exports, built for the project's Millennium Dawn
     edition (so the file on disk matches the target even if the UI is showing
@@ -45,7 +52,7 @@ def _export_project_files(project: FocusForgeProject) -> list:
     settings = project.exportSettings
     files: list = [
         ExportedFile(
-            relativePath=f"common/national_focus/{settings.focusFileName}.txt",
+            relativePath=f"common/national_focus/{focus_file_basename(settings)}",
             content=export_focus_tree(project),
         ),
         ExportedFile(

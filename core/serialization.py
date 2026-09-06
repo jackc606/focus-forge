@@ -411,4 +411,5 @@ def project_from_dict(d: dict) -> FocusForgeProject:
         app=str(d.get("app", "Focus Forge")),
         mode=str(d.get("mode", "millennium-dawn")),
         mdEdition=str(d.get("mdEdition", "main") or "main"),
+        source=dict(d.get("source") or {}),
     )

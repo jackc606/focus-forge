@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal, Slot
 
 from core.exporters import export_project_files
 from core.file_io import atomic_write_bytes
@@ -40,6 +40,10 @@ class ProjectModel(QObject):
     status_message = Signal(str)
     project_path_changed = Signal(str)  # "" for unsaved
     dirty_changed = Signal(bool)        # True when there are unsaved changes
+    # Emitted (from a worker thread) when the base-tree index finishes its
+    # background build; re-runs validation so the collision check appears
+    # without waiting for the next edit.
+    tree_index_ready = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -72,6 +76,7 @@ class ProjectModel(QObject):
         self._validation_timer.setSingleShot(True)
         self._validation_timer.setInterval(250)
         self._validation_timer.timeout.connect(self._emit_validation)
+        self.tree_index_ready.connect(self._on_tree_index_ready)
 
     # ----- accessors -----
     @property
@@ -112,7 +117,25 @@ class ProjectModel(QObject):
                                 known_country_tags=self._known_country_tags(),
                                 script_vocab=self._script_index("script_vocabulary_cached"),
                                 state_index=self._script_index("state_index_cached"),
-                                equipment_types=self._script_index("equipment_types_cached"))
+                                equipment_types=self._script_index("equipment_types_cached"),
+                                tree_index=self._tree_index())
+
+    def _tree_index(self):
+        """The base-tree index (core.tree_index) for the configured roots, or
+        None while it is still building / there are no roots. Self-warming
+        like the script indexes: the first call starts a background scan (MD
+        main is ~20 MB of trees, ~2 s) and validation re-runs when it lands,
+        so no keystroke ever waits on it."""
+        try:
+            from .icon_provider import provider
+            roots = list(provider().roots())
+        except Exception:
+            return None
+        if not roots:
+            return None
+        from core.tree_index import current_index
+        return current_index(lambda: roots, block=False,
+                             on_ready=self.tree_index_ready.emit)
 
     @staticmethod
     def _script_index(getter: str):
@@ -1058,12 +1081,12 @@ class ProjectModel(QObject):
         self._current_state = new_state
         self._last_mutation = now
 
+    @Slot()
+    def _on_tree_index_ready(self) -> None:
+        # Queued onto the model's thread by Qt (the emit came from the index
+        # builder thread); coalesce with any pending validation pass.
+        self._validation_timer.start()
+
     def _emit_validation(self) -> None:
         self.validation_changed.emit(
-            validate_project(self._project, icon_exists=self._icon_exists(),
-                             known_decision_categories=self._known_decision_categories(),
-                             known_idea_ids=self._known_idea_ids(),
-                             known_country_tags=self._known_country_tags(),
-                                script_vocab=self._script_index("script_vocabulary_cached"),
-                                state_index=self._script_index("state_index_cached"),
-                                equipment_types=self._script_index("equipment_types_cached")))
+            self.issues())

@@ -256,6 +256,14 @@ HELP_TOPICS = [
          "ideas, events, country history, flags, icons) into your HOI4 mod "
          "folder. The first export also creates the mod's descriptor so the "
          "launcher can see it."),
+        ("Editing an existing Millennium Dawn tree — replace or copy?",
+         "When you import one of MD's own trees, your export uses the SAME file "
+         "name, so in-game your tree replaces MD's. That is the normal way to edit "
+         "an existing tree — the game must never see both files, or every focus is "
+         "defined twice and the tree breaks (no lines, nothing startable).\n\n"
+         "Want MD's tree to stay and yours to sit beside it? Tick “Start a separate "
+         "copy instead” when importing and every focus gets a prefix. The Export "
+         "tab shows which case you're in, and Fix repairs a clash in one click."),
     ]),
     ("Fixing common problems", [
         ("My tree doesn't show up in-game",

@@ -386,6 +386,10 @@ class FocusForgeProject:
     # "beta" (the public beta test mod). See core.md_edition. Defaults to main so
     # every project saved before this field existed keeps exporting identically.
     mdEdition: str = "main"
+    # Where an imported tree came from: {"file": basename, "treeId", "tag",
+    # "mode": "replace" | "copy"}. Editor-only provenance (never exported) so
+    # the UI can say "this replaces MD's nigeria.txt" instead of guessing.
+    source: dict = field(default_factory=dict)
 
 
 @dataclass

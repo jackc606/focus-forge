@@ -57,6 +57,7 @@ from .country_export import (
     export_focus_icon_assets,
 )
 from .export_panel import ExportPanel
+from .export_preflight import run_export_preflight
 from .help_panel import HelpPanel
 from .icon_provider import provider
 from .import_tree_dialog import ImportTreeDialog
@@ -996,6 +997,8 @@ class MainWindow(QMainWindow):
             return
         if not self._ensure_mod_scaffolded(target):
             return
+        if not run_export_preflight(self, self._model, provider().roots()):
+            return
         self._default_export_dir = target
         if self._do_export(Path(target)):
             self._remember_export_dir(target)
@@ -1110,6 +1113,8 @@ class MainWindow(QMainWindow):
             return
         directory = self._prepare_export_destination(directory)
         if not directory:
+            return
+        if not run_export_preflight(self, self._model, provider().roots()):
             return
         self._default_export_dir = directory
         if self._do_export(Path(directory)):

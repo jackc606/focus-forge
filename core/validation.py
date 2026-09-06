@@ -51,14 +51,18 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_decision_categories=None,
                      known_idea_ids=None, edition=None,
                      known_country_tags=None, script_vocab=None,
-                     state_index=None, equipment_types=None) -> list:
+                     state_index=None, equipment_types=None,
+                     tree_index=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
     ``known_decision_categories`` is an optional set of existing game/MD
     decision-category ids; when provided, unknown category references warn.
     ``known_idea_ids`` is an optional set of idea ids defined by the game/MD —
-    tag-prefixed idea references found there are legal, not warnings."""
+    tag-prefixed idea references found there are legal, not warnings.
+    ``tree_index`` is an optional ``core.tree_index.BaseTreeIndex`` of the
+    trees the game/MD already ship; with it, an export that would load next
+    to (instead of replacing) a base tree sharing its focus ids is an error."""
     issues: list = []
     focus_ids: set = set()
     seen_positions: dict = {}
@@ -152,6 +156,9 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_filters(project, issues, edition)
     _validate_script_tokens(project, issues, edition, script_vocab, state_index,
                             equipment_types, known_country_tags)
+    if tree_index is not None:
+        from .tree_index import collision_issues, find_collisions
+        issues.extend(collision_issues(find_collisions(project, tree_index)))
     return issues
 
 
