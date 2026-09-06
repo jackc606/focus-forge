@@ -313,6 +313,35 @@ def compact_tool_result(op: str, result) -> object:
     return {"ok": True, "result": compact}
 
 
+ELIDED_ARGS = '{"_elided": "see the tool result"}'
+
+
+def _elidable(message: dict) -> bool:
+    """Old tool results AND the assistant's own old tool-call arguments. In a
+    real session the arguments (whole batches of focuses as JSON) are the bulk
+    of the history — measured at ~80% — and the compacted tool result already
+    records what they produced, so keeping them verbatim buys nothing."""
+    role = message.get("role")
+    if role == "tool":
+        return message.get("content") != ELIDED_TEXT
+    if role == "assistant":
+        for call in message.get("tool_calls") or []:
+            fn = call.get("function") if isinstance(call, dict) else None
+            if isinstance(fn, dict) and fn.get("arguments") not in (None, ELIDED_ARGS):
+                return True
+    return False
+
+
+def _elide(message: dict) -> None:
+    if message.get("role") == "tool":
+        message["content"] = ELIDED_TEXT
+        return
+    for call in message.get("tool_calls") or []:
+        fn = call.get("function") if isinstance(call, dict) else None
+        if isinstance(fn, dict) and "arguments" in fn:
+            fn["arguments"] = ELIDED_ARGS
+
+
 def _message_chars(message: dict) -> int:
     try:
         return len(json.dumps(message, ensure_ascii=False, default=str))
@@ -564,11 +593,11 @@ class AgentSession:
             victim = None
             for i in range(cutoff):
                 m = self.messages[i]
-                if m.get("role") == "tool" and m.get("content") != ELIDED_TEXT:
+                if _elidable(m):
                     victim = m
                     break
             if victim is None:
                 return
             total -= _message_chars(victim)
-            victim["content"] = ELIDED_TEXT
+            _elide(victim)
             total += _message_chars(victim)

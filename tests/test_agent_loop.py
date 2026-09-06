@@ -548,6 +548,30 @@ def test_elision_uses_hysteresis_so_the_prefix_changes_rarely():
     assert s.messages[:len(snapshot)] == snapshot, "no earlier message was rewritten"
 
 
+def test_elision_also_blanks_old_tool_call_arguments():
+    # The model's own batch arguments dominate a real history; tool results are
+    # tiny after compaction. Elision must be able to reclaim the arguments.
+    big_args = json.dumps({"ops": [{"op": "add_focus", "args": {"id": f"MEX_{i}", "description": "d" * 400}} for i in range(20)]})
+    cfg = AgentConfig(api_key="k", context_budget_chars=30_000)
+    small = {"ok": True, "result": {"count": 20, "ids": ["MEX_0"], "issues": []}}
+    s, _ex, _g, _e = _session([tool_reply([("b1", "batch", big_args)]), reply("built")],
+                              executor=RecordingExecutor(lambda op, a: small), config=cfg)
+    s.run_turn("go")                       # ~9k chars, under budget
+    s.transport.responses = [tool_reply([("b2", "batch", big_args)]), reply("built")]
+    s.run_turn("more")                     # ~18k, still under
+    s.transport.responses = [tool_reply([("b3", "batch", big_args)]), tool_reply([("b4", "batch", big_args)]), reply("built")]
+    s.run_turn("again")                    # crosses 30k -> elide to <= 15k
+    total = sum(al._message_chars(m) for m in s.messages)
+    # b3 and b4 sit inside the protected recent window (~9k each), so the floor
+    # is what they weigh; everything older must have been reclaimed.
+    assert total < 24_000, total
+    calls = [m for m in s.messages if m.get("role") == "assistant" and m.get("tool_calls")]
+    assert [c["tool_calls"][0]["function"]["arguments"] == al.ELIDED_ARGS for c in calls] == [True, True, False, False]
+    assert calls[0]["tool_calls"][0]["id"] == "b1", "ids kept so tool messages still pair"
+    last_call = [m for m in s.messages if m.get("role") == "assistant" and m.get("tool_calls")][-1]
+    assert last_call["tool_calls"][0]["function"]["arguments"] == big_args, "recent window untouched"
+
+
 def test_cache_primed_label():
     u = Usage(prompt_tokens=20_000, completion_tokens=500, cache_write_tokens=9_000)
     assert format_usage(u, "meta/muse-spark-1.3-contributor").startswith("20.0k in (cache primed)")
