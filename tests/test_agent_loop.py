@@ -427,7 +427,8 @@ def test_build_system_prompt_contains_guide_project_and_screenshot_note():
 
 def test_default_tools_exclude_panel_affairs():
     names = {t["function"]["name"] for t in default_tools()}
-    assert not names & {"hello", "guide", "load_project"}
+    assert not names & {"guide", "load_project"}
+    assert "hello" in names
     assert {"add_focus", "batch", "save", "export", "screenshot", "search_icons",
             "describe_op", "list_ideas", "list_events"} <= names
 
@@ -588,6 +589,15 @@ def test_assistant_history_keeps_only_role_content_tool_calls():
     assert set(stored) == {"role", "content", "tool_calls"}
     assert stored["tool_calls"][0]["id"] == "c1"
     assert AgentConfig().max_rounds >= 60
+
+
+def test_namespaced_tool_name_resolves_and_hello_is_available():
+    names = {t["function"]["name"] for t in default_tools()}
+    assert "hello" in names and "guide" not in names
+    s, ex, _g, _e = _session([tool_reply([("c1", "default.list_focuses", {})]), reply("ok")])
+    s.run_turn("go")
+    assert ex.calls and ex.calls[0][0] == "list_focuses"
+    assert "Procedure step 1 is already done" in build_system_prompt({"name": "X"}, "")
 
 
 def test_cache_primed_label():

@@ -35,7 +35,9 @@ DESTRUCTIVE_OPS = frozenset({
 
 # Not offered to the model: hello/guide are baked into the system prompt,
 # describe_op is redundant with the tool schemas, and the user opens files.
-EXCLUDED_TOOLS = ("hello", "guide", "load_project")
+# hello stays available: the guide (shared with MCP clients) tells the model to
+# call it, and a model that cannot will invent a name for it.
+EXCLUDED_TOOLS = ("guide", "load_project")
 
 DECLINED_TEXT = ("The user declined this action. Do not retry it; ask them what "
                  "they'd like instead.")
@@ -294,6 +296,8 @@ def build_system_prompt(project_summary: dict, guide_text: str) -> str:
         "Millennium Dawn focus tree by calling tools. The tools are the Focus Forge "
         "bridge ops. Prefer one `batch` per feature. Follow the guide below exactly.",
         CAPABILITIES_TEXT,
+        "Procedure step 1 is already done: this message IS the guide and the project "
+        "summary. Do not call `guide`; `hello` only if you need fresh counts.",
         project_line + " The canvas updates live as you call tools; the user watches.",
         guide_text or "",
         "Respond to the user in their language, briefly. When you finish, summarise what "
@@ -565,6 +569,8 @@ class AgentSession:
             return result
         self._emit(AgentEvent("tool_call", op=op, args=args, call_id=call_id))
         names = self.tool_names()
+        if op not in names and "." in op and op.rsplit(".", 1)[-1] in names:
+            op = op.rsplit(".", 1)[-1]        # "default.hello" -> "hello" (namespaced by the model)
         if op not in names:
             result = {"ok": False, "error": f"Unknown tool '{op}'. Available: {', '.join(names)}"}
         elif needs_approval(op, args) and not self._approved(op, args):
