@@ -572,9 +572,14 @@ class _UsageView:
     def __init__(self, data: dict) -> None:
         self.prompt_tokens = int(data.get("prompt_tokens") or 0)
         self.completion_tokens = int(data.get("completion_tokens") or 0)
+        self.cached_tokens = int(data.get("cached_tokens") or 0)
 
-    def cost_usd(self, price_in_per_m: float, price_out_per_m: float) -> float:
-        return (self.prompt_tokens * price_in_per_m
+    def cost_usd(self, price_in_per_m: float, price_out_per_m: float,
+                 price_cached_per_m=None) -> float:
+        cached = min(self.cached_tokens, self.prompt_tokens)
+        fresh = self.prompt_tokens - cached
+        cached_price = price_in_per_m if price_cached_per_m is None else price_cached_per_m
+        return (fresh * price_in_per_m + cached * cached_price
                 + self.completion_tokens * price_out_per_m) / 1_000_000
 
 

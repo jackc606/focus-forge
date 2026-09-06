@@ -7,17 +7,20 @@ rather than a made-up number.
 """
 from __future__ import annotations
 
-# model id -> (price_in_per_m, price_out_per_m), USD per 1M tokens.
+# model id -> (price_in_per_m, price_out_per_m, price_cached_in_per_m), USD per 1M
+# tokens. Cached input is what the provider charges for prompt-cache hits — on
+# Muse Spark contributor it is 50x cheaper than fresh input, which is the whole
+# reason the label shows the cached share.
 MODEL_PRICES: dict = {
-    "meta/muse-spark-1.3-contributor": (0.10, 0.20),
-    "meta/muse-spark-1.3": (0.10, 0.20),
+    "meta/muse-spark-1.3-contributor": (0.10, 0.20, 0.002),
+    "meta/muse-spark-1.3": (0.10, 0.20, 0.002),
 }
 
 DEFAULT_MODEL = "meta/muse-spark-1.3-contributor"
 
 
 def prices_for(model: str):
-    """``(in, out)`` per-million prices for ``model``, or None when unknown.
+    """``(in, out, cached_in)`` per-million prices for ``model``, or None when unknown.
     OpenRouter variant suffixes (``:free``, ``:nitro``) fall back to the base id."""
     if not model:
         return None
@@ -49,6 +52,11 @@ def format_cost(usage, model: str) -> str:
 
 
 def format_usage(usage, model: str) -> str:
-    """The header label: '12.4k in · 2.1k out · ~$0.002'."""
-    return (f"{_short_tokens(usage.prompt_tokens)} in · "
+    """The header label: '12.4k in · 2.1k out · ~$0.002', or with the cached
+    share when the provider reported prompt-cache hits:
+    '1.0M in (82% cached) · 30.0k out · ~$0.03'."""
+    prompt = int(usage.prompt_tokens or 0)
+    cached = int(getattr(usage, "cached_tokens", 0) or 0)
+    cached_note = f" ({round(100 * cached / prompt)}% cached)" if prompt and cached else ""
+    return (f"{_short_tokens(prompt)} in{cached_note} · "
             f"{_short_tokens(usage.completion_tokens)} out · {format_cost(usage, model)}")

@@ -125,7 +125,10 @@ specific, evocative names over generic ones. Search by THEME WORDS first
 (`search_icons` "tourism", "airport", "food", "beach"), not by whatever resolves.
 Do NOT borrow another country's sprites (names starting with a tag or country such as
 `ukr_`, `BRA_`, `POL_`) unless the focus is about that country, and never use a military
-sprite for a civilian idea (`cruisers2` is a warship, not a cruise ship). Check
+sprite for a civilian idea (`cruisers2` is a warship, not a cruise ship). Company and
+brand logos (`tatamotors`, `kiira_motors`, `general_motors`, `fiat_cars`) count as borrowed
+too — use one only for a focus about THAT company in THAT country; otherwise pick a
+generic sprite for the idea (factory, car, battery, road). Check
 `reference_data.iconPresets` and existing focus icons via `get_focus` before picking.
 VERIFY every icon name with
 `search_icons` before assigning it — a guessed GFX_ name that doesn't resolve renders

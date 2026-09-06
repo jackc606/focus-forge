@@ -456,11 +456,51 @@ def test_test_connection_with_fake_transport():
 def test_usage_cost_and_labels():
     u = Usage(prompt_tokens=12_400, completion_tokens=2_100)
     assert u.cost_usd(0.10, 0.20) == pytest.approx((12_400 * 0.10 + 2_100 * 0.20) / 1e6)
-    assert prices_for("meta/muse-spark-1.3-contributor") == (0.10, 0.20)
-    assert prices_for("meta/muse-spark-1.3-contributor:nitro") == (0.10, 0.20)
+    assert prices_for("meta/muse-spark-1.3-contributor") == (0.10, 0.20, 0.002)
+    assert prices_for("meta/muse-spark-1.3-contributor:nitro") == (0.10, 0.20, 0.002)
     assert prices_for("someone/unknown") is None
     assert format_usage(u, "meta/muse-spark-1.3-contributor") == "12.4k in · 2.1k out · ~$0.002"
     assert format_cost(u, "someone/unknown") == "~$?"
+
+
+def test_cached_tokens_are_billed_at_cache_price_and_shown():
+    # 1M input of which 820k were cache hits: fresh 180k @0.10 + cached 820k @0.002 + 30k out @0.20
+    u = Usage(prompt_tokens=1_000_000, completion_tokens=30_000, cached_tokens=820_000)
+    assert u.cost_usd(0.10, 0.20, 0.002) == pytest.approx(
+        (180_000 * 0.10 + 820_000 * 0.002 + 30_000 * 0.20) / 1e6)
+    assert u.cost_usd(0.10, 0.20) == pytest.approx((1_000_000 * 0.10 + 30_000 * 0.20) / 1e6)
+    assert format_usage(u, "meta/muse-spark-1.3-contributor") == "1.0M in (82% cached) · 30.0k out · ~$0.03"
+    # cached can never exceed prompt (defensive against odd provider numbers)
+    assert Usage(prompt_tokens=10, cached_tokens=50).cost_usd(1.0, 1.0, 0.0) == 0.0
+
+
+def test_successful_batch_results_are_compacted_in_history():
+    full = {"ok": True, "result": {"results": [{"id": "MEX_a"}, {"id": "MEX_b"}, {"message": "Linked a > b"}],
+                                   "count": 3, "summary": {"errors": 0, "warnings": 1},
+                                   "issues": [{"severity": "warning", "code": "x", "message": "m"}]}}
+    c = al.compact_tool_result("batch", full)
+    assert c == {"ok": True, "result": {"count": 3, "ids": ["MEX_a", "MEX_b", "Linked a > b"],
+                                        "summary": {"errors": 0, "warnings": 1},
+                                        "issues": [{"severity": "warning", "code": "x", "message": "m"}]}}
+    failed = {"ok": False, "error": "Batch failed at op 1"}
+    assert al.compact_tool_result("batch", failed) is failed
+    other = {"ok": True, "result": {"results": [1, 2]}}
+    assert al.compact_tool_result("list_focuses", other) is other
+
+
+def test_batch_compaction_reaches_the_history():
+    big = {"ok": True, "result": {"results": [{"id": f"MEX_{i}", "title": "t" * 200} for i in range(20)],
+                                  "count": 20, "summary": {"errors": 0, "warnings": 0}, "issues": []}}
+    s, _ex, _g, _ev = _session([tool_reply([("c1", "batch", {"ops": []})]), reply("done")],
+                                executor=RecordingExecutor(lambda op, args: big))
+    s.run_turn("go")
+    tool_msg = next(m for m in s.messages if m.get("role") == "tool")
+    assert "MEX_19" in tool_msg["content"] and '"title"' not in tool_msg["content"]
+
+
+def test_default_budget_keeps_requests_small():
+    cfg = AgentConfig()
+    assert cfg.context_budget_chars <= 160_000 and cfg.max_tool_result_chars <= 8_000
 
 
 def test_event_to_dict_is_plain():

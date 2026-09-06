@@ -59,8 +59,12 @@ class AgentConfig:
     max_rounds: int = 40          # tool rounds per user turn
     temperature: float = 0.3
     timeout_s: int = 120
-    max_tool_result_chars: int = 12_000   # longer tool results are truncated with a note
-    context_budget_chars: int = 400_000   # when exceeded, elide the oldest tool results
+    # Every round resends the whole history, so these two numbers ARE the
+    # input-token bill: a 15-focus build at the old 400k budget cost ~1M input
+    # tokens. ~35k tokens per request keeps quality (the model rarely needs a
+    # focus list it read twenty calls ago) at roughly a third of the cost.
+    max_tool_result_chars: int = 8_000    # longer tool results are truncated with a note
+    context_budget_chars: int = 140_000   # when exceeded, elide the oldest tool results
     extra_headers: dict = field(default_factory=dict)  # OpenRouter likes HTTP-Referer / X-Title
 
 
@@ -188,8 +192,14 @@ class Usage:
     cached_tokens: int = 0
     requests: int = 0
 
-    def cost_usd(self, price_in_per_m: float, price_out_per_m: float) -> float:
-        return (self.prompt_tokens * price_in_per_m
+    def cost_usd(self, price_in_per_m: float, price_out_per_m: float,
+                 price_cached_per_m: "float | None" = None) -> float:
+        """Cached prompt tokens are billed at the cache-read price when the
+        model has one; otherwise they cost the same as fresh input."""
+        cached = min(self.cached_tokens, self.prompt_tokens)
+        fresh = self.prompt_tokens - cached
+        cached_price = price_in_per_m if price_cached_per_m is None else price_cached_per_m
+        return (fresh * price_in_per_m + cached * cached_price
                 + self.completion_tokens * price_out_per_m) / 1_000_000
 
     def add(self, usage) -> None:
@@ -265,6 +275,34 @@ def build_system_prompt(project_summary: dict, guide_text: str) -> str:
 
 
 # ----- the loop -----------------------------------------------------------------------
+
+def _call_op(call) -> str:
+    fn = call.get("function") if isinstance(call, dict) else None
+    return str(fn.get("name") or "") if isinstance(fn, dict) else ""
+
+
+def compact_tool_result(op: str, result) -> object:
+    """What goes back into the history for a successful ``batch``: the ids it
+    produced, the issue list and the summary — not every per-op result echoed
+    back. The model already knows what it sent; re-reading 20 focus summaries
+    every round for the rest of the session is where input tokens go."""
+    if op != "batch" or not isinstance(result, dict) or not result.get("ok"):
+        return result
+    inner = result.get("result")
+    if not isinstance(inner, dict) or not isinstance(inner.get("results"), list):
+        return result
+    ids = []
+    for r in inner["results"]:
+        if isinstance(r, dict):
+            v = r.get("id") or r.get("deleted") or r.get("message")
+            if v:
+                ids.append(v)
+    compact = {"count": inner.get("count", len(inner["results"])), "ids": ids}
+    for key in ("summary", "issues"):
+        if key in inner:
+            compact[key] = inner[key]
+    return {"ok": True, "result": compact}
+
 
 def _message_chars(message: dict) -> int:
     try:
@@ -353,7 +391,7 @@ class AgentSession:
                         result = dict(CANCELLED_TOOL)
                     else:
                         result = self._run_tool(call_id, call)
-                    self._append_tool_result(call_id, result)
+                    self._append_tool_result(call_id, result, _call_op(call))
                 self._enforce_budget()
                 if cancelled:
                     return self._stop()
@@ -455,8 +493,8 @@ class AgentSession:
             return None, f"expected an object, got {type(parsed).__name__}"
         return parsed, None
 
-    def _append_tool_result(self, call_id: str, result: dict) -> None:
-        text = json.dumps(result, ensure_ascii=False, default=str)
+    def _append_tool_result(self, call_id: str, result: dict, op: str = "") -> None:
+        text = json.dumps(compact_tool_result(op, result), ensure_ascii=False, default=str)
         limit = self.config.max_tool_result_chars
         if len(text) > limit:
             total = len(text)
