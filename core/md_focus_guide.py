@@ -81,7 +81,10 @@ PROCEDURE = """\
 3. Plan placement before writing: pick free cells; same-row focuses need
    dx >= 2; children go at y+1 under their parent.
 4. Build each feature as ONE `batch` (add focuses first, then links). Never add
-   focuses one call at a time when building more than ~3.
+   focuses one call at a time when building more than ~3. When you do need several
+   reads (get_focus, search_icons), return them as SEVERAL tool calls in one reply,
+   not one per reply. Do not re-read focuses you just built: the batch result already
+   carries their ids and issues.
 5. Every write returns `issues`. Fix every error before moving on; explain any
    warnings you leave.
 6. After the batch: `validate`, then `screenshot` the region, then tell the user

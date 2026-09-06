@@ -572,6 +572,19 @@ def test_elision_also_blanks_old_tool_call_arguments():
     assert last_call["tool_calls"][0]["function"]["arguments"] == big_args, "recent window untouched"
 
 
+def test_assistant_history_keeps_only_role_content_tool_calls():
+    calls = [("c1", "list_focuses", {})]
+    resp = tool_reply(calls)
+    resp["choices"][0]["message"]["reasoning"] = "x" * 5000
+    resp["choices"][0]["message"]["annotations"] = [{"a": 1}]
+    s, _ex, _g, _e = _session([resp, reply("done")])
+    s.run_turn("go")
+    stored = s.messages[2]
+    assert set(stored) == {"role", "content", "tool_calls"}
+    assert stored["tool_calls"][0]["id"] == "c1"
+    assert AgentConfig().max_rounds >= 60
+
+
 def test_cache_primed_label():
     u = Usage(prompt_tokens=20_000, completion_tokens=500, cache_write_tokens=9_000)
     assert format_usage(u, "meta/muse-spark-1.3-contributor").startswith("20.0k in (cache primed)")

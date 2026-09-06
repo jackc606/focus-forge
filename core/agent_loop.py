@@ -57,7 +57,8 @@ class AgentConfig:
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = ""
     model: str = "meta/muse-spark-1.3-contributor"
-    max_rounds: int = 40          # tool rounds per user turn
+    max_rounds: int = 80          # tool rounds per user turn (a 20-focus build with
+                                  # per-focus verification calls needs ~60)
     temperature: float = 0.3
     timeout_s: int = 120
     # Every round resends the whole history, so these two numbers ARE the
@@ -379,6 +380,7 @@ class AgentSession:
         self.usage = Usage()
         self.session_id = ""
         self._call_counter = 0
+        self._dropped_keys_seen: set = set()
         self.reset()
 
     # ----- public -----
@@ -423,8 +425,11 @@ class AgentSession:
             tool_calls = message.get("tool_calls") or []
 
             if tool_calls:
-                # Verbatim: the provider needs its own tool_calls echoed back.
-                self.messages.append(dict(message))
+                # The provider needs its own tool_calls echoed back — but only
+                # role/content/tool_calls. Anything else it attaches (reasoning
+                # blocks, annotations) is never elided and would be resent for
+                # the rest of the session.
+                self.messages.append(self._history_message(message))
                 cancelled = False
                 for call in tool_calls:
                     call_id = self._call_id(call)
@@ -458,6 +463,21 @@ class AgentSession:
     def _emit(self, event: AgentEvent) -> None:
         if self.on_event is not None:
             self.on_event(event)
+
+    _HISTORY_KEYS = ("role", "content", "tool_calls")
+
+    def _history_message(self, message: dict) -> dict:
+        kept = {k: message[k] for k in self._HISTORY_KEYS if k in message}
+        kept.setdefault("role", "assistant")
+        dropped = {k: len(json.dumps(message[k], default=str)) for k in message if k not in kept}
+        if dropped and dropped.keys() != self._dropped_keys_seen:
+            self._dropped_keys_seen = set(dropped)
+            try:
+                from .applog import logger
+                logger().info("assistant reply carried extra fields (dropped from history): %s", dropped)
+            except Exception:
+                pass
+        return kept
 
     def _log_request(self, round_index: int, response) -> None:
         """One INFO line per provider request in the app log, so a session's
@@ -597,7 +617,21 @@ class AgentSession:
                     victim = m
                     break
             if victim is None:
+                self._log_residue(total, target)
                 return
             total -= _message_chars(victim)
             _elide(victim)
             total += _message_chars(victim)
+
+    def _log_residue(self, total: int, target: int) -> None:
+        """Nothing left to elide but still over target: say what the history is
+        made of, by role, so the next design change is aimed at the right thing."""
+        try:
+            from .applog import logger
+            by_role: dict = {}
+            for m in self.messages:
+                by_role[m.get("role")] = by_role.get(m.get("role"), 0) + _message_chars(m)
+            logger().warning("assistant history %d chars > target %d with nothing elidable; by role: %s",
+                             total, target, by_role)
+        except Exception:
+            pass
