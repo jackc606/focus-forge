@@ -46,7 +46,7 @@ _QUIET_OPS = {
     "hello", "get_project", "list_focuses", "get_focus", "get_selection",
     "validate", "list_reward_presets", "list_condition_presets", "reference_data",
     "screenshot", "search_icons", "describe_op", "guide", "list_decisions",
-    "list_ideas", "list_events",
+    "list_ideas", "list_events", "tree_overview",
 }
 
 

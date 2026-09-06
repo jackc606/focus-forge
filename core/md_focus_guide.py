@@ -73,10 +73,12 @@ COST_CONVENTION = {
 PROCEDURE = """\
 ## Procedure (follow in order)
 1. `hello` -> `guide` -> `describe_op` for any op you have not used yet.
-2. Read only what you need: `list_focuses` with `prefix` / `ids` / `x_min..y_max`
-   bounds / `fields` / `limit`, and `get_focus` for the focuses you will connect
-   to; `list_ideas` / `list_events` before creating spirits or events. Do not call
-   `get_project` on large trees. `reference_data` takes
+2. Read only what you need. To review the tree or pick what to build next, call
+   `tree_overview` (every branch in one small reply) — NOT `list_focuses`, which is
+   truncated on big trees. To build, use `list_focuses` with `prefix` / `ids` /
+   `x_min..y_max` bounds / `fields` / `limit`, and `get_focus` for the focuses you
+   will connect to; `list_ideas` / `list_events` before creating spirits or events.
+   Do not call `get_project` on large trees. `reference_data` takes
    `sections` and `list_reward_presets` / `list_condition_presets` take
    `compact=true` (or `kind` for one preset) — use them to save tokens.
 3. Plan placement before writing: pick free cells; same-row focuses need

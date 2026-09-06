@@ -118,6 +118,14 @@ def list_focuses(prefix: str | None = None, ids: list | None = None,
 
 
 @mcp.tool()
+def tree_overview() -> dict:
+    """One line per branch root (focus count, x/y extent, leaves, forks, top filters)
+    plus totals — the whole tree in ~2k chars. Use it to review the tree or decide
+    what to build next; then list_focuses(prefix=...) for the branch you pick."""
+    return _call("tree_overview")
+
+
+@mcp.tool()
 def list_ideas() -> list:
     """Compact list of the project's ideas / national spirits (id, title, picture,
     modifier count) — reference one from an add_idea reward or reuse its picture."""

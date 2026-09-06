@@ -325,6 +325,12 @@ OP_SPECS: dict = {
         "{deleted}", {"id": "MEX_reform_decisions"}),
     "list_decisions": OpSpec(
         "All decisions and decision categories in full.", {}, "{decisions, categories}", {}),
+    "tree_overview": OpSpec(
+        "One line per branch root (id, title, focus count, x/y extent, leaves, forks, "
+        "top filters) plus project totals. USE THIS to review the tree or answer 'what "
+        "should I build next' — it covers the whole tree in ~2k chars where list_focuses "
+        "would be truncated. Then list_focuses with prefix/bounds for the branch you pick.",
+        {}, "{focuses, ideas, events, decisions, extent, branches: [...], orphans}", {}),
     "list_ideas": OpSpec(
         "Compact list of the project's ideas / national spirits: id, title, picture, "
         "modifier count. Use it to reference an existing idea from an add_idea reward or "

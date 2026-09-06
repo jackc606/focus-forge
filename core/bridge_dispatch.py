@@ -1021,6 +1021,52 @@ def _op_delete_decision_category(model, args):
     return {"deleted": args["id"]}
 
 
+def _op_tree_overview(model, args):
+    """One line per branch root: what a 'review the tree / what next' question
+    needs. list_focuses on a 200+ focus tree is ~33k chars and gets truncated
+    to the first forty focuses; this is ~80 chars per branch."""
+    focuses = list(model.project.focuses)
+    by_id = {f.id: f for f in focuses}
+    children: dict = {f.id: [] for f in focuses}
+    parents: dict = {f.id: [] for f in focuses}
+    for f in focuses:
+        for pid in iter_prereq_ids(f.prerequisites):
+            if pid in by_id:
+                children[pid].append(f.id)
+                parents[f.id].append(pid)
+    roots = sorted((f for f in focuses if not parents[f.id]),
+                   key=lambda f: (f.position.x, f.position.y))
+    assigned: set = set()
+    branches = []
+    for root in roots:
+        members, stack = [], [root.id]
+        while stack:
+            fid = stack.pop()
+            if fid in assigned:
+                continue
+            assigned.add(fid)
+            members.append(fid)
+            stack.extend(c for c in children[fid] if c not in assigned)
+        ms = [by_id[m] for m in members]
+        xs = [m.position.x for m in ms]; ys = [m.position.y for m in ms]
+        mutex_pairs = {frozenset((m.id, o)) for m in ms for o in (m.mutuallyExclusive or []) if o in members}
+        branches.append({
+            "root": root.id, "title": root.title, "focuses": len(ms),
+            "x": [min(xs), max(xs)], "y": [min(ys), max(ys)],
+            "leaves": sum(1 for m in ms if not children[m.id]),
+            "forks": len(mutex_pairs),
+            "filters": sorted({flt for m in ms for flt in (m.filters or [])})[:4],
+        })
+    orphans = [f.id for f in focuses if f.id not in assigned]   # only cycles land here
+    xs = [f.position.x for f in focuses]; ys = [f.position.y for f in focuses]
+    return {
+        "focuses": len(focuses), "ideas": len(model.project.ideas),
+        "events": len(model.project.events), "decisions": len(model.project.decisions),
+        "extent": {"x": [min(xs), max(xs)], "y": [min(ys), max(ys)]} if focuses else None,
+        "branches": branches, "orphans": orphans,
+    }
+
+
 def _op_list_ideas(model, args):
     """Compact: enough to reference an idea from a reward or reuse its picture,
     without the modifier bodies (get_project has those)."""
@@ -1255,6 +1301,7 @@ _OPS = {
     "delete_decision_category": _op_delete_decision_category,
     "list_decisions": _op_list_decisions,
     "list_ideas": _op_list_ideas,
+    "tree_overview": _op_tree_overview,
     "list_events": _op_list_events,
     "load_project": _op_load_project,
     "save": _op_save,

@@ -1,6 +1,7 @@
 """AI-bridge command dispatch — driven against a headless ProjectModel (no Qt app),
 the same way tests/test_events.py exercises the model."""
 from __future__ import annotations
+import json
 
 import pytest
 
@@ -327,3 +328,23 @@ def test_list_ideas_and_events_are_compact():
     ev = next(e for e in _ok(m, "list_events") if e["id"] == "MEX_forge.7")
     assert ev["options"] == ["a", "b"] and ev["eventType"] == "country_event"
     assert "description" not in ev
+
+
+def test_tree_overview_groups_by_root_and_stays_small():
+    m = _model()
+    ops = [
+        {"op": "add_focus", "args": {"id": "R1", "x": 0, "y": 0, "title": "Root one"}},
+        {"op": "add_focus", "args": {"id": "R1_a", "x": -2, "y": 1, "prerequisites": ["R1"], "filters": ["FOCUS_FILTER_ARMY"]}},
+        {"op": "add_focus", "args": {"id": "R1_b", "x": 2, "y": 1, "prerequisites": ["R1"], "mutuallyExclusive": ["R1_a"]}},
+        {"op": "add_focus", "args": {"id": "R1_end", "x": 0, "y": 2, "prerequisites": [["R1_a", "R1_b"]]}},
+        {"op": "add_focus", "args": {"id": "R2", "x": 10, "y": 0, "title": "Root two"}},
+    ]
+    _ok(m, "batch", ops=ops)
+    o = _ok(m, "tree_overview")
+    roots = {b["root"]: b for b in o["branches"]}
+    r1 = roots["R1"]
+    assert r1["focuses"] == 4 and r1["leaves"] == 1 and r1["forks"] == 1
+    assert r1["x"] == [-2, 2] and r1["y"] == [0, 2] and r1["filters"] == ["FOCUS_FILTER_ARMY"]
+    assert roots["R2"]["focuses"] == 1 and roots["R2"]["leaves"] == 1
+    assert o["orphans"] == [] and o["focuses"] >= 5 and "events" in o
+    assert len(json.dumps(o)) < 200 * max(1, len(o["branches"]))

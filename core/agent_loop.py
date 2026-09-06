@@ -270,7 +270,7 @@ CAPABILITIES_TEXT = (
     "errors back to focuses; take a screenshot of the canvas for the user; review the "
     "tree and recommend what to build next; explain any Millennium Dawn focus, reward "
     "or condition. When asked what you can do, answer in those terms and offer two or "
-    "three concrete starting prompts for THIS project — call list_focuses first so each "
+    "three concrete starting prompts for THIS project — call tree_overview first so each "
     "one names a real gap or an existing focus to build from, never something the tree "
     "already has.\n"
     "What you will not do: open, save or export the project or delete anything unless "
