@@ -311,6 +311,15 @@ HELP_TOPICS = [
          "focuses, ideas, and events appear on the canvas as the AI works. You stay in control: "
          "undo (Ctrl+Z), tweak, or delete anything afterward, and nothing is saved to disk "
          "until you save."),
+        ("Built-in Assistant (no Claude needed)",
+         "The Assistant tab is a chat box inside Focus Forge: type what you want in plain "
+         "English and a hosted model builds or edits the open tree by calling the same "
+         "bridge ops, right on the canvas. Bring your own API key — OpenRouter is the "
+         "default provider and the default model costs about two cents for a 10-focus "
+         "branch; the running token count and estimated cost sit in the tab header. "
+         "Deletes, saves and exports always ask you first, and Stop halts it at the next "
+         "step. Prompts and your mod content are sent to the provider you configure; the "
+         "key is stored on this computer only. See docs/ASSISTANT.md for setup."),
         ("Setup if you installed Focus Forge (easiest)",
          "If you used the Focus Forge installer, everything you need is already included — no "
          "Python, no commands. Just three clicks:\n\n"

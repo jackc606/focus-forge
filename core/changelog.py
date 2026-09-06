@@ -45,6 +45,17 @@ CHANGELOG = [
             "never appear in-game is caught here; country-specific filters stay "
             "allowed.",
             "Bridge error messages no longer leak Python exception names.",
+            "New Assistant tab: chat with a hosted model that builds and edits "
+            "your tree for you, live on the canvas — no Claude Code or MCP setup "
+            "needed. Bring your own API key (OpenRouter by default, any "
+            "OpenAI-compatible endpoint works), pick a model, and watch each tool "
+            "call appear as it runs. Deletes, saves and exports ask you first; a "
+            "Stop button halts it at the next step; the header shows the running "
+            "token count and estimated cost.",
+            "Privacy: the assistant sends your prompts and the parts of your mod "
+            "it reads to the provider you configure, and only when you send a "
+            "message. The key is stored on this computer only. The existing LLM "
+            "tab and the MCP bridge are unchanged.",
         ],
     },
     {

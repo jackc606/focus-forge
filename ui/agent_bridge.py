@@ -192,24 +192,37 @@ class AgentBridge(QObject):
             return resp
         op = request.get("op", "")
         args = request.get("args") or {}
-        # `screenshot`/`search_icons` are GUI-only (need the scene / the sprite
-        # index provider) — handled here, not in core dispatch. They still get
-        # the same alias / unknown-arg treatment as every other op.
-        if op in ("screenshot", "search_icons"):
-            try:
-                args = normalize_args(op, args)
-            except ValueError as exc:
-                result = {"ok": False, "error": str(exc)}
-            else:
-                result = (self._screenshot(args) if op == "screenshot"
-                          else self._search_icons(args))
-        else:
-            result = dispatch(self._model, op, args)
+        result = self.run_op(op, args)
         if "id" in request:
             result["id"] = request["id"]
+        return result
+
+    # ----- shared op path (TCP clients AND the in-app assistant) -----
+    def run_op(self, op: str, args: dict) -> dict:
+        """Run one op on the GUI thread and narrate it to the status bar exactly
+        as a TCP request would — the in-app assistant calls this directly so
+        both drivers share one code path (and it needs no listening server)."""
+        if op in ("screenshot", "search_icons"):
+            result = self.run_gui_op(op, args)
+        else:
+            result = dispatch(self._model, op, args)
         if result.get("ok") and op not in _QUIET_OPS:
             self.op_applied.emit(self._summarize(op, result.get("result")))
         return result
+
+    def run_gui_op(self, op: str, args: dict) -> dict:
+        """`screenshot`/`search_icons` are GUI-only (need the scene / the sprite
+        index provider) — handled here, not in core dispatch. They still get
+        the same alias / unknown-arg treatment as every other op."""
+        try:
+            args = normalize_args(op, args or {})
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if op == "screenshot":
+            return self._screenshot(args)
+        if op == "search_icons":
+            return self._search_icons(args)
+        return {"ok": False, "error": f"'{op}' is not a GUI op."}
 
     # ----- canvas screenshot -----
     def _screenshot(self, args: dict) -> dict:

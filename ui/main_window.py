@@ -68,6 +68,7 @@ from .graph_scene import GraphScene
 from .graph_view import GraphView
 from .stats_panel import StatsPanel
 from .agent_bridge import AgentBridge
+from .assistant_panel import AssistantPanel
 from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
 from .project_model import ProjectModel
@@ -124,6 +125,13 @@ class MainWindow(QMainWindow):
             sc = QShortcut(seq, self._view, activated=handler)
             sc.setContext(Qt.WidgetWithChildrenShortcut)
 
+        # In-process AI bridge (opt-in, loopback-only) that lets an MCP agent edit
+        # the live project. Mutations run on this (main) thread → canvas repaints.
+        # Built before the tabs because the Assistant panel routes its tool calls
+        # through it (no listening server needed — it calls dispatch in-process).
+        self._settings = QSettings("FocusForge", "FocusForge")
+        self._bridge = AgentBridge(self._model, scene=self._scene, parent=self)
+
         self._tabs = QTabWidget()
         self._tabs.setMinimumWidth(420)
         self._tabs.setMaximumWidth(520)
@@ -132,6 +140,7 @@ class MainWindow(QMainWindow):
         self._stats_panel = StatsPanel(self._model)
         self._export_panel = ExportPanel(self._model)
         self._llm = LlmPanel(self._model)
+        self._assistant = AssistantPanel(self._model, self._bridge)
         self._settings_panel = SettingsPanel(self._model)
         self._help = HelpPanel()
         self._tabs.addTab(self._inspector, "Inspector")
@@ -139,6 +148,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._stats_panel, "Stats")
         self._tabs.addTab(self._export_panel, "Export")
         self._tabs.addTab(self._llm, "LLM")
+        self._tabs.addTab(self._assistant, "Assistant")
         self._tabs.addTab(self._settings_panel, "Settings")
         self._tabs.addTab(self._help, "Help")
         splitter.addWidget(self._tabs)
@@ -180,10 +190,7 @@ class MainWindow(QMainWindow):
         self._update_pill.hide()
         self._status_bar.addPermanentWidget(self._update_pill)
 
-        # In-process AI bridge (opt-in, loopback-only) that lets an MCP agent edit
-        # the live project. Mutations run on this (main) thread → canvas repaints.
-        self._settings = QSettings("FocusForge", "FocusForge")
-        self._bridge = AgentBridge(self._model, scene=self._scene, parent=self)
+        # AI bridge status wiring (the bridge itself is built above the tabs).
         self._bridge.state_changed.connect(self._on_bridge_state)
         self._bridge.client_changed.connect(self._on_bridge_client)
         self._bridge.op_applied.connect(self._status_label.setText)
