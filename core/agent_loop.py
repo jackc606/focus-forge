@@ -382,6 +382,7 @@ class AgentSession:
                 return text
 
             self.usage.add(response.get("usage") if isinstance(response, dict) else None)
+            self._log_request(_round, response)
             self._emit(AgentEvent("usage", usage=self.usage))
             choices = response.get("choices") if isinstance(response, dict) else None
             choice = choices[0] if isinstance(choices, list) and choices else {}
@@ -428,6 +429,31 @@ class AgentSession:
     def _emit(self, event: AgentEvent) -> None:
         if self.on_event is not None:
             self.on_event(event)
+
+    def _log_request(self, round_index: int, response) -> None:
+        """One INFO line per provider request in the app log, so a session's
+        token bill can be reconstructed afterwards: which round, how big the
+        history was, what the provider counted, and how much of it was cached."""
+        try:
+            from .applog import logger
+            u = response.get("usage") if isinstance(response, dict) else None
+            u = u if isinstance(u, dict) else {}
+            details = u.get("prompt_tokens_details") or {}
+            tool_calls = 0
+            try:
+                tool_calls = len(response["choices"][0]["message"].get("tool_calls") or [])
+            except (KeyError, IndexError, TypeError, AttributeError):
+                pass
+            logger().info(
+                "assistant request round=%d msgs=%d history_chars=%d prompt=%s cached=%s "
+                "cache_write=%s completion=%s tool_calls=%d session=%s",
+                round_index + 1, len(self.messages),
+                sum(_message_chars(m) for m in self.messages),
+                u.get("prompt_tokens"), details.get("cached_tokens"),
+                details.get("cache_write_tokens"), u.get("completion_tokens"),
+                tool_calls, self.session_id[-8:])
+        except Exception:  # logging must never break a turn
+            pass
 
     def _payload(self) -> dict:
         payload = {"model": self.config.model, "messages": self.messages,
