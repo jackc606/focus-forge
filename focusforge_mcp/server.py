@@ -118,6 +118,20 @@ def list_focuses(prefix: str | None = None, ids: list | None = None,
 
 
 @mcp.tool()
+def list_ideas() -> list:
+    """Compact list of the project's ideas / national spirits (id, title, picture,
+    modifier count) — reference one from an add_idea reward or reuse its picture."""
+    return _call("list_ideas")
+
+
+@mcp.tool()
+def list_events() -> list:
+    """Compact list of the project's events (id, eventType, title, option keys,
+    picture) — pick the next free <prefix>.<n> and reference events from rewards."""
+    return _call("list_events")
+
+
+@mcp.tool()
 def get_focus(focus_id: str) -> dict:
     """Return one focus in full (including completionReward and available blocks)."""
     return _call("get_focus", {"id": focus_id})

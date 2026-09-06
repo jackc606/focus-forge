@@ -314,3 +314,16 @@ def test_place_below_chains_inside_a_batch():
     c1, c2 = m.find_focus("MEX_c1"), m.find_focus("MEX_c2")
     assert c2.position.y == c1.position.y + 1  # saw the focus created earlier in the batch
     assert c2.prerequisites == ["MEX_c1"]
+
+
+def test_list_ideas_and_events_are_compact():
+    m = _model()
+    _ok(m, "add_idea", idea={"id": "MEX_spirit", "title": "Spirit", "picture": "GFX_idea_x",
+                              "modifierRawLines": ["stability_factor = 0.05", "war_support_factor = 0.02"]})
+    _ok(m, "add_event", event={"id": "MEX_forge.7", "title": "Ev", "isTriggeredOnly": True,
+                                "options": [{"key": "a", "text": "A"}, {"key": "b", "text": "B"}]})
+    ideas = _ok(m, "list_ideas")
+    assert ideas == [{"id": "MEX_spirit", "title": "Spirit", "picture": "GFX_idea_x", "modifiers": 2}]
+    ev = next(e for e in _ok(m, "list_events") if e["id"] == "MEX_forge.7")
+    assert ev["options"] == ["a", "b"] and ev["eventType"] == "country_event"
+    assert "description" not in ev

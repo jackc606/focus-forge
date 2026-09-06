@@ -1021,6 +1021,25 @@ def _op_delete_decision_category(model, args):
     return {"deleted": args["id"]}
 
 
+def _op_list_ideas(model, args):
+    """Compact: enough to reference an idea from a reward or reuse its picture,
+    without the modifier bodies (get_project has those)."""
+    return [{"id": i.id, "title": i.title, "picture": getattr(i, "picture", ""),
+             "modifiers": len(getattr(i, "modifierRawLines", None) or [])}
+            for i in model.project.ideas]
+
+
+def _op_list_events(model, args):
+    """Compact: id, type, title and option keys — what an agent needs to pick the
+    next free event number and to reference an event from a reward."""
+    out = []
+    for e in model.project.events:
+        out.append({"id": e.id, "eventType": getattr(e, "eventType", "country_event"),
+                    "title": e.title, "options": [o.key for o in (e.options or [])],
+                    "picture": getattr(e, "picture", "")})
+    return out
+
+
 def _op_list_decisions(model, args):
     return {"decisions": [_to_plain(d) for d in model.project.decisions],
             "categories": [_to_plain(c) for c in model.project.decisionCategories]}
@@ -1235,6 +1254,8 @@ _OPS = {
     "update_decision_category": _op_update_decision_category,
     "delete_decision_category": _op_delete_decision_category,
     "list_decisions": _op_list_decisions,
+    "list_ideas": _op_list_ideas,
+    "list_events": _op_list_events,
     "load_project": _op_load_project,
     "save": _op_save,
     "export": _op_export,

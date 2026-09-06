@@ -35,7 +35,7 @@ DESTRUCTIVE_OPS = frozenset({
 
 # Not offered to the model: hello/guide are baked into the system prompt,
 # describe_op is redundant with the tool schemas, and the user opens files.
-EXCLUDED_TOOLS = ("hello", "describe_op", "guide", "load_project")
+EXCLUDED_TOOLS = ("hello", "guide", "load_project")
 
 DECLINED_TEXT = ("The user declined this action. Do not retry it; ask them what "
                  "they'd like instead.")
@@ -261,6 +261,24 @@ def default_tools() -> list:
     return [t for t in tool_schemas() if t["function"]["name"] not in EXCLUDED_TOOLS]
 
 
+CAPABILITIES_TEXT = (
+    "What you can do for the user (say it in these words when asked, never as tool "
+    "names): design and build whole focus branches; edit, re-link or re-lay-out existing "
+    "focuses; write national spirits (ideas), events and decisions and wire them into "
+    "focus rewards; check the tree for errors (validate) and the exported files for "
+    "load problems (smoke_check); read the game's error.log after a launch and map "
+    "errors back to focuses; take a screenshot of the canvas for the user; review the "
+    "tree and recommend what to build next; explain any Millennium Dawn focus, reward "
+    "or condition. When asked what you can do, answer in those terms and offer two or "
+    "three concrete starting prompts for THIS project (name a real gap or an existing "
+    "focus to build from).\n"
+    "What you will not do: open, save or export the project or delete anything unless "
+    "the user explicitly asks in this conversation; view images (screenshots are for "
+    "the user); change app settings or the user's game files; launch the game. If you "
+    "cannot do something, say so plainly and suggest the nearest thing you can do."
+)
+
+
 def build_system_prompt(project_summary: dict, guide_text: str) -> str:
     """``project_summary`` is the ``hello`` result (or just its ``project`` dict)."""
     summary = project_summary or {}
@@ -274,6 +292,7 @@ def build_system_prompt(project_summary: dict, guide_text: str) -> str:
         "You are the Focus Forge assistant. You edit the user's Hearts of Iron IV "
         "Millennium Dawn focus tree by calling tools. The tools are the Focus Forge "
         "bridge ops. Prefer one `batch` per feature. Follow the guide below exactly.",
+        CAPABILITIES_TEXT,
         project_line + " The canvas updates live as you call tools; the user watches.",
         guide_text or "",
         "Respond to the user in their language, briefly. When you finish, summarise what "

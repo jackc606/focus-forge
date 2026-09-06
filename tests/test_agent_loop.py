@@ -419,12 +419,17 @@ def test_build_system_prompt_contains_guide_project_and_screenshot_note():
     assert text.index("## Procedure") < text.index("Never claim success")
     # also accepts the bare project dict
     assert "Open project: X" in build_system_prompt({"name": "X"}, "")
+    # capabilities in the user's words, and the refusal list, sit before the project line
+    assert "What you can do for the user" in text and "What you will not do" in text
+    assert text.index("What you can do") < text.index("Open project:")
+    assert "national spirits" in text and "recommend what to build next" in text
 
 
 def test_default_tools_exclude_panel_affairs():
     names = {t["function"]["name"] for t in default_tools()}
-    assert not names & {"hello", "describe_op", "guide", "load_project"}
-    assert {"add_focus", "batch", "save", "export", "screenshot", "search_icons"} <= names
+    assert not names & {"hello", "guide", "load_project"}
+    assert {"add_focus", "batch", "save", "export", "screenshot", "search_icons",
+            "describe_op", "list_ideas", "list_events"} <= names
 
 
 def test_openrouter_headers_only_for_openrouter():

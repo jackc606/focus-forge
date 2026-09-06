@@ -325,6 +325,15 @@ OP_SPECS: dict = {
         "{deleted}", {"id": "MEX_reform_decisions"}),
     "list_decisions": OpSpec(
         "All decisions and decision categories in full.", {}, "{decisions, categories}", {}),
+    "list_ideas": OpSpec(
+        "Compact list of the project's ideas / national spirits: id, title, picture, "
+        "modifier count. Use it to reference an existing idea from an add_idea reward or "
+        "to reuse a picture.", {}, "[{id, title, picture, modifiers}]", {}),
+    "list_events": OpSpec(
+        "Compact list of the project's events: id, eventType, title, option keys, picture. "
+        "Use it to pick the next free event number (<prefix>.<n>) and to reference an "
+        "event from a country_event / news_event reward.", {},
+        "[{id, eventType, title, options, picture}]", {}),
 
     # ----- IO / checks -----
     "load_project": OpSpec(

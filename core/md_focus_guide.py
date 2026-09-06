@@ -75,7 +75,8 @@ PROCEDURE = """\
 1. `hello` -> `guide` -> `describe_op` for any op you have not used yet.
 2. Read only what you need: `list_focuses` with `prefix` / `ids` / `x_min..y_max`
    bounds / `fields` / `limit`, and `get_focus` for the focuses you will connect
-   to. Do not call `get_project` on large trees. `reference_data` takes
+   to; `list_ideas` / `list_events` before creating spirits or events. Do not call
+   `get_project` on large trees. `reference_data` takes
    `sections` and `list_reward_presets` / `list_condition_presets` take
    `compact=true` (or `kind` for one preset) — use them to save tokens.
 3. Plan placement before writing: pick free cells; same-row focuses need
@@ -172,6 +173,34 @@ of scripted / `hidden_effect` blocks so the player sees what happened.
 ## AI weighting (every real MD focus has it)
 {AI_WEIGHT_AUTHORING_NOTE}
 A tree without weights plays randomly.
+
+## Beyond focuses: spirits, events, decisions (real MD branches have them)
+A branch that only moves numbers is flat. Real MD branches pay off with things the
+player SEES. Per branch:
+- ONE or TWO national spirits. Create with `add_idea` {{"idea": {{"id": "<TAG>_<slug>",
+  "title", "description", "picture": "<GFX_idea_...>", "modifierRawLines":
+  ["stability_factor = 0.05", "production_speed_buildings_factor = 0.10"]}}}}, then grant it
+  from a focus reward: {{"kind": "add_idea", "params": {{"idea": "<id>"}}}} or
+  {{"kind": "timed_idea", "params": {{"idea": "<id>", "days": 365}}}}. Later focuses may
+  `swap_idea` it for a stronger version. Reuse a picture from `list_ideas`, or verify a
+  `GFX_idea_` name with `search_icons`. 2-3 modifiers per spirit, MD-scale numbers
+  (5-15%), never a bare bonus with no downside on a permanent spirit.
+- The fork fires a `country_event` with TWO or THREE options, so the choice reads as a
+  story beat. Create it with `add_event` {{"event": {{"id": "<localisationPrefix>.<n>",
+  "title", "description", "picture": "<GFX_report_event_...>", "isTriggeredOnly": true,
+  "options": [{{"key": "a", "text": "...", "items": [reward items], "aiChance": 60}},
+  {{"key": "b", "text": "...", "items": [...], "aiChance": 40}}]}}}}, then fire it from the
+  fork's parent: {{"kind": "country_event", "params": {{"eventId": "<id>", "days": 0}}}}.
+  Options usually `set_country_flag` so downstream focuses (and the fork sides' `aiModifiers`)
+  can key on the player's answer. Pick <n> above the highest id in `list_events`. Verify
+  the picture with `search_icons` ("report_event"). One-option events are for news only.
+- The capstone fires a `news_event` (same shape, "eventType": "news_event") announcing it
+  to the world.
+- Decisions are for REPEATABLE or timed mechanics (a recurring subsidy, a crackdown you
+  can trigger again), not for one-off story — create the category first
+  (`add_decision_category`) and keep them rare.
+- Every write op above returns issues like focus writes do; fix them before moving on.
+Budget: for 10-15 focuses, 1-2 spirits, 2-3 events (one at the fork), 0-1 decisions.
 
 ## Namespaces & tone
 Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
