@@ -23,7 +23,7 @@ import queue
 import threading
 import uuid
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -48,7 +48,7 @@ from core.md_focus_guide import MD_FOCUS_GUIDE
 from . import theme as T
 from .assistant_settings_dialog import AssistantSettingsDialog, load_config
 from .update_worker import run_in_thread
-from .widgets import ClickableFrame, hint, issue_card, mono_font, panel_header
+from .widgets import ClickableFrame, gear_icon, hint, issue_card, mono_font, panel_header
 
 # How long a blocked worker waits between checks that the panel is still alive.
 _WAIT_TICK_S = 0.5
@@ -309,7 +309,9 @@ class AssistantPanel(QWidget):
         head.setSpacing(T.SPACE_SM)
         head.addWidget(panel_header("Assistant"))
         head.addStretch(1)
-        self._settings_btn = QPushButton("⚙")
+        self._settings_btn = QPushButton()
+        self._settings_btn.setIcon(gear_icon(T.TEXT_SECONDARY))
+        self._settings_btn.setIconSize(QSize(16, 16))
         self._settings_btn.setToolTip("Assistant settings (provider, key, model)")
         self._settings_btn.setFixedWidth(T.ICON_BUTTON)
         self._settings_btn.clicked.connect(self._open_settings)

@@ -164,3 +164,36 @@ def issue_card(severity: str, message: str, on_click=None) -> QFrame:
     if on_click is not None:
         card.clicked.connect(on_click)
     return card
+
+
+def gear_icon(color: str, size: int = 16) -> "QIcon":
+    """A settings cog drawn with QPainter (at 2x for HiDPI) so it renders the
+    same everywhere — the ⚙ glyph is missing from the UI font on some Windows
+    installs and came out as a blank button."""
+    import math
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
+    px = size * 2
+    pm = QPixmap(px, px)
+    pm.fill(Qt.transparent)
+    c, r_out, r_in, teeth = px / 2, px * 0.46, px * 0.31, 8
+    path = QPainterPath()
+    steps = teeth * 4
+    for i in range(steps + 1):
+        a = 2 * math.pi * i / steps
+        # 4 points per tooth: out, out, in, in → square-ish teeth
+        r = r_out if (i % 4) in (0, 1) else r_in
+        pt = QPointF(c + r * math.cos(a), c + r * math.sin(a))
+        path.moveTo(pt) if i == 0 else path.lineTo(pt)
+    path.closeSubpath()
+    hole = QPainterPath()
+    hole.addEllipse(QRectF(c - px * 0.13, c - px * 0.13, px * 0.26, px * 0.26))
+    path = path.subtracted(hole)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(color))
+    painter.drawPath(path)
+    painter.end()
+    pm.setDevicePixelRatio(2)
+    return QIcon(pm)

@@ -231,3 +231,14 @@ def test_settings_dialog_roundtrip_and_test_connection(qapp):
         time.sleep(0.01)
     assert dlg._test_status.text() == "Connected — meta/muse-spark-1.3 replied."
     assert dlg._test_btn.isEnabled()
+
+
+def test_settings_button_has_a_drawn_icon(qapp):
+    panel = _panel(qapp)[0]
+    assert not panel._settings_btn.icon().isNull()
+    assert panel._settings_btn.text() == ""
+    from ui.widgets import gear_icon
+    pm = gear_icon("#ffffff", 16).pixmap(32, 32)
+    img = pm.toImage()
+    # something was actually painted (not a blank transparent square)
+    assert any(img.pixelColor(x, y).alpha() > 0 for x in range(0, 32, 4) for y in range(0, 32, 4))
