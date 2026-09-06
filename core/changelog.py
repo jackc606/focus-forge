@@ -11,62 +11,20 @@ CHANGELOG = [
     {
         "version": "0.4.3",
         "date": "2026-09-06",
-        "title": "AI bridge: fail fast, explain, and stay cheap for smaller models",
+        "title": "Built-in Assistant, exports that replace instead of duplicate, hardened AI bridge",
         "changes": [
-            "Custom tooltips now carry their text: fill in Tooltip text and it is "
-            "written to your mod's localisation; Validation warns about tooltip "
-            "keys that would show raw in-game.",
-            "The AI bridge now refuses mistakes up front instead of accepting them "
-            "silently: an id with a space, a focus dropped on an occupied cell "
-            "(it suggests the nearest free cells), an unknown reward or condition "
-            "preset, a misspelt or missing param, a prerequisite pointing at a "
-            "focus that doesn't exist, a filter that isn't a FOCUS_FILTER_* token, "
-            "and an icon that doesn't resolve. Every refusal says what was wrong "
-            "and what to do. Nothing is half-applied.",
-            "Every focus write (and each batch) returns the validation issues "
-            "touching the focuses it changed, so an agent sees problems the "
-            "moment it makes them rather than after a separate validate.",
-            "Inside a batch, prerequisites may reference focuses created later in "
-            "the same batch; anything still missing at the end rolls the whole "
-            "batch back.",
-            "Arg names are checked against a per-op spec: unknown names are "
-            "rejected with the accepted list and a did-you-mean hint, and the "
-            "obvious aliases (focus_id, completion_reward, focus/prerequisite, "
-            "focus_a/focus_b, top-level x/y on update_focus) just work. New ops: "
-            "describe_op (the spec of any op with an example) and guide (the "
-            "Millennium Dawn authoring guide, now starting with a step-by-step "
-            "procedure and served by the editor itself).",
-            "Cheaper reads for token-limited agents: list_focuses takes prefix / "
-            "ids / x-y bounds / fields / limit, reference_data takes sections and "
-            "drops HOI4's dynamic D01..D75 tags by default, and the preset "
-            "catalogues have a compact form (about one fifth the size) plus a "
-            "single-kind lookup.",
-            "The focus filter list is now the set both Millennium Dawn editions "
-            "actually localise (44 filters; FOCUS_FILTER_AIR is gone, "
-            "FOCUS_FILTER_AIRCRAFT and thirty others are new). Validation warns "
-            "about filters the mod doesn't define, so a filter button that would "
-            "never appear in-game is caught here; country-specific filters stay "
-            "allowed.",
+            "New Assistant tab: chat with a hosted model that builds and edits your tree for you, live on the canvas \u2014 no Claude Code or MCP setup needed. Bring your own API key (OpenRouter by default, any OpenAI-compatible endpoint works), pick a model, and watch each tool call appear as it runs. Deletes, saves and exports ask you first; a Stop button halts it at the next step; the header shows the running token count and estimated cost.",
+            "Privacy: the assistant sends your prompts and the parts of your mod it reads to the provider you configure, and only when you send a message. The key is stored on this computer only. The existing LLM tab and the MCP bridge are unchanged.",
+            "Editing an existing Millennium Dawn tree now replaces it instead of silently loading next to it: importing an MD tree exports under MD's own file name, and the import dialog offers a prefixed separate copy if you'd rather keep MD's tree too.",
+            "If an export would still clash with an MD tree (same focus ids, different file), Validation says so in plain words, the Export tab shows a red status with a Fix button, and Export itself stops to offer the one-click fixes before writing anything broken.",
+            "Custom tooltips now carry their text: fill in Tooltip text and it is written to your mod's localisation; Validation warns about tooltip keys that would show raw in-game.",
+            "The focus filter list is now the set both Millennium Dawn editions actually localise (44 filters; FOCUS_FILTER_AIR is gone, FOCUS_FILTER_AIRCRAFT and thirty others are new). Validation warns about filters the mod doesn't define, so a filter button that would never appear in-game is caught here; country-specific filters stay allowed.",
+            "The AI bridge now refuses mistakes up front instead of accepting them silently: an id with a space, a focus dropped on an occupied cell (it suggests the nearest free cells), an unknown reward or condition preset, a misspelt or missing param, a prerequisite pointing at a focus that doesn't exist, a filter that isn't a FOCUS_FILTER_* token, and an icon that doesn't resolve. Every refusal says what was wrong and what to do. Nothing is half-applied.",
+            "Every focus write (and each batch) returns the validation issues touching the focuses it changed, so an agent sees problems the moment it makes them rather than after a separate validate.",
+            "Inside a batch, prerequisites may reference focuses created later in the same batch; anything still missing at the end rolls the whole batch back.",
+            "Arg names are checked against a per-op spec: unknown names are rejected with the accepted list and a did-you-mean hint, and the obvious aliases (focus_id, completion_reward, focus/prerequisite, focus_a/focus_b, top-level x/y on update_focus) just work. New ops: describe_op (the spec of any op with an example) and guide (the Millennium Dawn authoring guide, now starting with a step-by-step procedure and served by the editor itself).",
+            "Cheaper reads for token-limited agents: list_focuses takes prefix / ids / x-y bounds / fields / limit, reference_data takes sections and drops HOI4's dynamic D01..D75 tags by default, and the preset catalogues have a compact form (about one fifth the size) plus a single-kind lookup.",
             "Bridge error messages no longer leak Python exception names.",
-            "New Assistant tab: chat with a hosted model that builds and edits "
-            "your tree for you, live on the canvas — no Claude Code or MCP setup "
-            "needed. Bring your own API key (OpenRouter by default, any "
-            "OpenAI-compatible endpoint works), pick a model, and watch each tool "
-            "call appear as it runs. Deletes, saves and exports ask you first; a "
-            "Stop button halts it at the next step; the header shows the running "
-            "token count and estimated cost.",
-            "Privacy: the assistant sends your prompts and the parts of your mod "
-            "it reads to the provider you configure, and only when you send a "
-            "message. The key is stored on this computer only. The existing LLM "
-            "tab and the MCP bridge are unchanged.",
-            "Editing an existing Millennium Dawn tree now replaces it instead of "
-            "silently loading next to it: importing an MD tree exports under MD's "
-            "own file name, and the import dialog offers a prefixed separate copy "
-            "if you'd rather keep MD's tree too.",
-            "If an export would still clash with an MD tree (same focus ids, "
-            "different file), Validation says so in plain words, the Export tab "
-            "shows a red status with a Fix button, and Export itself stops to "
-            "offer the one-click fixes before writing anything broken.",
         ],
     },
     {
