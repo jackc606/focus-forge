@@ -657,5 +657,9 @@ def test_docs_and_changelog_mention_the_new_surface():
         assert must in docs, must
     from core.changelog import CHANGELOG
     from core.version import __version__
-    assert CHANGELOG[0]["version"] == "0.4.3" and __version__ == "0.4.2"
-    assert "unreleased" in (CHANGELOG[0].get("date") or "").lower()
+    import re
+    # The newest changelog entry is the running version, dated either
+    # "unreleased" (in development) or YYYY-MM-DD (release.py copies it to the site).
+    assert CHANGELOG[0]["version"] == __version__
+    date = (CHANGELOG[0].get("date") or "").lower()
+    assert date == "unreleased" or re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), date
