@@ -55,7 +55,10 @@ AI_WEIGHT_AUTHORING_NOTE = (
     "fork (or gate on has_country_flag / has_government); factor 0 while at war for "
     "economy focuses; factor 5-10 on the historical opening moves with a date < "
     "trigger; factor 0 for war paths unless war_support is high. Triggers use the "
-    "same condition presets as `available`."
+    "same condition presets as `available`. REQUIRED: both sides of every mutex fork "
+    "carry aiModifiers that make the AI pick ONE side (factor 0 on the other, gated on a "
+    "flag, government or date); vary aiWillDo by role (opening moves 10-12, leaves 5-8, "
+    "capstones 10). A branch where every focus is aiWillDo 10 with no modifiers is wrong."
 )
 
 COST_CONVENTION = {
@@ -128,7 +131,9 @@ Do NOT borrow another country's sprites (names starting with a tag or country su
 sprite for a civilian idea (`cruisers2` is a warship, not a cruise ship). Company and
 brand logos (`tatamotors`, `kiira_motors`, `general_motors`, `fiat_cars`) count as borrowed
 too — use one only for a focus about THAT company in THAT country; otherwise pick a
-generic sprite for the idea (factory, car, battery, road). Check
+generic sprite for the idea (factory, car, battery, road). A tag at the END of the name
+(`siberian_pipeline_rus`, `..._ger`) is borrowed too. And the picture must match the
+idea: no hydro dam for a gas pipeline, no coal plant for a green-energy capstone. Check
 `reference_data.iconPresets` and existing focus icons via `get_focus` before picking.
 VERIFY every icon name with
 `search_icons` before assigning it — a guessed GFX_ name that doesn't resolve renders

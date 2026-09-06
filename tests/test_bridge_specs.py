@@ -566,6 +566,22 @@ def test_chip_selector_still_accepts_custom_filter_values():
 
 # ===================== 7. compact / filtered reads =====================
 
+def test_reference_data_accepts_loose_section_names():
+    from core.bridge_dispatch import resolve_reference_sections
+    avail = ["countryTags", "parties", "focusFilters", "iconPresets", "layoutConvention",
+             "rewardAuthoring", "aiWeightAuthoring", "costConvention"]
+    assert resolve_reference_sections(["filters", "conventions"], avail) == [
+        "focusFilters", "layoutConvention", "rewardAuthoring", "aiWeightAuthoring",
+        "costConvention"]
+    assert resolve_reference_sections(["FocusFilters", "Tags", "icon presets"], avail) == [
+        "countryTags", "focusFilters", "iconPresets"] or resolve_reference_sections(
+        ["FocusFilters", "Tags", "icon presets"], avail) == ["focusFilters", "countryTags", "iconPresets"]
+    assert resolve_reference_sections(["focusfilter"], avail) == ["focusFilters"]
+    with pytest.raises(ValueError) as info:
+        resolve_reference_sections(["banana"], avail)
+    assert "Unknown section(s) 'banana'" in str(info.value) and "Available:" in str(info.value)
+
+
 def test_reference_data_sections_and_dynamic_tags():
     m = _model()
     full = _ok(m, "reference_data")

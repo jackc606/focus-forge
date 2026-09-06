@@ -746,12 +746,62 @@ def _op_reference_data(model, args):
         wanted = list(sections)
     elif isinstance(wanted, str):
         wanted = [wanted]
-    unknown = [s for s in wanted if s not in sections]
-    if unknown:
-        raise ValueError(f"Unknown section(s) {', '.join(repr(u) for u in unknown)}. "
-                         f"Available: {', '.join(sections)}.")
+    wanted = resolve_reference_sections(wanted, list(sections))
     out = {name: sections[name]() for name in sections if name in wanted}
     out["sections_available"] = list(sections)
+    return out
+
+
+# What a model actually types when it wants a section. The canonical names are
+# camelCase compounds a weak model half-remembers ("filters", "conventions",
+# "tags"); failing the whole call over that costs a round trip for nothing.
+_SECTION_ALIASES = {
+    "filters": ["focusFilters"], "focus_filters": ["focusFilters"],
+    "search_filters": ["focusFilters"], "focusfilter": ["focusFilters"],
+    "tags": ["countryTags"], "countries": ["countryTags"], "country_tags": ["countryTags"],
+    "icons": ["iconPresets"], "icon_presets": ["iconPresets"],
+    "tech": ["techCategories"], "technologies": ["techCategories"],
+    "resources": ["resourceTypes"], "equipment": ["equipmentTypes"],
+    "states": ["countryStates"], "wargoals": ["wargoalTypes"],
+    "buildings": ["buildingTypes"], "layout": ["layoutConvention"],
+    "spacing": ["layoutConvention"], "rewards": ["rewardAuthoring"],
+    "ai": ["aiWeightAuthoring"], "ai_weights": ["aiWeightAuthoring"],
+    "cost": ["costConvention"], "costs": ["costConvention"],
+    "conventions": ["layoutConvention", "rewardAuthoring", "aiWeightAuthoring",
+                    "costConvention"],
+    "guide": ["layoutConvention", "rewardAuthoring", "aiWeightAuthoring",
+              "costConvention"],
+    "notes": ["layoutConvention", "rewardAuthoring", "aiWeightAuthoring",
+              "costConvention"],
+}
+
+
+def resolve_reference_sections(wanted, available: list) -> list:
+    """Map loose section names onto the canonical ones: exact, case-insensitive,
+    alias table, then a close-match guess; only a name that resolves to nothing
+    is an error (and the error names the closest candidate)."""
+    lower = {a.lower(): a for a in available}
+    out, unknown = [], []
+    for raw in wanted:
+        key = str(raw).strip()
+        norm = key.lower().replace("-", "_").replace(" ", "_")
+        if key in available:
+            hits = [key]
+        elif norm in lower:
+            hits = [lower[norm]]
+        elif norm in _SECTION_ALIASES:
+            hits = _SECTION_ALIASES[norm]
+        elif norm.rstrip("s") in _SECTION_ALIASES:
+            hits = _SECTION_ALIASES[norm.rstrip("s")]
+        else:
+            close = difflib.get_close_matches(norm.replace("_", ""), list(lower), n=1, cutoff=0.6)
+            hits = [lower[close[0]]] if close else []
+        if not hits:
+            unknown.append(key)
+        out.extend(h for h in hits if h not in out)
+    if unknown:
+        raise ValueError(f"Unknown section(s) {', '.join(repr(u) for u in unknown)}. "
+                         f"Available: {', '.join(available)}.")
     return out
 
 

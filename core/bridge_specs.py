@@ -143,8 +143,12 @@ OP_SPECS: dict = {
         "presets, tech categories, resource/equipment/wargoal/building types, the country's "
         "states, and the authoring conventions. Ask for `sections` to save tokens.",
         {
-            "sections": _a("array", "Section names to include (default all). The result "
-                           "always lists sections_available."),
+            "sections": _a("array", "Section names to include (default all): countryTags, "
+                           "parties, focusFilters, iconPresets, techCategories, resourceTypes, "
+                           "equipmentTypes, countryStates, wargoalTypes, buildingTypes, "
+                           "layoutConvention, rewardAuthoring, aiWeightAuthoring, "
+                           "costConvention. Short forms work too (filters, tags, icons, "
+                           "conventions). The result always lists sections_available."),
             "include_dynamic_tags": _a("boolean", "Keep HOI4 dynamic tags D01..D75 in "
                                        "countryTags (default false)."),
         },
