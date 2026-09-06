@@ -33,6 +33,9 @@ from .types import ValidationIssue
 _LOC_HEADER = "l_english:"
 _LOC_LINE = re.compile(r'^\s([A-Za-z0-9_.\-]+):(\d*)\s*"(.*)"\s*(#.*)?$')
 _ID_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+# `custom_effect_tooltip = KEY` — the one script token that references a loc
+# key nothing else (focus/idea/event id checks) accounts for.
+_TOOLTIP_REF = re.compile(r"(?<![A-Za-z0-9_])custom_effect_tooltip\s*=\s*([A-Za-z0-9_.\-]+)")
 # Paradox strings never span lines: a quote with no closing quote on its line is
 # an error (the game reads to the next quote and mangles everything between).
 _TOKEN = re.compile(r'"[^"\n]*"|"[^"\n]*$|\{|\}|<=|>=|!=|==|[=<>]|[^\s{}=<>"#]+|#[^\n]*|\n',
@@ -263,15 +266,18 @@ def _check_generic(rel: str, text: str, issues: list) -> None:
 # ---------------------------------------------------------------------------
 # Whole-export smoke check
 # ---------------------------------------------------------------------------
-def smoke_check(files) -> list:
+def smoke_check(files, known_loc=None) -> list:
     """Parse and structurally check every exported file (``ExportedFile`` list
     or objects with ``relativePath`` / ``content`` / ``bom``), then check that
-    focuses, ideas and events are localised. Returns ValidationIssues."""
+    focuses, ideas, events and custom tooltips are localised. ``known_loc`` is
+    the set of keys the game/MD already localise (None = unknown, so a tooltip
+    key absent from the export still warns). Returns ValidationIssues."""
     issues: list = []
     focus_ids: list = []
     idea_ids: list = []
     events: list = []
     loc_keys: dict = {}
+    tooltip_refs: list = []  # (rel, key) for every custom_effect_tooltip = key
     for f in files or []:
         rel = f.relativePath.replace("\\", "/")
         text = f.content or ""
@@ -281,6 +287,7 @@ def smoke_check(files) -> list:
             continue
         if not (low.endswith(".txt") or low.endswith(".gfx") or low.endswith(".mod")):
             continue
+        tooltip_refs += [(rel, key) for key in _TOOLTIP_REF.findall(text)]
         for line, msg in parse_script(text):
             _err(issues, "export.parse", f"{rel}:{line}: {msg}.")
         if any(i.code == "export.parse" and i.message.startswith(rel + ":") for i in issues):
@@ -315,6 +322,17 @@ def smoke_check(files) -> list:
             for name in opts:
                 if name not in loc_keys:
                     _warn(issues, "export.loc.missingOption", f"event {eid}: option {name} has no text.")
+    # Outside the guard above: a tooltip key is a raw-text bug even when the
+    # export has no loc file at all.
+    seen: set = set()
+    for rel, key in tooltip_refs:
+        if key in loc_keys or (known_loc is not None and key in known_loc) or key in seen:
+            continue
+        seen.add(key)
+        _warn(issues, "loc.tooltip.missing",
+              f"{rel}: tooltip key '{key}' has no text in this export and isn't defined by "
+              f"the game or Millennium Dawn — in-game the player will see the raw key. Fill "
+              f"in Tooltip text on that item, or use an existing key.")
     return issues
 
 

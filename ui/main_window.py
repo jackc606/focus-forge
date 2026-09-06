@@ -1013,7 +1013,8 @@ class MainWindow(QMainWindow):
         from core.export_check import smoke_check
         from core.exporters import export_project_files
         try:
-            issues = smoke_check(export_project_files(self._model.project))
+            issues = smoke_check(export_project_files(self._model.project),
+                                 known_loc=self._model.known_tooltip_loc())
         except Exception as exc:  # never let a checker failure look like an export failure
             self._model.status_message.emit(f"Smoke check skipped: {exc}")
             return

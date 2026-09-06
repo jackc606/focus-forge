@@ -207,12 +207,18 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "hydroelectric_dam.state": "Numeric HOI4 state id where the dam sits (the state containing the reservoir).",
     "hydroelectric_dam.production": "Hydroelectric power added to that state's grid, in gigawatts (MD energy system). Tabqa Dam is about 0.8.",
     "hydroelectric_dam.tooltip": "Optional localization key for a readable tooltip; when set, the raw variable changes are hidden behind it (the MD convention).",
+    "hydroelectric_dam.tooltipText": "Written into the mod's localisation under the tooltip key. Leave empty only when the key already exists in the game or Millennium Dawn.",
     "income_tax.amount": "Change to the personal/population income tax rate (MD). Positive raises taxes (more revenue, less consumer spending); negative cuts them.",
     "national_debt.amount": "Change to national debt (MD). Negative pays debt down; positive takes on debt.",
     "international_investment.amount": "Change to international investment inflow (MD). Positive attracts more foreign investment.",
     "government_expenses.amount": "Change to recurring government expenses (MD budget). Positive raises spending.",
     "urban_development_fund.amount": "Amount added to the urban development fund (MD).",
 }
+
+# The custom-tooltip text params share one explanation: the key alone shows raw
+# in-game unless the game/MD already localises it.
+TOOLTIP_TEXT_HELP = ("Written into the mod's localisation under the key. Leave empty only "
+                     "when the key already exists in the game or Millennium Dawn.")
 
 SHARED_PARAM_HELP: dict = {
     "amount": "Numeric value used by this reward. Negative values usually remove or spend the same thing.",
@@ -631,7 +637,10 @@ _RAW_PRESETS = [
                  [RewardParamDef("eventId", "Event ID", "event_ref", "", required=True, placeholder="MEX_forge.2"),
                   RewardParamDef("days", "Delay Days", "number", 0)], _b_news_event),
     RewardPreset("custom_tooltip", "Events and Flags", "Custom Tooltip", "Shows a custom effect tooltip.",
-                 [RewardParamDef("tooltipId", "Tooltip Loc Key", "string", "", required=True)], _b_custom_tooltip),
+                 [RewardParamDef("tooltipId", "Tooltip Loc Key", "string", "", required=True),
+                  RewardParamDef("text", "Tooltip text", "string", "",
+                                 placeholder="What the player reads, e.g. 'Foreign investors take notice.'",
+                                 helpText=TOOLTIP_TEXT_HELP)], _b_custom_tooltip),
     RewardPreset("set_country_flag", "Events and Flags", "Set Country Flag", "Sets a country flag for later triggers or event logic.",
                  [RewardParamDef("flag", "Flag", "string", "", required=True)], _b_set_country_flag),
     RewardPreset("clear_country_flag", "Events and Flags", "Clear Country Flag", "Clears a country flag.",
@@ -717,7 +726,10 @@ _RAW_PRESETS = [
                  "with existing dams). Production is in GW (0.8 is about 800 MW).",
                  [RewardParamDef("state", "State", "state", "", required=True),
                   RewardParamDef("production", "Production (GW)", "number", 0.8, required=True, step=0.1),
-                  RewardParamDef("tooltip", "Tooltip Key", "string", "", placeholder="TT_SYR_TABQA_DAM_HYDRO")],
+                  RewardParamDef("tooltip", "Tooltip Key", "string", "", placeholder="TT_SYR_TABQA_DAM_HYDRO"),
+                  RewardParamDef("tooltipText", "Tooltip text", "string", "",
+                                 placeholder="What the player reads, e.g. 'The dam comes online.'",
+                                 helpText=TOOLTIP_TEXT_HELP)],
                  _b_hydroelectric_dam),
     RewardPreset("domestic_influence", "Millennium Dawn Politics", "Domestic Influence", "Changes domestic influence percentage through the MD helper.",
                  [RewardParamDef("percent", "Percent Change", "number", 5, required=True)], _b_domestic_influence),
@@ -894,3 +906,97 @@ def validate_reward_item(item) -> list:
             if param.type == "state" and float(current) < 1:
                 issues.append(f"{preset.label} needs a real state id (1 or higher) for {param.label}.")
     return issues
+
+
+# ----- where structured reward items live --------------------------------------
+
+@dataclass
+class RewardItemSite:
+    """One structured reward item and the content that owns it. ``owner`` is
+    'focus' | 'event' | 'decision' (which loc file its texts belong in),
+    ``focus_id`` is set only for focus rewards (validation issues carry it),
+    ``label`` reads like "MEX_x reward 2" / "event MEX.1 option a effect 1"."""
+    owner: str
+    owner_id: str
+    label: str
+    item: object
+    focus_id: Optional[str] = None
+
+
+def _item_enabled(item) -> bool:
+    enabled = item.get("enabled") if isinstance(item, dict) else getattr(item, "enabled", True)
+    return enabled is not False
+
+
+def item_kind(item) -> str:
+    return item["kind"] if isinstance(item, dict) else getattr(item, "kind", "")
+
+
+def item_params(item) -> dict:
+    params = item.get("params") if isinstance(item, dict) else getattr(item, "params", None)
+    return params or {}
+
+
+def iter_reward_item_sites(project, enabled_only: bool = True):
+    """Every structured reward item in the project with its owner — focus
+    completion rewards, event option effects and decision effects. The ONE
+    enumeration validation and export share, so a new item site can never be
+    covered by one and forgotten by the other."""
+    for focus in project.focuses:
+        reward = focus.completionReward
+        for n, item in enumerate((reward.items if reward else None) or [], start=1):
+            if enabled_only and not _item_enabled(item):
+                continue
+            yield RewardItemSite("focus", focus.id, f"{focus.id} reward {n}", item, focus.id)
+    for event in project.events:
+        for option in (event.options or []):
+            for n, item in enumerate(getattr(option, "items", None) or [], start=1):
+                if enabled_only and not _item_enabled(item):
+                    continue
+                yield RewardItemSite("event", event.id,
+                                     f"event {event.id} option {option.key} effect {n}", item)
+    for d in project.decisions:
+        for reward, label in ((d.completeEffect, "complete"), (d.removeEffect, "remove"),
+                              (d.timeoutEffect, "timeout")):
+            for n, item in enumerate((reward.items if reward else None) or [], start=1):
+                if enabled_only and not _item_enabled(item):
+                    continue
+                yield RewardItemSite("decision", d.id,
+                                     f"decision {d.id} {label} effect {n}", item)
+
+
+# ----- custom tooltip texts -------------------------------------------------------
+
+# kind -> (param holding the loc key, param holding the player-facing text).
+TOOLTIP_PARAMS = {
+    "custom_tooltip": ("tooltipId", "text"),
+    "hydroelectric_dam": ("tooltip", "tooltipText"),
+}
+
+
+def iter_tooltip_refs(project):
+    """``(site, key, text)`` for every enabled item that emits
+    ``custom_effect_tooltip = key`` — text is '' when the author gave none."""
+    for site in iter_reward_item_sites(project):
+        names = TOOLTIP_PARAMS.get(item_kind(site.item))
+        if not names:
+            continue
+        params = item_params(site.item)
+        key = _value(params, names[0])
+        if key:
+            yield site, key, _value(params, names[1])
+
+
+def tooltip_texts_by_owner(project) -> dict:
+    """``{'focus' | 'event' | 'decision': {key: text}}`` — the tooltip texts
+    each content type's localisation file must carry. A key used at several
+    sites is written once, in the file of the first site that gave it text, so
+    the same key never lands in two files (last-loaded-wins would hide edits)."""
+    out: dict = {"focus": {}, "event": {}, "decision": {}}
+    seen: set = set()
+    for site, key, text in iter_tooltip_refs(project):
+        if key in seen or not text:
+            continue
+        seen.add(key)
+        out[site.owner][key] = text
+    return out

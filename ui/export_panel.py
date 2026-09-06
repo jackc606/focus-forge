@@ -187,11 +187,11 @@ class ExportPanel(QWidget):
         from core.export_check import smoke_check
         if self._stale or not self._files:
             self.refresh()
-        issues = smoke_check(self._files)
+        issues = smoke_check(self._files, known_loc=self._model.known_tooltip_loc())
         if not issues:
             self._check_out.setPlainText(
                 f"Smoke check passed: {len(self._files)} file(s) parse cleanly and every focus, "
-                f"idea and event is localised.")
+                f"idea, event and tooltip is localised.")
             return
         errors = sum(1 for i in issues if i.severity == "error")
         lines = [f"Smoke check: {errors} error(s), {len(issues) - errors} warning(s).", ""]

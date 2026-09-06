@@ -1122,7 +1122,8 @@ def _op_smoke_check(model, args):
     structural rules (see core.export_check). Nothing is written."""
     from .export_check import smoke_check
     files = export_project_files(model.project)
-    issues = smoke_check(files) + _collision_issues(model)
+    known_loc = getattr(model, "known_tooltip_loc", lambda: None)()
+    issues = smoke_check(files, known_loc=known_loc) + _collision_issues(model)
     out = {"files": len(files), "errors": [], "warnings": []}
     for i in issues:
         rec = {"code": i.code, "message": i.message, "focusId": i.focusId}

@@ -13,6 +13,9 @@ CHANGELOG = [
         "date": "unreleased",
         "title": "AI bridge: fail fast, explain, and stay cheap for smaller models",
         "changes": [
+            "Custom tooltips now carry their text: fill in Tooltip text and it is "
+            "written to your mod's localisation; Validation warns about tooltip "
+            "keys that would show raw in-game.",
             "The AI bridge now refuses mistakes up front instead of accepting them "
             "silently: an id with a space, a focus dropped on an occupied cell "
             "(it suggests the nearest free cells), an unknown reward or condition "

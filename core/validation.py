@@ -10,7 +10,14 @@ from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
 from .md_edition import active_edition, foreign_helpers
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .presets import EDITION_ONLY_FOCUS_FILTERS, FOCUS_FILTER_PATTERN, MD_FOCUS_FILTERS
-from .reward_presets import get_reward_preset, validate_reward_item
+from .reward_presets import (
+    get_reward_preset,
+    item_kind,
+    item_params,
+    iter_reward_item_sites,
+    iter_tooltip_refs,
+    validate_reward_item,
+)
 from .types import FocusForgeProject, ValidationIssue, iter_prereq_ids
 
 ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
@@ -52,10 +59,13 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_idea_ids=None, edition=None,
                      known_country_tags=None, script_vocab=None,
                      state_index=None, equipment_types=None,
-                     tree_index=None) -> list:
+                     tree_index=None, loc_key_exists=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
+    ``loc_key_exists`` is the same shape for localisation keys (True = the
+    game/MD already localise it); unlike icons, an unknown tooltip key still
+    warns, because a bare key shows raw in-game and the message covers both.
     ``known_decision_categories`` is an optional set of existing game/MD
     decision-category ids; when provided, unknown category references warn.
     ``known_idea_ids`` is an optional set of idea ids defined by the game/MD —
@@ -146,6 +156,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                 issues.append(ValidationIssue(severity="error", code="focus.reward.invalid", focusId=focus.id, message=f"{focus.id} reward {index + 1}: {message}"))
 
     _validate_reward_references(project, issues, known_idea_ids)
+    _validate_tooltips(project, issues, loc_key_exists)
     _lint_all_raw_script(project, issues)
     _detect_cycles(project, issues)
     _detect_unreachable(project, issues)
@@ -487,26 +498,28 @@ def _validate_reward_references(project: FocusForgeProject, issues: list,
     loc_prefix = (settings.localisationPrefix or "").strip()
     tag = (project.countryTag or "").strip().upper()
 
-    def check_event(focus_id: str, value: str) -> None:
+    # ``where`` names the owner in the message; ``focus_id`` tags the issue
+    # (None for event/decision sites, which have no focus card to jump to).
+    def check_event(where: str, value: str, focus_id=None) -> None:
         v = (value or "").strip()
         if not v:
             return
         if v in event_ids:
             if not settings.includeEvents:
                 _warn_focus(issues, "focus.reward.event.unexported", focus_id,
-                            f"{focus_id} fires event {v}, but “Include events” is off — it won't be exported.")
+                            f"{where} fires event {v}, but “Include events” is off — it won't be exported.")
         elif loc_prefix and v.startswith(f"{loc_prefix}."):
             _err_focus(issues, "focus.reward.event.missing", focus_id,
-                       f"{focus_id} fires missing project event {v}.")
+                       f"{where} fires missing project event {v}.")
 
-    def check_idea(focus_id: str, value: str) -> None:
+    def check_idea(where: str, value: str, focus_id=None) -> None:
         v = (value or "").strip()
         if not v:
             return
         if v in idea_ids:
             if not settings.includeIdeas:
                 _warn_focus(issues, "focus.reward.idea.unexported", focus_id,
-                            f"{focus_id} grants idea {v}, but “Include ideas” is off — it won't be exported.")
+                            f"{where} grants idea {v}, but “Include ideas” is off — it won't be exported.")
         elif tag and v.upper().startswith(f"{tag}_"):
             # The game/MD defines plenty of tag-prefixed ideas — a reference
             # found there is legal, not a warning (a converted base tree
@@ -515,7 +528,7 @@ def _validate_reward_references(project: FocusForgeProject, issues: list,
                 return
             # WARNING, not error: without a game index we can't be sure.
             _warn_focus(issues, "focus.reward.idea.missing", focus_id,
-                        f"{focus_id} grants idea {v}, which isn't one of this project's "
+                        f"{where} grants idea {v}, which isn't one of this project's "
                         f"ideas — fine if it exists in MD, a problem if it was deleted here.")
 
     for focus in project.focuses:
@@ -523,23 +536,56 @@ def _validate_reward_references(project: FocusForgeProject, issues: list,
         if not reward:
             continue
         for ev in (reward.events or []):
-            check_event(focus.id, ev.id)
+            check_event(focus.id, ev.id, focus.id)
         for idea in (reward.addIdeas or []):
-            check_idea(focus.id, idea)
+            check_idea(focus.id, idea, focus.id)
         for idea in (reward.removeIdeas or []):
-            check_idea(focus.id, idea)
-        for item in (reward.items or []):
-            if getattr(item, "enabled", True) is False:
-                continue
-            preset = get_reward_preset(getattr(item, "kind", ""))
-            if not preset:
-                continue
-            params = getattr(item, "params", {}) or {}
-            for p in preset.params:
-                if p.type == "event_ref":
-                    check_event(focus.id, params.get(p.key))
-                elif p.type == "idea_ref":
-                    check_idea(focus.id, params.get(p.key))
+            check_idea(focus.id, idea, focus.id)
+    # Structured items at every site (focus rewards, event options, decision
+    # effects) — the shared enumeration, so an event option firing a deleted
+    # project event is caught the same way a focus reward is.
+    for site in iter_reward_item_sites(project):
+        preset = get_reward_preset(item_kind(site.item))
+        if not preset:
+            continue
+        params = item_params(site.item)
+        where = site.owner_id if site.owner == "focus" else site.label
+        for p in preset.params:
+            if p.type == "event_ref":
+                check_event(where, params.get(p.key), site.focus_id)
+            elif p.type == "idea_ref":
+                check_idea(where, params.get(p.key), site.focus_id)
+
+
+_LOC_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _validate_tooltips(project: FocusForgeProject, issues: list, loc_key_exists=None) -> None:
+    """A ``custom_effect_tooltip`` key with no text and no game/MD definition
+    shows raw in-game — the one export mistake nothing else catches, because
+    the script itself is well-formed. Warns unless the author gave text or the
+    resolver confirms the key exists; an unknown resolver (headless) still
+    warns, the message already covers the "existing key" case."""
+    first_text: dict = {}
+    for site, key, text in iter_tooltip_refs(project):
+        if not _LOC_KEY_PATTERN.match(key):
+            _err_focus(issues, "reward.tooltip.invalidKey", site.focus_id,
+                       f"{site.label}: tooltip key '{key}' isn't a valid localisation key "
+                       f"(letters, digits, _ and . — it can't start with a digit).")
+            continue
+        if not text:
+            if loc_key_exists is None or loc_key_exists(key) is not True:
+                _warn_focus(issues, "reward.tooltip.unlocalised", site.focus_id,
+                            f"{site.label}: tooltip key '{key}' has no text and isn't defined "
+                            f"by the game or Millennium Dawn — in-game the player will see the "
+                            f"raw key. Fill in Tooltip text, or use an existing key.")
+            continue
+        previous = first_text.setdefault(key, (text, site.label))
+        if previous[0] != text:
+            _warn_focus(issues, "reward.tooltip.conflict", site.focus_id,
+                        f"{site.label}: tooltip key '{key}' has a different text here than at "
+                        f"{previous[1]} — the export keeps the first; make them agree or use "
+                        f"two keys.")
 
 
 def _err_focus(issues, code, focus_id, msg):

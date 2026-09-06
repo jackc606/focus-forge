@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,6 +33,23 @@ _VALID_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 _UNDO_LIMIT = 50          # snapshots kept; a full project dict is cheap (KBs)
 _UNDO_COALESCE_S = 0.8    # mutations closer together than this = one gesture
 
+# Process-wide "does the game/MD localise this tooltip key" answers, keyed on
+# the roots tuple: {roots: {key: bool}}. Global (not per model) so a project
+# switch or a second model never re-reads MD's localisation for the same keys.
+_TOOLTIP_LOC_CACHE: dict = {}
+_TOOLTIP_LOC_BUILDING: dict = {}   # {roots: set(keys) currently being resolved}
+_TOOLTIP_LOC_LOCK = threading.Lock()
+
+
+def _qobject_alive(obj) -> bool:
+    """Whether the C++ side of a PySide object still exists (a worker thread
+    must not signal a model whose Qt object was deleted from under it)."""
+    try:
+        import shiboken6
+        return shiboken6.isValid(obj)
+    except Exception:
+        return True
+
 
 class ProjectModel(QObject):
     project_changed = Signal()
@@ -44,6 +62,9 @@ class ProjectModel(QObject):
     # background build; re-runs validation so the collision check appears
     # without waiting for the next edit.
     tree_index_ready = Signal()
+    # Same idea for the custom-tooltip localisation lookup (which keys the
+    # game/MD already define): resolved off-thread, validation re-runs on land.
+    tooltip_loc_ready = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -77,6 +98,7 @@ class ProjectModel(QObject):
         self._validation_timer.setInterval(250)
         self._validation_timer.timeout.connect(self._emit_validation)
         self.tree_index_ready.connect(self._on_tree_index_ready)
+        self.tooltip_loc_ready.connect(self._on_tree_index_ready)
 
     # ----- accessors -----
     @property
@@ -118,7 +140,8 @@ class ProjectModel(QObject):
                                 script_vocab=self._script_index("script_vocabulary_cached"),
                                 state_index=self._script_index("state_index_cached"),
                                 equipment_types=self._script_index("equipment_types_cached"),
-                                tree_index=self._tree_index())
+                                tree_index=self._tree_index(),
+                                loc_key_exists=self._loc_key_exists())
 
     def _tree_index(self):
         """The base-tree index (core.tree_index) for the configured roots, or
@@ -183,6 +206,71 @@ class ProjectModel(QObject):
         validation then keeps the cautious base-mod-reference warning."""
         from .tech_provider import tech_provider
         return tech_provider().known_idea_ids_cached()
+
+    @staticmethod
+    def _loc_roots() -> list:
+        """Game/MD roots whose localisation answers "does this key exist" (a
+        seam tests point at a fake)."""
+        try:
+            from .icon_provider import provider
+            return list(provider().roots())
+        except Exception:
+            return []
+
+    def _loc_key_exists(self):
+        """callable(key) -> bool | None for validation's tooltip check, or None
+        while nothing is known. Self-warming: keys not yet answered for the
+        configured roots are resolved against their English localisation in
+        the background (MD's loc is tens of MB — never on a keystroke) and
+        validation re-runs when the answers land; meanwhile the answers already
+        cached still serve (a key they don't cover simply reads as unknown)."""
+        from core.reward_presets import iter_tooltip_refs
+        roots = tuple(self._loc_roots())
+        keys = {key for _s, key, _t in iter_tooltip_refs(self._project)}
+        if not roots or not keys:
+            return None
+        with _TOOLTIP_LOC_LOCK:
+            known = _TOOLTIP_LOC_CACHE.setdefault(roots, {})
+            missing = keys - known.keys() - _TOOLTIP_LOC_BUILDING.get(roots, set())
+            if missing:
+                _TOOLTIP_LOC_BUILDING.setdefault(roots, set()).update(missing)
+        if missing:
+            self._resolve_tooltip_loc(roots, missing)
+        return known.get if known else None
+
+    def _resolve_tooltip_loc(self, roots: tuple, keys: set) -> None:
+        """Resolve ``keys`` off-thread into the process-wide cache. The worker
+        holds only a weak reference to this model: a scan can outlive the model
+        that asked (tests, project switches), and emitting on a deleted QObject
+        is an access violation, not an exception."""
+        import threading
+        import weakref
+        self_ref = weakref.ref(self)
+
+        def _build() -> None:
+            from core import pdx_loc
+            try:
+                found = pdx_loc.load_english_localisation(roots, set(keys))
+            except Exception:
+                found = {}
+            with _TOOLTIP_LOC_LOCK:
+                _TOOLTIP_LOC_CACHE.setdefault(roots, {}).update({k: k in found for k in keys})
+                _TOOLTIP_LOC_BUILDING.get(roots, set()).difference_update(keys)
+            model = self_ref()
+            if model is not None and _qobject_alive(model):
+                model.tooltip_loc_ready.emit()
+
+        self._tooltip_loc_thread = threading.Thread(
+            target=_build, daemon=True, name="tooltip-loc-lookup")
+        self._tooltip_loc_thread.start()
+
+    def known_tooltip_loc(self):
+        """Tooltip keys the game/MD are known to localise (for the export
+        smoke check), or None while nothing has been resolved for these roots."""
+        known = _TOOLTIP_LOC_CACHE.get(tuple(self._loc_roots()))
+        if not known:
+            return None
+        return {k for k, ok in known.items() if ok}
 
     # ----- undo / redo -----
     def can_undo(self) -> bool:

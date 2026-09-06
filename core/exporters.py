@@ -6,7 +6,7 @@ import re
 from .availability_presets import build_availability_item_lines
 from .md_edition import edition_context
 from .md_parties import MD_PARTY_LABEL_BY_INDEX, MD_PARTY_SUBIDEOLOGY_BY_INDEX
-from .reward_presets import build_reward_item_lines
+from .reward_presets import build_reward_item_lines, tooltip_texts_by_owner
 from .types import (
     AvailabilityRule,
     CompletionReward,
@@ -866,7 +866,16 @@ def export_focus_localisation(project: FocusForgeProject) -> str:
         if not (getattr(shortcut, "target", "") or "").strip():
             continue
         lines.append(f' {key}:0 "{_escape_loc(shortcut.label)}"')
+    lines += _tooltip_loc_lines(project, "focus")
     return "\n".join(lines) + "\n"
+
+
+def _tooltip_loc_lines(project: FocusForgeProject, owner: str) -> list:
+    """Custom-tooltip texts that belong in ``owner``'s loc file, after its own
+    entries and sorted by key so the file is stable across edits. Empty when
+    no item carries a text — the export stays byte-identical for old projects."""
+    texts = tooltip_texts_by_owner(project).get(owner, {})
+    return [f' {key}:0 "{_escape_loc(texts[key])}"' for key in sorted(texts)]
 
 
 def export_ideas(project: FocusForgeProject) -> str:
@@ -1125,6 +1134,7 @@ def export_decision_localisation(project: FocusForgeProject) -> str:
         lines.append(f' {d.id}:0 "{_escape_loc(d.title or d.id)}"')
         if (d.description or "").strip():
             lines.append(f' {d.id}_desc:0 "{_escape_loc(d.description)}"')
+    lines += _tooltip_loc_lines(project, "decision")
     return "\n".join(lines) + "\n"
 
 
@@ -1151,6 +1161,7 @@ def export_event_localisation(project: FocusForgeProject) -> str:
         lines.append(f' {event.id}.d:0 "{_escape_loc(event.description)}"')
         for option in event.options:
             lines.append(f' {event.id}.{option.key}:0 "{_escape_loc(option.text)}"')
+    lines += _tooltip_loc_lines(project, "event")
     return "\n".join(lines) + "\n"
 
 

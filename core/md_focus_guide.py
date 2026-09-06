@@ -171,6 +171,9 @@ the bridge rejects an unresolved icon when icon roots are configured.
 {REWARD_AUTHORING_NOTE}
 Add a `custom_tooltip` item (or a `custom_effect_tooltip = KEY` raw line) in front
 of scripted / `hidden_effect` blocks so the player sees what happened.
+`custom_tooltip` needs `text` — the sentence the player reads (`{{"kind": "custom_tooltip",
+"params": {{"tooltipId": "MEX_court_plant_tt", "text": "Foreign plants take notice."}}}}`);
+a bare key only when reusing an existing MD tooltip key.
 
 ## AI weighting (every real MD focus has it)
 {AI_WEIGHT_AUTHORING_NOTE}
