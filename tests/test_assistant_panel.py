@@ -222,9 +222,10 @@ def test_settings_dialog_roundtrip_and_test_connection(qapp):
     assert dlg._api_key.echoMode() == QLineEdit.EchoMode.Password
     # Test connection on a worker thread with the fake transport
     dlg._test()
-    thread = dlg._thread
-    assert thread is not None
-    thread.wait(5000)
+    assert dlg._thread is not None
+    # No thread.wait() here: the worker's `finished` -> thread.quit is queued
+    # to the GUI thread, so a blocking wait only ever times out; the
+    # processEvents loop below is what lets the thread finish.
     t0 = time.time()
     while dlg._worker is not None and time.time() - t0 < 5:
         qapp.processEvents()
@@ -333,7 +334,6 @@ def test_settings_dialog_hosted_test_connection_uses_me(qapp):
     dlg = AssistantSettingsDialog(AgentConfig(mode="hosted", hosted_token="ffa_x"), recent=[],
                                   transport_factory=lambda: MeTransport([]))
     dlg._test()
-    dlg._thread.wait(5000)
     t0 = time.time()
     while dlg._worker is not None and time.time() - t0 < 5:
         qapp.processEvents()
@@ -384,3 +384,129 @@ def test_panel_402_error_adds_open_settings_button(qapp):
     assert btn is not None and btn.text() == "Open settings"
     panel.render_event({"kind": "error", "text": "Provider error", "status": 500})
     assert _card_count(panel) == base + 3
+
+
+# ----- review fixes: thread affinity, 401 button, token shape, button copy -----
+
+def _pump_until_probe_done(qapp, dlg, timeout=5.0):
+    t0 = time.time()
+    while dlg._worker is not None and time.time() - t0 < timeout:
+        qapp.processEvents()
+        time.sleep(0.01)
+    qapp.processEvents()
+    assert dlg._worker is None, "test-connection probe did not finish"
+
+
+def test_test_connection_result_is_handled_on_the_gui_thread(qapp):
+    """The worker's succeeded/failed signals must land on the dialog's thread
+    (a bound @Slot on a GUI-thread QObject is queued); a lambda receiver has
+    no affinity and would restyle the QLabel from the worker thread."""
+    import threading
+    from ui.assistant_settings_dialog import AssistantSettingsDialog
+    main_ident = threading.get_ident()
+    probe = [{"model": "meta/muse-spark-1.3", **_reply("OK")}]
+    dlg = AssistantSettingsDialog(AgentConfig(api_key="abc", model="meta/muse-spark-1.3"), recent=[],
+                                  transport_factory=lambda: FakeTransport(probe))
+    seen = []
+    original = dlg._set_status
+
+    def recording_set_status(text, ok):
+        seen.append((threading.get_ident(), text, ok))
+        original(text, ok)
+
+    dlg._set_status = recording_set_status
+    dlg._test()
+    _pump_until_probe_done(qapp, dlg)
+    texts = [t for _, t, _ in seen]
+    assert texts == ["Testing…", "Connected — meta/muse-spark-1.3 replied."]
+    assert [ident for ident, _, _ in seen] == [main_ident, main_ident]
+    assert dlg._test_status.text() == "Connected — meta/muse-spark-1.3 replied."
+    assert dlg._test_status.objectName() == "pillOk" and dlg._test_btn.isEnabled()
+
+
+def test_test_connection_failure_is_handled_on_the_gui_thread(qapp):
+    import threading
+    from core.agent_loop import TransportError
+    from ui.assistant_settings_dialog import AssistantSettingsDialog
+
+    class Failing(FakeTransport):
+        def chat(self, payload, config):
+            assert threading.get_ident() != threading.main_thread().ident   # really off-thread
+            raise TransportError(401, "API key rejected")
+
+    dlg = AssistantSettingsDialog(AgentConfig(api_key="abc", model="m/x"), recent=[],
+                                  transport_factory=lambda: Failing([]))
+    idents = []
+    original = dlg._set_status
+    dlg._set_status = lambda text, ok: (idents.append(threading.get_ident()), original(text, ok))
+    dlg._test()
+    _pump_until_probe_done(qapp, dlg)
+    assert idents == [threading.get_ident()] * 2
+    assert dlg._test_status.text() == "API key rejected"
+    assert dlg._test_status.objectName() == "issueTextError"
+
+
+def test_panel_hosted_401_adds_open_settings_button_own_401_does_not(qapp):
+    from PySide6.QtWidgets import QPushButton
+    panel = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token="ffa_x"))
+    base = _card_count(panel)
+    panel.render_event({"kind": "error", "text": "That token isn't valid.", "status": 401})
+    assert _card_count(panel) == base + 2
+    holder = panel._transcript_layout.itemAt(base + 1).widget()
+    btn = holder.findChild(QPushButton)
+    assert btn is not None and btn.text() == "Open settings"
+    own = _panel_with(qapp, AgentConfig(api_key="k", model="test/model"))
+    base = _card_count(own)
+    own.render_event({"kind": "error", "text": "API key rejected", "status": 401})
+    assert _card_count(own) == base + 1                     # own-key 401: no button
+    own.render_event({"kind": "error", "text": "Out of credits", "status": 402})
+    assert _card_count(own) == base + 3                     # 402 still gets one in both modes
+
+
+def test_panel_hosted_has_key_requires_ffa_prefix(qapp):
+    for bad in ("abc", "sk-or-v1-x", "Token: ffa_x"):
+        panel = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token=bad))
+        assert not panel.has_key() and panel._stack.currentIndex() == 0, bad
+    ok = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token="ffa_x"))
+    assert ok.has_key() and ok._stack.currentIndex() == 1
+    # own-key mode is unchanged: any non-empty key counts
+    own = _panel_with(qapp, AgentConfig(mode="own", api_key="anything"))
+    assert own.has_key()
+
+
+def test_settings_dialog_strips_token_and_rejects_bad_shape_without_blocking_save(qapp):
+    from core.agent_loop import BAD_TOKEN_SHAPE_TEXT
+    from ui.assistant_settings_dialog import AssistantSettingsDialog
+    calls = []
+
+    class MeTransport(FakeTransport):
+        def hosted_me(self, config):
+            calls.append(config.hosted_token)
+            return {"discord_username": "jack", "used_cents": 8, "limit_cents": 50}
+
+    dlg = AssistantSettingsDialog(AgentConfig(mode="hosted"), recent=[],
+                                  transport_factory=lambda: MeTransport([]))
+    # CRLF from a clipboard copy is stripped before anything sees the token
+    dlg._hosted_token.setText("ffa_abc\r\n")
+    assert dlg.config().hosted_token == "ffa_abc"
+    dlg._test()
+    _pump_until_probe_done(qapp, dlg)
+    assert calls == ["ffa_abc"]
+    assert dlg._test_status.text().startswith("Signed in as jack")
+    # a 'Token: ffa_...' paste is kept as typed (save isn't blocked) but the probe says why it's wrong
+    for bad in ("Token: ffa_abc", "abc"):
+        dlg._hosted_token.setText(bad)
+        assert dlg.config().hosted_token == bad
+        dlg._test()
+        _pump_until_probe_done(qapp, dlg)
+        assert dlg._test_status.text() == BAD_TOKEN_SHAPE_TEXT
+        assert dlg._test_status.objectName() == "issueTextError"
+        assert dlg._test_btn.isEnabled()
+    assert calls == ["ffa_abc"]                              # no request went out for the bad ones
+
+
+def test_hosted_setup_button_copy_says_it_opens_settings(qapp):
+    from ui.assistant_panel import HOSTED_SETUP_BUTTON
+    assert HOSTED_SETUP_BUTTON == "Set up: sign in with Discord"
+    panel = _panel_with(qapp, AgentConfig(mode="hosted"))
+    assert panel._setup_btn.text() == "Set up: sign in with Discord"

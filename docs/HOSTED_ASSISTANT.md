@@ -41,6 +41,7 @@ provider key. The Worker is the only place the OpenRouter key exists.
 | GET | `/auth/discord/start` | 302 to Discord OAuth (`identify` scope), HMAC state cookie |
 | GET | `/auth/discord/callback` | Exchange code, enforce account age, upsert user, mint token, show it ONCE with paste instructions |
 | POST | `/v1/chat/completions` | OpenAI-compatible, non-streaming. Bearer `ffa_…`. Enforces model allow-list, monthly quota, global daily cap, per-user rate limit. Forwards to OpenRouter. Debits by real usage incl. cache-read pricing. |
+| | | Only the Worker's `FORWARD_KEYS` reach OpenRouter: `model`, `messages`, `tools`, `tool_choice`, `temperature`, `max_tokens`, **`session_id`** and **`cache_control`** (so the app's prompt-caching hints survive the relay); every other client field (`stream`, `user`, any `authorization`) is dropped. |
 | GET | `/v1/me` | `{discord_username, used_cents, limit_cents, period, reset_at, requests_today}` |
 
 Every `/v1/chat/completions` response carries `X-FF-Used-Cents`,
@@ -54,6 +55,8 @@ Every `/v1/chat/completions` response carries `X-FF-Used-Cents`,
 | 429 | `rate_limited` | > 4 requests / 10 s or > 400 / day per user |
 | 503 | `budget_exhausted` | global daily cap reached ("try again tomorrow") |
 | 400 | `unsupported` | `stream: true`, disallowed model, oversized body |
+| 503 | `not_configured` | relay secrets missing (`OPENROUTER_API_KEY`, Discord OAuth, admin token); the message says to use your own key for now |
+| 502 / 504 / passed-through | `upstream_error` | OpenRouter unreachable (502), timed out after 120 s (504), returned non-JSON (502), or answered 4xx/5xx (its status is passed through) |
 
 ## Data (D1)
 
@@ -70,8 +73,12 @@ Settings dialog gains a provider choice: **Focus Forge hosted (free allotment)**
 or **My own key**. Hosted: a "Sign in with Discord" button opens the browser at
 `/auth/discord/start`; the user pastes the token; base URL and model are fixed by
 the relay. The panel header shows the remaining allotment from the `X-FF-*`
-headers. 402/429/503 map to plain-language messages that also suggest switching
-to your own key.
+headers. The relay's error messages are already written for the modder (they
+name the reset date, say "try again tomorrow", suggest switching to your own
+key), so the app shows any message carrying one of the codes above verbatim;
+a 401 (retired token) or 402 (allotment spent) card also gets an **Open
+settings** button underneath, since the fix — sign in again, wait for the
+reset, or switch to your own key — lives there.
 
 ## Not in 0.4.4
 

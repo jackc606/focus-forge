@@ -237,3 +237,79 @@ def test_own_mode_probe_is_unchanged():
     cfg = AgentConfig(api_key="k", model="own/model", hosted_token="ffa_unused")
     assert probe_connection(cfg, t) == "Connected — own/model replied."
     assert t.payloads[0]["model"] == "own/model"
+
+
+# ----- token sanity (review fix 3) -----
+
+def _never_urlopen(request, timeout=None):
+    raise AssertionError("no request should go out for a malformed token")
+
+
+@pytest.mark.parametrize("token", ["abc", "sk-or-v1-notatoken", "Token: ffa_abc", "  Token: ffa_abc\r\n"])
+def test_hosted_probe_rejects_token_without_ffa_prefix(monkeypatch, token):
+    from core.agent_loop import BAD_TOKEN_SHAPE_TEXT, looks_like_hosted_token
+    monkeypatch.setattr(al, "urlopen", _never_urlopen)
+    assert not looks_like_hosted_token(token)
+    with pytest.raises(TransportError) as info:
+        probe_connection(_hosted(token=token), UrllibTransport())
+    assert info.value.status == 0
+    assert info.value.message == BAD_TOKEN_SHAPE_TEXT
+    assert "ffa_" in BAD_TOKEN_SHAPE_TEXT and "sign-in page" in BAD_TOKEN_SHAPE_TEXT
+
+
+def test_hosted_probe_strips_whitespace_before_checking_prefix(monkeypatch):
+    """A token copied with a trailing CRLF is still a token; blank-after-strip
+    is still 'no token'."""
+    from core.agent_loop import looks_like_hosted_token
+    assert looks_like_hosted_token("ffa_abc\r\n") and looks_like_hosted_token("  ffa_abc  ")
+    assert not looks_like_hosted_token("") and not looks_like_hosted_token(None)
+    with pytest.raises(TransportError) as info:
+        probe_connection(_hosted(token="  \r\n"), UrllibTransport())
+    assert info.value.message == NO_TOKEN_TEXT
+    seen = {}
+
+    def fake_urlopen(request, timeout=None):
+        seen["url"] = request.full_url
+        return _Resp(json.dumps({"discord_username": "jack", "used_cents": 1, "limit_cents": 50}).encode())
+
+    monkeypatch.setattr(al, "urlopen", fake_urlopen)
+    assert probe_connection(_hosted(token="ffa_abc\r\n"), UrllibTransport()).startswith("Signed in as jack")
+    assert seen["url"] == hosted.hosted_me_url()
+
+
+def test_hosted_probe_against_fake_transport_is_a_friendly_error():
+    """Transport declares hosted_me; a fake without a relay says so instead
+    of raising AttributeError (which the dialog would render as a crash)."""
+    t = FakeTransport([])
+    with pytest.raises(TransportError) as info:
+        probe_connection(_hosted(), t)
+    assert info.value.message == "no hosted endpoint in fake"
+    assert t.payloads == []
+
+
+# ----- network failures (review fixes 5 and 7) -----
+
+def test_network_error_clears_stale_quota_headers_and_names_the_service(monkeypatch):
+    from urllib.error import URLError
+    calls = {"n": 0}
+
+    def flaky(request, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _Resp(json.dumps(reply("ok")).encode(), QUOTA_HEADERS)
+        raise URLError("Name or service not known")
+
+    monkeypatch.setattr(al, "urlopen", flaky)
+    t = UrllibTransport()
+    t.chat({"model": "m", "messages": []}, _hosted())
+    assert t.last_headers["x-ff-used-cents"] == "8"
+    with pytest.raises(TransportError) as info:
+        t.chat({"model": "m", "messages": []}, _hosted())
+    assert t.last_headers == {}                      # nothing stale survives a failed send
+    assert hosted.parse_quota_headers(t.last_headers) is None
+    assert info.value.status == 0
+    assert info.value.message == "Couldn't reach the assistant service (Name or service not known)."
+    # own-key mode keeps the provider wording
+    with pytest.raises(TransportError) as info:
+        t.chat({"model": "m", "messages": []}, AgentConfig(api_key="k"))
+    assert info.value.message == "Couldn't reach the provider (Name or service not known)."

@@ -51,6 +51,12 @@ class FakeTransport:
             raise r
         return r
 
+    def hosted_me(self, config):
+        """The Transport protocol's relay probe. The fake has no relay, so a
+        hosted probe against it is a friendly TransportError, not an
+        AttributeError from deep inside the settings dialog's worker."""
+        raise TransportError(0, "no hosted endpoint in fake")
+
 
 def _usage(p=100, c=20, cached=0):
     u = {"prompt_tokens": p, "completion_tokens": c}

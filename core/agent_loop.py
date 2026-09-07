@@ -128,6 +128,11 @@ class TransportError(Exception):
 class Transport(Protocol):
     def chat(self, payload: dict, config: AgentConfig) -> dict: ...
 
+    def hosted_me(self, config: AgentConfig) -> dict:
+        """``GET /v1/me`` on the hosted relay (the settings dialog's probe).
+        A transport without a hosted endpoint raises :class:`TransportError`."""
+        ...
+
 
 SERVICE_UNAVAILABLE_TEXT = ("The assistant service is unavailable right now — try again "
                             "in a minute")
@@ -184,6 +189,16 @@ def relay_error_code(body: str) -> str:
 
 BAD_TOKEN_TEXT = "That token isn't valid — sign in with Discord again to get a new one."
 NO_TOKEN_TEXT = "No token entered — sign in with Discord to get one."
+HOSTED_TOKEN_PREFIX = "ffa_"
+BAD_TOKEN_SHAPE_TEXT = ("That doesn't look like a Focus Forge token — it starts with ffa_. "
+                        "Copy the whole token from the sign-in page.")
+
+
+def looks_like_hosted_token(token) -> bool:
+    """A relay token is ``ffa_…`` and nothing else: a pasted ``Token: ffa_…``
+    line or a stray key from another provider is rejected before any request
+    goes out, so the user gets a sentence about the paste rather than a 401."""
+    return str(token or "").strip().startswith(HOSTED_TOKEN_PREFIX)
 
 
 def _lower_headers(message) -> dict:
@@ -239,6 +254,9 @@ class UrllibTransport:
         }
 
     def _send(self, request: Request, config: AgentConfig) -> str:
+        # Cleared first so a network failure never re-emits the previous
+        # response's allotment headers as if they were this request's.
+        self.last_headers = {}
         try:
             with urlopen(request, timeout=config.timeout_s) as resp:
                 self.last_headers = _lower_headers(getattr(resp, "headers", None))
@@ -252,7 +270,8 @@ class UrllibTransport:
             raise TransportError(exc.code, friendly_http_error(exc.code, err_body)) from exc
         except (URLError, socket.timeout, OSError) as exc:
             reason = getattr(exc, "reason", None) or exc
-            raise TransportError(0, f"Couldn't reach the provider ({reason}).") from exc
+            who = "the assistant service" if config.is_hosted() else "the provider"
+            raise TransportError(0, f"Couldn't reach {who} ({reason}).") from exc
 
     @staticmethod
     def _parse(raw: str) -> dict:
@@ -283,8 +302,10 @@ def test_connection(config: AgentConfig, transport: Transport) -> str:
 
 
 def _test_hosted(config: AgentConfig, transport) -> str:
-    if not config.hosted_token:
+    if not str(config.hosted_token or "").strip():
         raise TransportError(0, NO_TOKEN_TEXT)
+    if not looks_like_hosted_token(config.hosted_token):
+        raise TransportError(0, BAD_TOKEN_SHAPE_TEXT)
     me = transport.hosted_me(config)
     name = me.get("discord_username") or "?"
     return (f"Signed in as {name} · {format_dollars(me.get('used_cents'))} of "

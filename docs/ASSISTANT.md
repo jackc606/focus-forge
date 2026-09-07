@@ -10,7 +10,7 @@ There are two ways to connect it: **sign in with Discord** (free allotment, no k
 
 ## The easy way: sign in with Discord
 
-1. Assistant tab → **Sign in to use the assistant** (or ⚙ → *Focus Forge hosted*) →
+1. Assistant tab → **Set up: sign in with Discord** (or ⚙ → *Focus Forge hosted*) →
    **Sign in with Discord**. Your browser opens; approve the sign-in.
 2. The page shows a token (`ffa_…`) **once**. Copy it.
 3. Back in Focus Forge, paste it into **Paste your token**, click **Test connection**
@@ -30,8 +30,9 @@ on this computer only.
 **When it runs out.** The assistant stops with a message naming the reset date and an
 **Open settings** button under it. Either wait for the reset or switch to *My own key*
 in settings — your conversation is kept. Two other messages you may see: a rate limit
-(more than 4 requests in 10 seconds — just wait a moment) and "the service's daily budget
-is spent — try again tomorrow", which is Focus Forge's global cap, not yours.
+(more than 4 requests in 10 seconds — just wait a moment — or more than 400 requests in
+a day, a per-person cap) and "the service's daily budget is spent — try again tomorrow",
+which is Focus Forge's global cap, not yours.
 
 ## My own key
 

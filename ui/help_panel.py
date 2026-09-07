@@ -328,8 +328,10 @@ HELP_TOPICS = [
          "and the default model costs about two cents for a 10-focus branch; the "
          "running token count and cost sit in the tab header. "
          "Deletes, saves and exports always ask you first, and Stop halts it at the next "
-         "step. Prompts and your mod content are sent to the provider you configure; the "
-         "key is stored on this computer only. See docs/ASSISTANT.md for setup."),
+         "step. Prompts and the parts of your mod the assistant reads go to the model: "
+         "hosted mode sends them to Meta through OpenRouter, and the contributor tier may "
+         "use them for training; with your own key they go to the provider you configure. "
+         "The key or token is stored on this computer only. See docs/ASSISTANT.md for setup."),
         ("Setup if you installed Focus Forge (easiest)",
          "If you used the Focus Forge installer, everything you need is already included — no "
          "Python, no commands. Just three clicks:\n\n"

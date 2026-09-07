@@ -40,7 +40,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.agent_loop import CANCELLED_TOOL, AgentConfig, AgentSession, UrllibTransport
+from core.agent_loop import (
+    CANCELLED_TOOL,
+    AgentConfig,
+    AgentSession,
+    UrllibTransport,
+    looks_like_hosted_token,
+)
 from core.agent_pricing import format_tokens, format_usage
 from core.bridge_dispatch import dispatch
 from core.hosted import HOSTED_MODEL_LABEL, format_allotment
@@ -60,7 +66,7 @@ OWN_SETUP_TEXT = ("Bring your own API key (OpenRouter by default) and the assist
 HOSTED_SETUP_TEXT = ("Sign in with Discord for a free monthly allotment and the assistant "
                      "builds and edits this tree for you, live on the canvas. No API key needed.")
 OWN_SETUP_BUTTON = "Set up the assistant"
-HOSTED_SETUP_BUTTON = "Sign in to use the assistant"
+HOSTED_SETUP_BUTTON = "Set up: sign in with Discord"
 
 
 # ----- cross-thread plumbing -------------------------------------------------------
@@ -407,6 +413,10 @@ class AssistantPanel(QWidget):
 
     # ----- state -----
     def has_key(self) -> bool:
+        """Own key: anything non-empty. Hosted: only an ``ffa_…`` token counts
+        as signed in — a mis-pasted token would just earn a 401 per turn."""
+        if self._config.is_hosted():
+            return looks_like_hosted_token(self._config.hosted_token)
         return bool(self._config.effective_api_key())
 
     def is_running(self) -> bool:
@@ -554,7 +564,7 @@ class AssistantPanel(QWidget):
             self._add_card(_bubble(event.get("text") or "", "assistant"))
         elif kind == "error":
             self._add_card(issue_card("error", event.get("text") or "Unknown error"))
-            if event.get("status") == 402:
+            if self._error_needs_settings(event.get("status")):
                 self._add_card(self._open_settings_link())
         elif kind == "approval_denied":
             self._add_card(issue_card("warning", f"You declined {op}."))
@@ -571,11 +581,18 @@ class AssistantPanel(QWidget):
                 self._quota = quota
                 self._refresh_usage_label()
 
+    def _error_needs_settings(self, status) -> bool:
+        """402 (allotment spent) always; 401 in hosted mode too — a token
+        retired mid-session is fixed by signing in again, which lives in
+        settings. An own-key 401 is a bad key, which the card already says."""
+        return status == 402 or (status == 401 and self._config.is_hosted())
+
     def _open_settings_link(self) -> QWidget:
-        """Under an allotment-spent (402) card: the fix is in settings — wait
-        for the reset, or switch to your own key — so put the door right there."""
+        """Under an allotment-spent (402) or hosted bad-token (401) card: the
+        fix is in settings — wait for the reset, switch to your own key, or
+        sign in again — so put the door right there."""
         btn = QPushButton("Open settings")
-        btn.setToolTip("Switch to your own key, or check when the allotment resets")
+        btn.setToolTip("Sign in again, switch to your own key, or check when the allotment resets")
         btn.clicked.connect(self._open_settings)
         holder = QWidget()
         row = QHBoxLayout(holder)

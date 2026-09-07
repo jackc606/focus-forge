@@ -361,12 +361,25 @@ class AssistantSettingsDialog(QDialog):
         self._test_btn.setEnabled(False)
         self._set_status("Testing…", ok=None)
         worker = _TestConnectionWorker(self.config(), self._transport_factory())
-        worker.succeeded.connect(lambda msg: self._set_status(msg, ok=True))
-        worker.failed.connect(lambda msg: self._set_status(msg, ok=False))
+        # Bound @Slot methods, not lambdas: a lambda has no thread affinity, so
+        # Qt would call it on the worker thread and the QLabel restyle below
+        # would touch a widget off the GUI thread. A slot on this dialog is
+        # queued to the thread the dialog lives on.
+        worker.succeeded.connect(self._on_test_succeeded)
+        worker.failed.connect(self._on_test_failed)
         worker.finished.connect(self._test_done)
         self._worker = worker
         self._thread = run_in_thread(worker, parent=self)
 
+    @Slot(str)
+    def _on_test_succeeded(self, msg: str) -> None:
+        self._set_status(msg, ok=True)
+
+    @Slot(str)
+    def _on_test_failed(self, msg: str) -> None:
+        self._set_status(msg, ok=False)
+
+    @Slot()
     def _test_done(self) -> None:
         self._worker = None
         self._thread = None
