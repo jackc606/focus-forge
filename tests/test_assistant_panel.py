@@ -242,3 +242,145 @@ def test_settings_button_has_a_drawn_icon(qapp):
     img = pm.toImage()
     # something was actually painted (not a blank transparent square)
     assert any(img.pixelColor(x, y).alpha() > 0 for x in range(0, 32, 4) for y in range(0, 32, 4))
+
+
+# ----- hosted mode (0.4.4): settings round-trip, dialog panes, panel header -----
+
+def _ini(tmp_path):
+    from PySide6.QtCore import QSettings
+    return QSettings(str(tmp_path / "ff.ini"), QSettings.IniFormat)
+
+
+def _panel_with(qapp, cfg, responses=()):
+    from ui.assistant_panel import AssistantPanel
+    from ui.project_model import ProjectModel
+    model = ProjectModel()
+    responses = list(responses)
+    return AssistantPanel(model, StubBridge(model), config_loader=lambda: cfg,
+                          transport_factory=lambda: FakeTransport(responses))
+
+
+def test_config_roundtrips_mode_and_token_and_keeps_both_panes(qapp, tmp_path):
+    from ui.assistant_settings_dialog import load_config, save_config
+    cfg = AgentConfig(mode="hosted", hosted_token="ffa_tok", api_key="sk-own", model="own/m",
+                      base_url="https://openrouter.ai/api/v1", max_rounds=9, temperature=0.7)
+    save_config(cfg, _ini(tmp_path))
+    back = load_config(_ini(tmp_path))
+    assert (back.mode, back.hosted_token, back.api_key, back.model) == ("hosted", "ffa_tok", "sk-own", "own/m")
+    assert (back.max_rounds, back.temperature) == (9, 0.7)
+    assert back.extra_headers == {}                       # relay, not OpenRouter
+    assert back.effective_api_key() == "ffa_tok"
+    cfg.mode = "own"
+    save_config(cfg, _ini(tmp_path))
+    back = load_config(_ini(tmp_path))
+    assert back.mode == "own" and back.hosted_token == "ffa_tok"   # switching kept the token
+    assert back.extra_headers["X-Title"] == "Focus Forge"
+
+
+def test_config_defaults_fresh_install_hosted_old_install_own(qapp, tmp_path):
+    from ui.assistant_settings_dialog import load_config
+    fresh = load_config(_ini(tmp_path))
+    assert fresh.mode == "hosted" and fresh.hosted_token == "" and not fresh.effective_api_key()
+    s = _ini(tmp_path)
+    s.beginGroup("assistant")
+    s.setValue("api_key", "sk-or-old")          # a 0.4.3 install: key stored, no mode
+    s.endGroup()
+    s.sync()
+    old = load_config(_ini(tmp_path))
+    assert old.mode == "own" and old.effective_api_key() == "sk-or-old"
+
+
+def test_settings_dialog_panes_switch_and_config_carries_both(qapp, monkeypatch):
+    from PySide6.QtCore import QUrl
+    from ui import assistant_settings_dialog as asd
+    from ui.assistant_settings_dialog import AssistantSettingsDialog
+    from core.hosted import HOSTED_MODEL_LABEL, hosted_signin_url
+    cfg = AgentConfig(mode="hosted", hosted_token="ffa_x", api_key="sk-own", model="own/m")
+    dlg = AssistantSettingsDialog(cfg, recent=[], transport_factory=lambda: FakeTransport([]))
+    assert dlg._hosted_radio.isChecked() and dlg._panes.currentIndex() == 0
+    assert dlg._hosted_token.text() == "ffa_x" and dlg._hosted_model_label.text() == HOSTED_MODEL_LABEL
+    assert dlg._panes.currentWidget().isAncestorOf(dlg._signin_btn)
+    assert not dlg._panes.currentWidget().isAncestorOf(dlg._api_key)
+    dlg._own_radio.setChecked(True)
+    assert dlg._panes.currentIndex() == 1
+    assert dlg._panes.currentWidget().isAncestorOf(dlg._api_key)
+    assert dlg._api_key.text() == "sk-own" and dlg._model.currentText() == "own/m"
+    out = dlg.config()
+    assert out.mode == "own" and out.hosted_token == "ffa_x" and out.api_key == "sk-own"
+    dlg._hosted_radio.setChecked(True)
+    out = dlg.config()
+    assert out.mode == "hosted" and out.api_key == "sk-own" and out.effective_api_key() == "ffa_x"
+    # token show/hide
+    from PySide6.QtWidgets import QLineEdit
+    assert dlg._hosted_token.echoMode() == QLineEdit.EchoMode.Password
+    dlg._show_token.setChecked(True)
+    assert dlg._hosted_token.echoMode() == QLineEdit.EchoMode.Normal
+    # sign-in opens the relay's Discord start URL
+    opened = []
+    monkeypatch.setattr(asd.QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url)))
+    dlg._signin_btn.click()
+    assert opened and QUrl(opened[0]).toString() == hosted_signin_url()
+
+
+def test_settings_dialog_hosted_test_connection_uses_me(qapp):
+    from ui.assistant_settings_dialog import AssistantSettingsDialog
+
+    class MeTransport(FakeTransport):
+        def hosted_me(self, config):
+            assert config.hosted_token == "ffa_x"
+            return {"discord_username": "jack", "used_cents": 8, "limit_cents": 50}
+
+    dlg = AssistantSettingsDialog(AgentConfig(mode="hosted", hosted_token="ffa_x"), recent=[],
+                                  transport_factory=lambda: MeTransport([]))
+    dlg._test()
+    dlg._thread.wait(5000)
+    t0 = time.time()
+    while dlg._worker is not None and time.time() - t0 < 5:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert dlg._test_status.text() == "Signed in as jack · $0.08 of $0.50 used this month"
+
+
+def test_panel_hosted_without_token_shows_sign_in(qapp):
+    from ui.assistant_panel import HOSTED_SETUP_BUTTON, OWN_SETUP_BUTTON
+    from core.hosted import HOSTED_MODEL_LABEL
+    panel = _panel_with(qapp, AgentConfig(mode="hosted", api_key="sk-own-unused"))
+    assert not panel.has_key() and panel._stack.currentIndex() == 0
+    assert panel._setup_btn.text() == HOSTED_SETUP_BUTTON
+    assert "Discord" in panel._setup_hint.text()
+    assert panel._model_label.text() == HOSTED_MODEL_LABEL
+    own = _panel_with(qapp, AgentConfig(mode="own", hosted_token="ffa_unused"))
+    assert not own.has_key() and own._setup_btn.text() == OWN_SETUP_BUTTON
+    ready = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token="ffa_x"))
+    assert ready.has_key() and ready._stack.currentIndex() == 1
+
+
+def test_panel_header_shows_allotment_after_quota_event(qapp):
+    panel = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token="ffa_x"))
+    panel.render_event({"kind": "usage", "usage": {"prompt_tokens": 12_400, "completion_tokens": 2_100}})
+    assert panel._usage_label.text() == "12.4k in · 2.1k out"          # no ~$ estimate in hosted mode
+    panel.render_event({"kind": "quota", "quota": {"used_cents": 8.0, "limit_cents": 50.0,
+                                                   "reset": "2026-10-01"}})
+    assert panel._usage_label.text() == "12.4k in · 2.1k out · $0.08 of $0.50 used · resets Oct 1"
+    assert "$0.08 of $0.50" in panel._usage_label.text()
+    panel._new_chat()
+    qapp.processEvents()
+    assert panel._usage_label.text() == "$0.08 of $0.50 used · resets Oct 1"   # monthly figure outlives the chat
+    # own-key mode keeps the estimate and ignores the allotment
+    own = _panel_with(qapp, AgentConfig(api_key="k", model="test/model"))
+    own.render_event({"kind": "usage", "usage": {"prompt_tokens": 12_400, "completion_tokens": 2_100}})
+    own.render_event({"kind": "quota", "quota": {"used_cents": 8.0, "limit_cents": 50.0, "reset": ""}})
+    assert own._usage_label.text() == "12.4k in · 2.1k out · ~$?"
+
+
+def test_panel_402_error_adds_open_settings_button(qapp):
+    from PySide6.QtWidgets import QPushButton
+    panel = _panel_with(qapp, AgentConfig(mode="hosted", hosted_token="ffa_x"))
+    base = _card_count(panel)
+    panel.render_event({"kind": "error", "text": "Allotment used — resets Oct 1.", "status": 402})
+    assert _card_count(panel) == base + 2
+    holder = panel._transcript_layout.itemAt(base + 1).widget()
+    btn = holder.findChild(QPushButton)
+    assert btn is not None and btn.text() == "Open settings"
+    panel.render_event({"kind": "error", "text": "Provider error", "status": 500})
+    assert _card_count(panel) == base + 3

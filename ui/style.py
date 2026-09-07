@@ -238,6 +238,20 @@ QCheckBox::indicator:checked {{
     border-color: {T.ACCENT};
 }}
 
+/* ----- Radio (same look as the checkbox, round) ----- */
+QRadioButton {{ color: {T.TEXT_PRIMARY}; spacing: 8px; padding: 2px 0; }}
+QRadioButton::indicator {{
+    width: 16px; height: 16px;
+    border: 1px solid {T.BORDER_STRONG};
+    border-radius: 8px;
+    background-color: {T.BG_INSET};
+}}
+QRadioButton::indicator:hover {{ border-color: {T.ACCENT}; }}
+QRadioButton::indicator:checked {{
+    background-color: {T.ACCENT_DIM};
+    border-color: {T.ACCENT};
+}}
+
 /* ----- Scrollbars ----- */
 QScrollBar:vertical {{ background: {T.BG_INSET}; width: 11px; border: 0; margin: 0; }}
 QScrollBar::handle:vertical {{ background: {T.BORDER_STRONG}; min-height: 28px; border-radius: 5px; }}

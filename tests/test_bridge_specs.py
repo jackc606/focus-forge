@@ -658,8 +658,13 @@ def test_docs_and_changelog_mention_the_new_surface():
     from core.changelog import CHANGELOG
     from core.version import __version__
     import re
-    # The newest changelog entry is the running version, dated either
-    # "unreleased" (in development) or YYYY-MM-DD (release.py copies it to the site).
-    assert CHANGELOG[0]["version"] == __version__
+    # The newest changelog entry is either the running version (dated
+    # YYYY-MM-DD or "unreleased") or the NEXT version while its notes are
+    # written ahead of the bump, in which case it must be "unreleased".
     date = (CHANGELOG[0].get("date") or "").lower()
-    assert date == "unreleased" or re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), date
+    if CHANGELOG[0]["version"] == __version__:
+        assert date == "unreleased" or re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), date
+    else:
+        assert date == "unreleased", (CHANGELOG[0]["version"], date)
+        assert tuple(map(int, CHANGELOG[0]["version"].split("."))) > tuple(map(int, __version__.split(".")))
+        assert CHANGELOG[1]["version"] == __version__

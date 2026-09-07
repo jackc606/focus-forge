@@ -9,6 +9,15 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.4",
+        "date": "unreleased",
+        "title": "Hosted assistant: sign in with Discord, no API key needed",
+        "changes": [
+            "The Assistant no longer needs an API key: pick \"Focus Forge hosted\" in its settings, sign in with Discord, paste the token the page shows you, and start building. Focus Forge covers a small monthly allotment per modder (about $0.50 \u2014 roughly 15\u201340 branches, refreshing on the 1st); the tab header shows what's left and when it resets, and a plain message with an Open settings button appears if it runs out.",
+            "Your own key still works exactly as before: the settings dialog keeps both the hosted token and your own key, so you can switch between them without re-entering anything. In hosted mode the assistant talks to Meta's model through OpenRouter via Focus Forge's relay; prompts and the parts of your mod it reads are sent there, and the contributor tier may use them for training.",
+        ],
+    },
+    {
         "version": "0.4.3",
         "date": "2026-09-06",
         "title": "Built-in Assistant, exports that replace instead of duplicate, hardened AI bridge",

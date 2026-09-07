@@ -322,9 +322,11 @@ HELP_TOPICS = [
         ("Built-in Assistant (no Claude needed)",
          "The Assistant tab is a chat box inside Focus Forge: type what you want in plain "
          "English and a hosted model builds or edits the open tree by calling the same "
-         "bridge ops, right on the canvas. Bring your own API key — OpenRouter is the "
-         "default provider and the default model costs about two cents for a 10-focus "
-         "branch; the running token count and estimated cost sit in the tab header. "
+         "bridge ops, right on the canvas. No API key needed: sign in with Discord and "
+         "Focus Forge covers a small monthly allotment (about $0.50, enough for a few "
+         "dozen branches). Or bring your own key — OpenRouter is the default provider "
+         "and the default model costs about two cents for a 10-focus branch; the "
+         "running token count and cost sit in the tab header. "
          "Deletes, saves and exports always ask you first, and Stop halts it at the next "
          "step. Prompts and your mod content are sent to the provider you configure; the "
          "key is stored on this computer only. See docs/ASSISTANT.md for setup."),

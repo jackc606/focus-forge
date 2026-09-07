@@ -342,7 +342,8 @@ def test_finish_reason_length_emits_error_and_returns_text():
 
 @pytest.mark.parametrize("status,expected", [
     (401, "API key rejected"), (402, "Out of credits"),
-    (429, "Rate limited — wait a moment"), (503, "Provider error"),
+    (429, "Rate limited — wait a moment"), (503, al.SERVICE_UNAVAILABLE_TEXT),
+    (500, "Provider error"),
 ])
 def test_transport_error_is_friendly_and_keeps_user_message(status, expected):
     body = json.dumps({"error": {"message": "nope"}})

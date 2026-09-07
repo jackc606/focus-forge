@@ -41,8 +41,9 @@ from PySide6.QtWidgets import (
 )
 
 from core.agent_loop import CANCELLED_TOOL, AgentConfig, AgentSession, UrllibTransport
-from core.agent_pricing import format_usage
+from core.agent_pricing import format_tokens, format_usage
 from core.bridge_dispatch import dispatch
+from core.hosted import HOSTED_MODEL_LABEL, format_allotment
 from core.md_focus_guide import MD_FOCUS_GUIDE
 
 from . import theme as T
@@ -53,6 +54,13 @@ from .widgets import ClickableFrame, gear_icon, hint, issue_card, mono_font, pan
 # How long a blocked worker waits between checks that the panel is still alive.
 _WAIT_TICK_S = 0.5
 _ARGS_PREVIEW_CHARS = 400
+
+OWN_SETUP_TEXT = ("Bring your own API key (OpenRouter by default) and the assistant "
+                  "builds and edits this tree for you, live on the canvas.")
+HOSTED_SETUP_TEXT = ("Sign in with Discord for a free monthly allotment and the assistant "
+                     "builds and edits this tree for you, live on the canvas. No API key needed.")
+OWN_SETUP_BUTTON = "Set up the assistant"
+HOSTED_SETUP_BUTTON = "Sign in to use the assistant"
 
 
 # ----- cross-thread plumbing -------------------------------------------------------
@@ -291,6 +299,8 @@ class AssistantPanel(QWidget):
         self._cancel: "threading.Event | None" = None
         self._running = False
         self._cards: dict = {}   # call_id -> _ToolCard awaiting its result
+        self._quota: "dict | None" = None      # last relay allotment (hosted mode)
+        self._last_usage = None                # what the usage label was last built from
 
         self._relay = _GuiRelay(self)
         self._relay.event.connect(self.render_event)
@@ -328,6 +338,9 @@ class AssistantPanel(QWidget):
         self._model_label.setObjectName("metaChip")
         self._usage_label = QLabel("")
         self._usage_label.setObjectName("hint")
+        # Wraps: the hosted allotment makes this line long, and a non-wrapping
+        # label would set the dock's minimum width to its text.
+        self._usage_label.setWordWrap(True)
         meta.addWidget(self._model_label)
         meta.addWidget(self._usage_label, 1)
         v.addLayout(meta)
@@ -356,9 +369,9 @@ class AssistantPanel(QWidget):
         sv = QVBoxLayout(setup_page)
         sv.setContentsMargins(0, 0, 0, 0)
         sv.setSpacing(T.SPACE_SM)
-        sv.addWidget(hint("Bring your own API key (OpenRouter by default) and the assistant "
-                          "builds and edits this tree for you, live on the canvas."))
-        self._setup_btn = QPushButton("Set up the assistant")
+        self._setup_hint = hint(OWN_SETUP_TEXT)
+        sv.addWidget(self._setup_hint)
+        self._setup_btn = QPushButton(OWN_SETUP_BUTTON)
         self._setup_btn.setObjectName("primary")
         self._setup_btn.clicked.connect(self._open_settings)
         sv.addWidget(self._setup_btn)
@@ -394,18 +407,35 @@ class AssistantPanel(QWidget):
 
     # ----- state -----
     def has_key(self) -> bool:
-        return bool(self._config.api_key)
+        return bool(self._config.effective_api_key())
 
     def is_running(self) -> bool:
         return self._running
 
     def _refresh_key_state(self) -> None:
+        hosted = self._config.is_hosted()
+        self._setup_hint.setText(HOSTED_SETUP_TEXT if hosted else OWN_SETUP_TEXT)
+        self._setup_btn.setText(HOSTED_SETUP_BUTTON if hosted else OWN_SETUP_BUTTON)
         self._stack.setCurrentIndex(1 if self.has_key() else 0)
 
     def _refresh_header(self) -> None:
-        self._model_label.setText(self._config.model)
-        usage = self._session.usage if self._session is not None else None
-        self._usage_label.setText(format_usage(usage, self._config.model) if usage else "")
+        hosted = self._config.is_hosted()
+        self._model_label.setText(HOSTED_MODEL_LABEL if hosted else self._config.model)
+        self._last_usage = self._session.usage if self._session is not None else None
+        self._refresh_usage_label()
+
+    def _refresh_usage_label(self) -> None:
+        """Own key: tokens plus the price estimate. Hosted: tokens, then the
+        relay's allotment once a ``quota`` event has arrived — its number is
+        the bill, so no ``~$`` guess sits next to it."""
+        usage = self._last_usage
+        if not self._config.is_hosted():
+            self._usage_label.setText(format_usage(usage, self._config.model) if usage else "")
+            return
+        parts = [format_tokens(usage)] if usage else []
+        if self._quota:
+            parts.append(format_allotment(self._quota))
+        self._usage_label.setText(" · ".join(parts))
 
     def _set_running(self, running: bool) -> None:
         self._running = running
@@ -524,6 +554,8 @@ class AssistantPanel(QWidget):
             self._add_card(_bubble(event.get("text") or "", "assistant"))
         elif kind == "error":
             self._add_card(issue_card("error", event.get("text") or "Unknown error"))
+            if event.get("status") == 402:
+                self._add_card(self._open_settings_link())
         elif kind == "approval_denied":
             self._add_card(issue_card("warning", f"You declined {op}."))
         elif kind == "cancelled":
@@ -531,7 +563,26 @@ class AssistantPanel(QWidget):
         elif kind == "usage":
             usage = event.get("usage")
             if isinstance(usage, dict):
-                self._usage_label.setText(format_usage(_UsageView(usage), self._config.model))
+                self._last_usage = _UsageView(usage)
+                self._refresh_usage_label()
+        elif kind == "quota":
+            quota = event.get("quota")
+            if isinstance(quota, dict):
+                self._quota = quota
+                self._refresh_usage_label()
+
+    def _open_settings_link(self) -> QWidget:
+        """Under an allotment-spent (402) card: the fix is in settings — wait
+        for the reset, or switch to your own key — so put the door right there."""
+        btn = QPushButton("Open settings")
+        btn.setToolTip("Switch to your own key, or check when the allotment resets")
+        btn.clicked.connect(self._open_settings)
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(btn)
+        row.addStretch(1)
+        return holder
 
     def _add_card(self, widget: QWidget) -> None:
         lay = self._transcript_layout

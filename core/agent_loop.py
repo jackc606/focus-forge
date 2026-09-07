@@ -24,6 +24,14 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .bridge_specs import tool_schemas
+from .hosted import (
+    HOSTED_ERROR_CODES,
+    HOSTED_MODEL_ID,
+    format_dollars,
+    hosted_chat_base,
+    hosted_me_url,
+    parse_quota_headers,
+)
 
 # Ops that destroy work or touch disk: the user is asked before each one.
 # `load_project` is listed for completeness even though the default tool set
@@ -54,11 +62,21 @@ OPENROUTER_HEADERS = {"HTTP-Referer": "https://focusforgemod.com", "X-Title": "F
 
 # ----- configuration --------------------------------------------------------------
 
+MODE_OWN = "own"
+MODE_HOSTED = "hosted"
+
+
 @dataclass
 class AgentConfig:
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = ""
     model: str = "meta/muse-spark-1.3-contributor"
+    # "own": the fields above are the provider. "hosted": the Focus Forge relay
+    # is the provider and ``hosted_token`` (an ``ffa_…`` token from Discord
+    # sign-in) is the credential. Both panes' values are kept so switching
+    # never erases the other one; ``effective_*`` resolve whichever is active.
+    mode: str = MODE_OWN
+    hosted_token: str = ""
     max_rounds: int = 80          # tool rounds per user turn (a 20-focus build with
                                   # per-focus verification calls needs ~60)
     temperature: float = 0.3
@@ -75,6 +93,18 @@ class AgentConfig:
     # reads on Muse Spark contributor cost 1/50th of fresh input.
     prompt_caching: bool = True
     extra_headers: dict = field(default_factory=dict)  # OpenRouter likes HTTP-Referer / X-Title
+
+    def is_hosted(self) -> bool:
+        return self.mode == MODE_HOSTED
+
+    def effective_base_url(self) -> str:
+        return hosted_chat_base() if self.is_hosted() else self.base_url
+
+    def effective_api_key(self) -> str:
+        return self.hosted_token if self.is_hosted() else self.api_key
+
+    def effective_model(self) -> str:
+        return HOSTED_MODEL_ID if self.is_hosted() else self.model
 
 
 def default_extra_headers(base_url: str) -> dict:
@@ -99,29 +129,46 @@ class Transport(Protocol):
     def chat(self, payload: dict, config: AgentConfig) -> dict: ...
 
 
+SERVICE_UNAVAILABLE_TEXT = ("The assistant service is unavailable right now — try again "
+                            "in a minute")
+
+
 def friendly_http_error(status: int, body: str = "") -> str:
     """Map an HTTP failure to a sentence a modder can act on, keeping the
-    provider's own message (``{"error": {"message": ...}}``) when it has one."""
+    provider's own message (``{"error": {"message": ...}}``) when it has one.
+
+    The hosted relay's messages are already written for the user (they name
+    the reset date, say "try again tomorrow", suggest switching to your own
+    key) and are recognisable by their ``error.code``, so those are shown
+    verbatim; a raw provider message still gets the generic prefix."""
+    detail = provider_error_message(body)
+    if detail and relay_error_code(body) in HOSTED_ERROR_CODES:
+        return detail
     if status == 401:
         text = "API key rejected"
     elif status == 402:
         text = "Out of credits"
     elif status == 429:
         text = "Rate limited — wait a moment"
+    elif status == 503:
+        text = SERVICE_UNAVAILABLE_TEXT
     elif status >= 500:
         text = "Provider error"
     else:
         text = f"Request failed (HTTP {status})"
-    detail = provider_error_message(body)
     return f"{text}: {detail}" if detail else text
 
 
-def provider_error_message(body: str) -> str:
+def _error_envelope(body: str):
     try:
         data = json.loads(body or "")
     except ValueError:
-        return ""
-    err = data.get("error") if isinstance(data, dict) else None
+        return None
+    return data.get("error") if isinstance(data, dict) else None
+
+
+def provider_error_message(body: str) -> str:
+    err = _error_envelope(body)
     if isinstance(err, dict):
         return str(err.get("message") or "").strip()
     if isinstance(err, str):
@@ -129,26 +176,75 @@ def provider_error_message(body: str) -> str:
     return ""
 
 
+def relay_error_code(body: str) -> str:
+    """``error.code`` from an OpenAI-style envelope ('' when absent)."""
+    err = _error_envelope(body)
+    return str(err.get("code") or "").strip() if isinstance(err, dict) else ""
+
+
+BAD_TOKEN_TEXT = "That token isn't valid — sign in with Discord again to get a new one."
+NO_TOKEN_TEXT = "No token entered — sign in with Discord to get one."
+
+
+def _lower_headers(message) -> dict:
+    """Response headers as a plain lower-cased dict (``None``-safe: the fakes
+    in tests and some error paths have none)."""
+    try:
+        return {str(k).lower(): str(v) for k, v in message.items()}
+    except AttributeError:
+        return {}
+
+
 class UrllibTransport:
     """The real transport. ``urllib`` rather than QtNetwork because TLS via
     urllib is what already works inside the PyInstaller build
-    (``core.update_check``); QtNetwork's TLS backend does not ship."""
+    (``core.update_check``); QtNetwork's TLS backend does not ship.
+
+    ``last_headers`` holds the most recent response's headers (lower-cased
+    keys) — the hosted relay reports the remaining allotment there, and the
+    session turns it into a ``quota`` event."""
+
+    def __init__(self) -> None:
+        self.last_headers: dict = {}
 
     def chat(self, payload: dict, config: AgentConfig) -> dict:
-        url = config.base_url.rstrip("/") + "/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {config.api_key}",
-            "Content-Type": "application/json",
+        url = config.effective_base_url().rstrip("/") + "/chat/completions"
+        headers = self._headers(config)
+        headers["Content-Type"] = "application/json"
+        headers.update(config.extra_headers or {})
+        body = json.dumps(payload).encode("utf-8")
+        raw = self._send(Request(url, data=body, headers=headers, method="POST"), config)
+        data = self._parse(raw)
+        if "error" in data and not data.get("choices"):
+            # Some providers answer 200 with an error envelope.
+            raise TransportError(0, provider_error_message(raw) or "Provider error")
+        return data
+
+    def hosted_me(self, config: AgentConfig) -> dict:
+        """``GET /v1/me`` on the relay: who the token belongs to and what is
+        left of the allotment. A 401 here means the token, not a key."""
+        request = Request(hosted_me_url(), headers=self._headers(config), method="GET")
+        try:
+            return self._parse(self._send(request, config))
+        except TransportError as exc:
+            if exc.status == 401:
+                raise TransportError(401, BAD_TOKEN_TEXT) from exc
+            raise
+
+    def _headers(self, config: AgentConfig) -> dict:
+        return {
+            "Authorization": f"Bearer {config.effective_api_key()}",
             "Accept": "application/json",
             "User-Agent": "FocusForge-Assistant",
         }
-        headers.update(config.extra_headers or {})
-        body = json.dumps(payload).encode("utf-8")
-        request = Request(url, data=body, headers=headers, method="POST")
+
+    def _send(self, request: Request, config: AgentConfig) -> str:
         try:
             with urlopen(request, timeout=config.timeout_s) as resp:
-                raw = resp.read().decode("utf-8", "replace")
+                self.last_headers = _lower_headers(getattr(resp, "headers", None))
+                return resp.read().decode("utf-8", "replace")
         except HTTPError as exc:
+            self.last_headers = _lower_headers(getattr(exc, "headers", None))
             try:
                 err_body = exc.read().decode("utf-8", "replace")
             except Exception:
@@ -157,21 +253,25 @@ class UrllibTransport:
         except (URLError, socket.timeout, OSError) as exc:
             reason = getattr(exc, "reason", None) or exc
             raise TransportError(0, f"Couldn't reach the provider ({reason}).") from exc
+
+    @staticmethod
+    def _parse(raw: str) -> dict:
         try:
             data = json.loads(raw)
         except ValueError as exc:
             raise TransportError(0, "The provider returned something that wasn't JSON.") from exc
         if not isinstance(data, dict):
             raise TransportError(0, "The provider returned an unexpected response shape.")
-        if "error" in data and not data.get("choices"):
-            # Some providers answer 200 with an error envelope.
-            raise TransportError(0, provider_error_message(raw) or "Provider error")
         return data
 
 
 def test_connection(config: AgentConfig, transport: Transport) -> str:
-    """The settings dialog's 'Test connection': one tiny request. Returns a
-    success sentence; raises :class:`TransportError` on failure."""
+    """The settings dialog's 'Test connection'. Own key: one tiny chat request.
+    Hosted: ``/v1/me``, which costs nothing and also tells the user who they
+    are signed in as. Returns a success sentence; raises
+    :class:`TransportError` on failure."""
+    if config.is_hosted():
+        return _test_hosted(config, transport)
     if not config.api_key:
         raise TransportError(0, "No API key entered.")
     payload = {"model": config.model,
@@ -180,6 +280,15 @@ def test_connection(config: AgentConfig, transport: Transport) -> str:
     data = transport.chat(payload, config)
     model = data.get("model") or config.model
     return f"Connected — {model} replied."
+
+
+def _test_hosted(config: AgentConfig, transport) -> str:
+    if not config.hosted_token:
+        raise TransportError(0, NO_TOKEN_TEXT)
+    me = transport.hosted_me(config)
+    name = me.get("discord_username") or "?"
+    return (f"Signed in as {name} · {format_dollars(me.get('used_cents'))} of "
+            f"{format_dollars(me.get('limit_cents'))} used this month")
 
 
 # ----- collaborators the UI provides ------------------------------------------------
@@ -228,7 +337,7 @@ class Usage:
 # ----- events ------------------------------------------------------------------------
 
 EVENT_KINDS = ("thinking", "tool_call", "tool_result", "assistant", "error", "usage",
-               "approval_denied", "cancelled")
+               "approval_denied", "cancelled", "quota")
 
 
 @dataclass
@@ -240,12 +349,15 @@ class AgentEvent:
     text: str = ""
     usage: Usage = None
     call_id: str = ""
+    quota: dict = None      # "quota": {used_cents, limit_cents, reset} from the relay
+    status: int = 0         # "error": the HTTP status behind it (0 = not HTTP)
 
     def to_dict(self) -> dict:
         """Plain dict for a Qt signal / a test assertion."""
         return {
             "kind": self.kind, "op": self.op, "args": self.args, "result": self.result,
-            "text": self.text, "call_id": self.call_id,
+            "text": self.text, "call_id": self.call_id, "quota": self.quota,
+            "status": self.status,
             "usage": None if self.usage is None else {
                 "prompt_tokens": self.usage.prompt_tokens,
                 "completion_tokens": self.usage.completion_tokens,
@@ -429,7 +541,8 @@ class AgentSession:
             try:
                 response = self.transport.chat(self._payload(), self.config)
             except TransportError as exc:
-                self._emit(AgentEvent("error", text=exc.message))
+                self._emit_quota()
+                self._emit(AgentEvent("error", text=exc.message, status=exc.status))
                 return exc.message
             except Exception as exc:  # a transport bug must surface, not kill the thread
                 text = f"Couldn't talk to the provider ({type(exc).__name__}: {exc})."
@@ -439,6 +552,7 @@ class AgentSession:
             self.usage.add(response.get("usage") if isinstance(response, dict) else None)
             self._log_request(_round, response)
             self._emit(AgentEvent("usage", usage=self.usage))
+            self._emit_quota()
             choices = response.get("choices") if isinstance(response, dict) else None
             choice = choices[0] if isinstance(choices, list) and choices else {}
             message = choice.get("message") if isinstance(choice, dict) else None
@@ -488,6 +602,14 @@ class AgentSession:
         if self.on_event is not None:
             self.on_event(event)
 
+    def _emit_quota(self) -> None:
+        """The relay's allotment headers ride on every response, including a
+        402 (so the panel can show "$0.50 of $0.50" next to the refusal).
+        Own-key providers don't send them, so this is usually a no-op."""
+        quota = parse_quota_headers(getattr(self.transport, "last_headers", None))
+        if quota is not None:
+            self._emit(AgentEvent("quota", quota=quota))
+
     _HISTORY_KEYS = ("role", "content", "tool_calls")
 
     def _history_message(self, message: dict) -> dict:
@@ -529,7 +651,7 @@ class AgentSession:
             pass
 
     def _payload(self) -> dict:
-        payload = {"model": self.config.model, "messages": self.messages,
+        payload = {"model": self.config.effective_model(), "messages": self.messages,
                    "temperature": self.config.temperature}
         if self.tools:
             payload["tools"] = self.tools

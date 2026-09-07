@@ -51,10 +51,10 @@ def format_cost(usage, model: str) -> str:
     return f"~${cost:.3f}"
 
 
-def format_usage(usage, model: str) -> str:
-    """The header label: '12.4k in · 2.1k out · ~$0.002', or with the cached
-    share when the provider reported prompt-cache hits:
-    '1.0M in (82% cached) · 30.0k out · ~$0.03'."""
+def format_tokens(usage) -> str:
+    """'12.4k in · 2.1k out', with the cached share when the provider reported
+    prompt-cache hits: '1.0M in (82% cached) · 30.0k out'. The hosted header
+    uses this alone — the relay's allotment is the bill there, not an estimate."""
     prompt = int(usage.prompt_tokens or 0)
     cached = int(getattr(usage, "cached_tokens", 0) or 0)
     writes = int(getattr(usage, "cache_write_tokens", 0) or 0)
@@ -64,5 +64,9 @@ def format_usage(usage, model: str) -> str:
         cached_note = " (cache primed)"   # written this session, not read back yet
     else:
         cached_note = ""
-    return (f"{_short_tokens(prompt)} in{cached_note} · "
-            f"{_short_tokens(usage.completion_tokens)} out · {format_cost(usage, model)}")
+    return f"{_short_tokens(prompt)} in{cached_note} · {_short_tokens(usage.completion_tokens)} out"
+
+
+def format_usage(usage, model: str) -> str:
+    """The own-key header label: '12.4k in · 2.1k out · ~$0.002'."""
+    return f"{format_tokens(usage)} · {format_cost(usage, model)}"
