@@ -10,7 +10,7 @@ from __future__ import annotations
 CHANGELOG = [
     {
         "version": "0.4.4",
-        "date": "unreleased",
+        "date": "2026-09-07",
         "title": "Hosted assistant: sign in with Discord, no API key needed",
         "changes": [
             "The Assistant no longer needs an API key: pick \"Focus Forge hosted\" in its settings, sign in with Discord, paste the token the page shows you, and start building. Focus Forge covers a small monthly allotment per modder (about $0.50 \u2014 roughly 15\u201340 branches, refreshing on the 1st); the tab header shows what's left and when it resets, and a plain message with an Open settings button appears if it runs out.",
