@@ -6,7 +6,7 @@ Inno Setup installer, writes SHA256SUMS.txt, and publishes everything as a
 GitHub Release on the public releases repo (the app's auto-updater polls it).
 
 Usage (from the project root):
-    python packaging/release.py [--notes-file NOTES.md] [--dry-run] [--site]
+    python packaging/release.py [--notes-file NOTES.md] [--dry-run] [--no-site]
 
 Release notes come from --notes-file, or fall back to this version's entry in
 core/changelog.py (title + bullet list). --dry-run does everything except the
@@ -248,10 +248,13 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true",
                         help="Do everything except `gh release create` (and "
                              "the site deploy).")
-    parser.add_argument("--site", action="store_true",
-                        help="Also refresh focusforgemod.com after publishing: "
-                             "site.ts + changelog.ts, npm build, wrangler "
-                             "deploy, git push.")
+    # The website is part of every release, not an option: a published build
+    # the site doesn't mention is a release nobody can find (2026-09-07).
+    parser.add_argument("--no-site", dest="site", action="store_false",
+                        help="Skip refreshing focusforgemod.com (site.ts + "
+                             "changelog.ts, npm build, wrangler deploy, git push). "
+                             "By default the site is refreshed after publishing.")
+    parser.set_defaults(site=True)
     args = parser.parse_args()
 
     version = read_version()
@@ -305,7 +308,8 @@ def main() -> None:
     commit_version_sync(version)
     if args.site:
         if entry is None:
-            fail(f"--site needs a core/changelog.py entry for {version}.")
+            fail(f"the site refresh needs a core/changelog.py entry for {version} "
+                 f"(or pass --no-site).")
         deploy_site(version, setup, entry, dry_run=False)
     step(f"Done — {tag} is live on {RELEASES_REPO}"
          + (" and focusforgemod.com" if args.site else ""))
