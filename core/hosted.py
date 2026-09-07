@@ -21,6 +21,7 @@ HOSTED_MODEL_ID = "meta/muse-spark-1.3-contributor"
 # already plain language, so the app shows them verbatim.
 HOSTED_ERROR_CODES = frozenset({
     "bad_token", "allotment_used", "rate_limited", "budget_exhausted", "unsupported",
+    "not_configured", "upstream_error",
 })
 
 HOSTED_PRIVACY_NOTE = ("Prompts and the parts of your mod the assistant reads are sent to "
