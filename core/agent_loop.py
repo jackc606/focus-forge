@@ -106,6 +106,11 @@ class AgentConfig:
     def effective_model(self) -> str:
         return HOSTED_MODEL_ID if self.is_hosted() else self.model
 
+    def caching_hints_supported(self) -> bool:
+        """Only OpenRouter (directly or via the hosted relay) understands the
+        session_id / cache_control request fields."""
+        return self.is_hosted() or "openrouter.ai" in (self.base_url or "")
+
 
 def default_extra_headers(base_url: str) -> dict:
     """OpenRouter attributes traffic to an app via these headers; other
@@ -677,7 +682,10 @@ class AgentSession:
         if self.tools:
             payload["tools"] = self.tools
             payload["tool_choice"] = "auto"
-        if self.config.prompt_caching:
+        # session_id / cache_control are OpenRouter extensions (the hosted relay
+        # forwards them). Stricter OpenAI-compatible APIs reject unknown fields,
+        # so other providers (xAI, OpenAI, local servers) get a plain payload.
+        if self.config.prompt_caching and self.config.caching_hints_supported():
             payload["session_id"] = self.session_id
             payload["cache_control"] = {"type": "ephemeral"}
         return payload

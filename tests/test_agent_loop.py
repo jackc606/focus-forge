@@ -607,6 +607,18 @@ def test_namespaced_tool_name_resolves_and_hello_is_available():
     assert "Procedure step 1 is already done" in build_system_prompt({"name": "X"}, "")
 
 
+def test_caching_hints_only_for_openrouter_or_hosted():
+    for base, expect in [("https://openrouter.ai/api/v1", True), ("https://api.x.ai/v1", False),
+                         ("http://127.0.0.1:1234/v1", False)]:
+        s, _ex, _g, _e = _session([reply("hi")], config=AgentConfig(api_key="k", base_url=base))
+        s.run_turn("hello")
+        sent = s.transport.payloads[0]
+        assert ("session_id" in sent) is expect and ("cache_control" in sent) is expect, base
+    hosted = AgentConfig(mode="hosted", hosted_token="ffa_x")
+    assert hosted.caching_hints_supported()
+    assert prices_for("grok-4.6") == (2.00, 6.00, 0.50)
+
+
 def test_cache_primed_label():
     u = Usage(prompt_tokens=20_000, completion_tokens=500, cache_write_tokens=9_000)
     assert format_usage(u, "meta/muse-spark-1.3-contributor").startswith("20.0k in (cache primed)")

@@ -14,6 +14,9 @@ from __future__ import annotations
 MODEL_PRICES: dict = {
     "meta/muse-spark-1.3-contributor": (0.10, 0.20, 0.002),
     "meta/muse-spark-1.3": (0.10, 0.20, 0.002),
+    # xAI direct (api.x.ai), prompts under 200k tokens; above that xAI doubles
+    # the rates for the whole request — the label is an estimate either way.
+    "grok-4.6": (2.00, 6.00, 0.50),
 }
 
 DEFAULT_MODEL = "meta/muse-spark-1.3-contributor"
