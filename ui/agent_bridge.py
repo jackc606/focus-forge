@@ -46,8 +46,18 @@ _QUIET_OPS = {
     "hello", "get_project", "list_focuses", "get_focus", "get_selection",
     "validate", "list_reward_presets", "list_condition_presets", "reference_data",
     "screenshot", "search_icons", "describe_op", "guide", "list_decisions",
-    "list_ideas", "list_events", "tree_overview",
+    "list_ideas", "list_events", "tree_overview", "icon_jobs",
 }
+
+_GUI_OPS = ("screenshot", "search_icons", "generate_icons", "icon_jobs")
+
+ICONS_OFF_TEXT = ("Icon generation is off (Assistant settings → 'Let the assistant generate "
+                  "focus icons'). Use search_icons to pick a sprite instead.")
+ICONS_NO_KEY_TEXT = ("Icon generation needs your own OpenRouter key for now — the hosted "
+                     "allotment doesn't cover images. Use search_icons instead.")
+ICONS_NO_RUNNER_TEXT = "Icon generation isn't available in this session (no icon runner)."
+_MAX_ICON_ITEMS = 25
+_ICON_THEMES = ("economy", "military", "politics", "research")
 
 
 class AgentBridge(QObject):
@@ -64,9 +74,20 @@ class AgentBridge(QObject):
         self._clients = 0
         self._token = ""           # shared secret; only a process that can read
                                    # the per-user discovery file knows it
+        # Icon generation is optional wiring (MainWindow injects the runner);
+        # without it generate_icons refuses politely instead of crashing.
+        self._icon_runner = None
+        self._config_loader = None
         # Lets core reject an unresolved icon WITH suggestions (the sprite index
         # is a UI-layer object; core only sees this callable).
         bridge_dispatch.set_icon_search_provider(self._sprite_names)
+
+    def set_icon_runner(self, runner, config_loader=None) -> None:
+        """``runner`` is an ``IconJobRunner``; ``config_loader`` returns the
+        current ``AgentConfig`` (defaults to the persisted assistant settings,
+        read at call time so a change in the dialog applies immediately)."""
+        self._icon_runner = runner
+        self._config_loader = config_loader
 
     # ----- lifecycle -----
     def is_listening(self) -> bool:
@@ -203,7 +224,7 @@ class AgentBridge(QObject):
         """Run one op on the GUI thread and narrate it to the status bar exactly
         as a TCP request would — the in-app assistant calls this directly so
         both drivers share one code path (and it needs no listening server)."""
-        if op in ("screenshot", "search_icons"):
+        if op in _GUI_OPS:
             result = self.run_gui_op(op, args)
         else:
             result = dispatch(self._model, op, args)
@@ -212,9 +233,10 @@ class AgentBridge(QObject):
         return result
 
     def run_gui_op(self, op: str, args: dict) -> dict:
-        """`screenshot`/`search_icons` are GUI-only (need the scene / the sprite
-        index provider) — handled here, not in core dispatch. They still get
-        the same alias / unknown-arg treatment as every other op."""
+        """`screenshot`/`search_icons`/`generate_icons`/`icon_jobs` are GUI-only
+        (need the scene / the sprite index provider / the icon runner) — handled
+        here, not in core dispatch. They still get the same alias / unknown-arg
+        treatment as every other op."""
         try:
             args = normalize_args(op, args or {})
         except ValueError as exc:
@@ -223,7 +245,86 @@ class AgentBridge(QObject):
             return self._screenshot(args)
         if op == "search_icons":
             return self._search_icons(args)
+        if op == "generate_icons":
+            return self._generate_icons(args)
+        if op == "icon_jobs":
+            return self._icon_jobs()
         return {"ok": False, "error": f"'{op}' is not a GUI op."}
+
+    # ----- icon generation -----
+    def _icon_config(self):
+        """The image endpoint config, or a refusal string the model can act on."""
+        from core.icon_gen import image_config_from_assistant
+        loader = self._config_loader
+        if loader is None:
+            from .assistant_settings_dialog import load_config as loader
+        cfg = loader()
+        if not getattr(cfg, "icons_enabled", False):
+            return None, ICONS_OFF_TEXT
+        image_cfg = image_config_from_assistant(cfg, getattr(cfg, "image_model", ""))
+        if image_cfg is None:
+            return None, ICONS_NO_KEY_TEXT
+        return image_cfg, ""
+
+    def _icon_items(self, items) -> list:
+        """Validate the request and build one prompt per focus. Raises
+        ValueError with a sentence naming the bad entry."""
+        from core.icon_prompt import (accent_for, build_icon_prompt, default_subject,
+                                      palette_for, theme_for_filters)
+        if not isinstance(items, list) or not items:
+            raise ValueError("items must be a non-empty list of {focus_id, subject}.")
+        if len(items) > _MAX_ICON_ITEMS:
+            raise ValueError(f"items holds {len(items)} entries; at most {_MAX_ICON_ITEMS} "
+                             "per call — split the branch.")
+        tag = getattr(self._model.project, "countryTag", "")
+        out = []
+        for n, item in enumerate(items, 1):
+            if not isinstance(item, dict):
+                raise ValueError(f"items[{n}] must be an object with focus_id and subject.")
+            fid = str(item.get("focus_id") or item.get("id") or "").strip()
+            focus = self._model.find_focus(fid) if fid else None
+            if focus is None:
+                raise ValueError(f"items[{n}]: no focus '{fid}'. Add the focus first, "
+                                 "then generate its icon.")
+            theme = str(item.get("theme") or "").strip().lower()
+            if theme and theme not in _ICON_THEMES:
+                raise ValueError(f"items[{n}]: theme must be one of {', '.join(_ICON_THEMES)}.")
+            subject = str(item.get("subject") or "").strip() or default_subject(focus)
+            prompt = build_icon_prompt(
+                subject, object_count=item.get("object_count", 2),
+                palette=palette_for(theme or theme_for_filters(focus.filters)),
+                accent=str(item.get("accent") or "").strip() or accent_for(tag))
+            out.append({"focus_id": fid, "subject": subject, "prompt": prompt})
+        return out
+
+    def _generate_icons(self, args: dict) -> dict:
+        """Queue background icon jobs and return at once — the model keeps
+        building while they render (see ui/icon_jobs.py)."""
+        from core.icon_gen import EST_COST_PER_ICON_USD
+        if self._icon_runner is None:
+            return {"ok": False, "error": ICONS_NO_RUNNER_TEXT}
+        image_cfg, refusal = self._icon_config()
+        if image_cfg is None:
+            return {"ok": False, "error": refusal}
+        try:
+            items = self._icon_items(args.get("items"))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        active = self._icon_runner.active_ids()
+        already = [i["focus_id"] for i in items if i["focus_id"] in active]
+        created = self._icon_runner.queue(items, image_cfg)
+        queued = [j["focus_id"] for j in created]
+        return {"ok": True, "result": {
+            "queued": queued, "already_running": already,
+            "estimated_cost_usd": round(len(queued) * EST_COST_PER_ICON_USD, 2),
+            "note": "Icons generate in the background (~20 s each, 2 at a time). Keep "
+                    "building; call icon_jobs before you finish."}}
+
+    def _icon_jobs(self) -> dict:
+        if self._icon_runner is None:
+            return {"ok": True, "result": {"jobs": [], "summary": {
+                "queued": 0, "running": 0, "done": 0, "failed": 0}, "cost_usd": 0.0}}
+        return {"ok": True, "result": self._icon_runner.status()}
 
     # ----- canvas screenshot -----
     def _screenshot(self, args: dict) -> dict:
@@ -322,6 +423,9 @@ class AgentBridge(QObject):
     @staticmethod
     def _summarize(op: str, result) -> str:
         detail = ""
+        if op == "generate_icons" and isinstance(result, dict):
+            n = len(result.get("queued") or [])
+            return f"Generating {n} icon{'s' if n != 1 else ''}…"
         if isinstance(result, dict):
             for key in ("id", "deleted", "message", "updated", "selected", "saved"):
                 if result.get(key):

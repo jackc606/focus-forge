@@ -70,6 +70,7 @@ from .graph_view import GraphView
 from .stats_panel import StatsPanel
 from .agent_bridge import AgentBridge
 from .assistant_panel import AssistantPanel
+from .icon_jobs import IconJobRunner
 from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
 from .project_model import ProjectModel
@@ -132,6 +133,10 @@ class MainWindow(QMainWindow):
         # through it (no listening server needed — it calls dispatch in-process).
         self._settings = QSettings("FocusForge", "FocusForge")
         self._bridge = AgentBridge(self._model, scene=self._scene, parent=self)
+        # Background focus-icon generation (generate_icons): the runner applies
+        # results on this thread; the bridge queues into it, the panel shows them.
+        self._icon_jobs = IconJobRunner(self._model, parent=self)
+        self._bridge.set_icon_runner(self._icon_jobs)
 
         self._tabs = QTabWidget()
         self._tabs.setMinimumWidth(420)
@@ -141,7 +146,7 @@ class MainWindow(QMainWindow):
         self._stats_panel = StatsPanel(self._model)
         self._export_panel = ExportPanel(self._model)
         self._llm = LlmPanel(self._model)
-        self._assistant = AssistantPanel(self._model, self._bridge)
+        self._assistant = AssistantPanel(self._model, self._bridge, icon_runner=self._icon_jobs)
         self._settings_panel = SettingsPanel(self._model)
         self._help = HelpPanel()
         self._tabs.addTab(self._inspector, "Inspector")

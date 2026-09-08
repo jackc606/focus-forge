@@ -16,6 +16,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -44,6 +45,7 @@ from core.agent_loop import (
 )
 from core.agent_pricing import DEFAULT_MODEL
 from core.hosted import HOSTED_MODEL_LABEL, HOSTED_PRIVACY_NOTE, hosted_signin_url
+from core.icon_gen import DEFAULT_IMAGE_MODEL
 
 from . import theme as T
 from .update_worker import run_in_thread
@@ -51,7 +53,12 @@ from .widgets import hint, panel_header
 
 SETTINGS_GROUP = "assistant"
 KNOWN_MODELS = (DEFAULT_MODEL, "meta/muse-spark-1.3")
+KNOWN_IMAGE_MODELS = (DEFAULT_IMAGE_MODEL, "google/gemini-2.5-flash-image")
 _MAX_RECENT_MODELS = 8
+
+ICONS_CHECKBOX_TEXT = ("Let the assistant generate focus icons (about 3 cents each, billed "
+                       "to this key)")
+HOSTED_ICONS_NOTE = "Icon generation isn't included in the hosted allotment yet."
 
 PRIVACY_NOTE = ("Stored on this computer only. Prompts and your mod content are sent to "
                 "the model provider you configure.")
@@ -89,6 +96,9 @@ def load_config(store: "QSettings | None" = None) -> AgentConfig:
             temperature=_to_float(s.value("temperature"), defaults.temperature),
             mode=_valid_mode(s.value("mode"), _default_mode(s)),
             hosted_token=str(s.value("hosted_token", "") or ""),
+            image_model=str(s.value("image_model", defaults.image_model)
+                            or defaults.image_model),
+            icons_enabled=_to_bool(s.value("icons_enabled"), defaults.icons_enabled),
         )
     finally:
         s.endGroup()
@@ -107,6 +117,8 @@ def save_config(cfg: AgentConfig, store: "QSettings | None" = None) -> None:
         s.setValue("hosted_token", cfg.hosted_token)
         s.setValue("max_rounds", int(cfg.max_rounds))
         s.setValue("temperature", float(cfg.temperature))
+        s.setValue("image_model", cfg.image_model)
+        s.setValue("icons_enabled", bool(cfg.icons_enabled))
         recent = [m for m in [cfg.model] + recent_models(s) if m]
         s.setValue("recent_models", list(dict.fromkeys(recent))[:_MAX_RECENT_MODELS])
     finally:
@@ -147,6 +159,15 @@ def _to_float(value, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _to_bool(value, default: bool) -> bool:
+    """QSettings hands back a bool or (from an .ini) the strings 'true'/'false'."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 class _TestConnectionWorker(QObject):
@@ -273,6 +294,8 @@ class AssistantSettingsDialog(QDialog):
         form.addRow("Model", self._hosted_model_label)
         v.addLayout(form)
         v.addWidget(hint(HOSTED_PRIVACY_NOTE))
+        self._hosted_icons_note = hint(HOSTED_ICONS_NOTE)
+        v.addWidget(self._hosted_icons_note)
         return pane
 
     def _build_own_pane(self, cfg: AgentConfig, recent) -> QWidget:
@@ -304,6 +327,23 @@ class AssistantSettingsDialog(QDialog):
                 self._model.addItem(m)
         self._model.setCurrentText(cfg.model)
         form.addRow("Model", self._model)
+
+        # Icon generation bills the same key, so it lives on this pane only.
+        self._icons_enabled = QCheckBox(ICONS_CHECKBOX_TEXT)
+        self._icons_enabled.setChecked(bool(cfg.icons_enabled))
+        self._icons_enabled.setToolTip(
+            "The assistant draws a bespoke icon per focus via OpenRouter's image "
+            "endpoint (generate_icons). OpenRouter only for now.")
+        form.addRow("", self._icons_enabled)
+        self._image_model = QComboBox()
+        self._image_model.setEditable(True)
+        self._image_model.setInsertPolicy(QComboBox.NoInsert)
+        for m in list(KNOWN_IMAGE_MODELS) + [cfg.image_model]:
+            if m and self._image_model.findText(m) < 0:
+                self._image_model.addItem(m)
+        self._image_model.setCurrentText(cfg.image_model or DEFAULT_IMAGE_MODEL)
+        self._image_model.setToolTip("Any OpenRouter image model id.")
+        form.addRow("Image model", self._image_model)
         v.addLayout(form)
         v.addWidget(hint(PRIVACY_NOTE))
         return pane
@@ -340,6 +380,8 @@ class AssistantSettingsDialog(QDialog):
             hosted_token=self._hosted_token.text().strip(),
             max_rounds=self._max_rounds.value(),
             temperature=self._temperature.value(),
+            image_model=self._image_model.currentText().strip() or DEFAULT_IMAGE_MODEL,
+            icons_enabled=self._icons_enabled.isChecked(),
         )
         cfg.extra_headers = default_extra_headers(cfg.effective_base_url())
         return cfg

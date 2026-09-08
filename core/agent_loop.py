@@ -93,6 +93,10 @@ class AgentConfig:
     # reads on Muse Spark contributor cost 1/50th of fresh input.
     prompt_caching: bool = True
     extra_headers: dict = field(default_factory=dict)  # OpenRouter likes HTTP-Referer / X-Title
+    # Focus-icon generation (generate_icons). Off by default: each icon bills
+    # ~3 cents to the user's own key, so it is an explicit opt-in.
+    image_model: str = "microsoft/mai-image-2.6-flash"
+    icons_enabled: bool = False
 
     def is_hosted(self) -> bool:
         return self.mode == MODE_HOSTED
@@ -407,7 +411,8 @@ CAPABILITIES_TEXT = (
     "focuses; write national spirits, events and decisions and wire them into "
     "focus rewards; check the tree for errors and the exported files for load "
     "problems; read the game's error.log after a launch and map "
-    "errors back to focuses; take a screenshot of the canvas for the user; review the "
+    "errors back to focuses; take a screenshot of the canvas for the user; draw a matching "
+    "icon for each focus when icon generation is on; review the "
     "tree and recommend what to build next; explain any Millennium Dawn focus, reward "
     "or condition. When asked what you can do, answer in those terms and offer two or "
     "three concrete starting prompts for THIS project — call tree_overview first so each "

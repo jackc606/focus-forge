@@ -17,6 +17,7 @@ normal ``project_changed`` path with zero cross-thread widget access.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import queue
@@ -189,6 +190,18 @@ def _pretty(data) -> str:
         return str(data)
 
 
+def _pixmap_from_b64(data: str):
+    """The stored ``iconData`` (base64 PNG) as a QPixmap, or None if unreadable."""
+    if not data:
+        return None
+    try:
+        raw = base64.b64decode(data)
+    except (ValueError, TypeError):
+        return None
+    pix = QPixmap()
+    return pix if pix.loadFromData(raw) and not pix.isNull() else None
+
+
 class _ToolCard(QFrame):
     """Collapsed one-liner `▸ add_focus MEX_x  ✓`; click to expand args + result."""
 
@@ -293,11 +306,16 @@ class AssistantPanel(QWidget):
     so the panel is testable without QSettings or a network."""
 
     def __init__(self, model, bridge, parent=None, config_loader=load_config,
-                 transport_factory=UrllibTransport) -> None:
+                 transport_factory=UrllibTransport, icon_runner=None) -> None:
         super().__init__(parent)
         self._model = model
         self._bridge = bridge
         self._transport_factory = transport_factory
+        # The icon runner emits on the GUI thread, so a direct connection is
+        # fine; None in tests / headless shells that have no runner.
+        if icon_runner is not None:
+            icon_runner.icon_ready.connect(self.add_icon_ready)
+            icon_runner.icon_failed.connect(self.add_icon_failed)
         self._config: AgentConfig = config_loader()
         self._session: "AgentSession | None" = None
         self._worker = None
@@ -621,6 +639,36 @@ class AssistantPanel(QWidget):
         lbl.setObjectName("iconPreview")
         lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._add_card(lbl)
+
+    # ----- generated icons -----
+    @Slot(str)
+    def add_icon_ready(self, focus_id: str) -> None:
+        """A small "Icon ready" card with the 95×85 result at 2× — the user's
+        only look at what the model just attached (the model can't see it)."""
+        focus = self._model.find_focus(focus_id)
+        data = getattr(focus, "iconData", "") if focus else ""
+        pix = _pixmap_from_b64(data)
+        card = QFrame()
+        card.setObjectName("helpCard")
+        row = QHBoxLayout(card)
+        row.setContentsMargins(T.SPACE_SM, T.SPACE_XS, T.SPACE_SM, T.SPACE_XS)
+        row.setSpacing(T.SPACE_SM)
+        if pix is not None:
+            img = QLabel()
+            img.setObjectName("iconPreview")
+            img.setPixmap(pix.scaled(pix.width() * 2, pix.height() * 2,
+                                     Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            img.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            row.addWidget(img)
+        title = QLabel(f"Icon ready · {focus_id}")
+        title.setObjectName("helpTitle")
+        title.setFont(mono_font(T.TEXT_BODY))
+        row.addWidget(title, 1)
+        self._add_card(card)
+
+    @Slot(str, str)
+    def add_icon_failed(self, focus_id: str, reason: str) -> None:
+        self._add_card(hint(f"Icon failed · {focus_id} — {reason}"))
 
     # ----- settings -----
     def _open_settings(self) -> None:

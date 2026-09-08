@@ -9,8 +9,9 @@ renders the same data as OpenAI-style function tools for a future in-app agent.
 Arg ``type`` values are JSON-schema types (string / number / integer / boolean /
 array / object) so the tool renderer needs no mapping table.
 
-``screenshot`` and ``search_icons`` are GUI-only ops whose handlers live in
-``ui/agent_bridge.py``; their specs live here so an agent can still discover them.
+``screenshot``, ``search_icons``, ``generate_icons`` and ``icon_jobs`` are GUI-only
+ops whose handlers live in ``ui/agent_bridge.py``; their specs live here so an
+agent can still discover them.
 """
 from __future__ import annotations
 
@@ -171,6 +172,28 @@ OP_SPECS: dict = {
          "margin": _a("integer", "Grid cells of margin (default 3)."),
          "max_px": _a("integer", "Longest image side in pixels (default 1800).")},
         "{path, width, height, focuses_in_view}", {"focus_ids": ["MEX_a", "MEX_b"], "margin": 2}),
+    "generate_icons": OpSpec(
+        "Draw a custom icon for each listed focus with the image model (about 3 cents each, "
+        "~20 s, 2 at a time) and attach it when done. Returns IMMEDIATELY — icons render in "
+        "the background while you keep building; call icon_jobs before you finish and fall "
+        "back to search_icons for any failure. Call it ONCE per branch, right after ids and "
+        "titles are fixed. Do not set `icon` on these focuses. GUI-only; refuses when icon "
+        "generation is off or the assistant has no own OpenRouter key.",
+        {"items": _a("array", 'One entry per focus (1-25): {"focus_id", "subject" (one sentence '
+                     "naming ONE or TWO concrete objects, e.g. 'a squat control tower in front "
+                     "and a passenger jet climbing behind it'), \"object_count\"? (1-2), "
+                     '"theme"? (economy|military|politics|research; default from the focus '
+                     "filters), \"accent\"? (colour phrase; default the country's flag colour)}.",
+                     required=True)},
+        "{queued, already_running, estimated_cost_usd, note}",
+        {"items": [{"focus_id": "MEX_a", "subject": "a squat control tower in front and a "
+                                                    "passenger jet climbing behind it"}]}),
+    "icon_jobs": OpSpec(
+        "Progress of generate_icons: every job with its state (queued|running|done|failed), "
+        "reason on failure, and the total cost so far. GUI-only.",
+        {},
+        "{jobs: [{focus_id, subject, state, reason, cost_usd, started, finished}], "
+        "summary: {queued, running, done, failed}, cost_usd}", {}),
 
     # ----- focus writes -----
     "add_focus": OpSpec(
@@ -383,7 +406,7 @@ OP_SPECS: dict = {
 }
 
 # Ops that need the GUI (their handlers live in ui/agent_bridge.py).
-GUI_ONLY_OPS = ("screenshot", "search_icons")
+GUI_ONLY_OPS = ("screenshot", "search_icons", "generate_icons", "icon_jobs")
 
 
 def accepted_arg_names(op: str) -> list:

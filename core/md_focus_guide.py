@@ -83,16 +83,24 @@ PROCEDURE = """\
    `compact=true` (or `kind` for one preset) — use them to save tokens.
 3. Plan placement before writing: pick free cells; same-row focuses need
    dx >= 2; children go at y+1 under their parent.
-4. Build each feature as ONE `batch` (add focuses first, then links). Never add
+4. As soon as the ids and titles are fixed — BEFORE writing rewards, descriptions
+   or events — call `generate_icons` ONCE for the whole branch with a one-sentence
+   `subject` per focus (one or two concrete objects, e.g. 'a squat control tower in
+   front and a passenger jet climbing behind it, the jet as large as the tower').
+   Icons take ~20 s each and render in the background while you keep working; do
+   NOT set `icon` on those focuses. If generate_icons refuses, fall back to
+   `search_icons`.
+5. Build each feature as ONE `batch` (add focuses first, then links). Never add
    focuses one call at a time when building more than ~3. When you do need several
    reads (get_focus, search_icons), return them as SEVERAL tool calls in one reply,
    not one per reply. Do not re-read focuses you just built: the batch result already
    carries their ids and issues.
-5. Every write returns `issues`. Fix every error before moving on; explain any
+6. Every write returns `issues`. Fix every error before moving on; explain any
    warnings you leave.
-6. After the batch: `validate`, then `screenshot` the region, then tell the user
-   what you built and where.
-7. NEVER call `save`, `export`, `load_project`, or delete focuses you did not
+7. After the batch: `validate`, then `screenshot` the region, then — before your
+   summary — call `icon_jobs`; for any `failed` job, set an icon via `search_icons`.
+   Then tell the user what you built and where.
+8. NEVER call `save`, `export`, `load_project`, or delete focuses you did not
    create in this session unless the user explicitly asks for that action.
 """
 
@@ -128,6 +136,8 @@ Roughly: early backbone trends to 10, deep sub-branches to 5. Don't inflate caps
 {LAYOUT_CONVENTION["note"]}
 
 ## Icons (distinct & thematic)
+When icon generation is on, `generate_icons` draws a bespoke on-theme icon per focus
+(see Procedure step 4) — prefer it to borrowing sprites. Otherwise:
 One specific icon PER focus — real trees are ~1:1 unique. Reuse ONLY inside a tight
 thematic cluster (e.g. several nuclear focuses sharing a nuclear icon is fine). Prefer
 specific, evocative names over generic ones. Search by THEME WORDS first
