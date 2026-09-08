@@ -40,7 +40,7 @@ def _default_generate(prompt: str, cfg: ImageConfig):
 
 
 class _IconWorker(QObject):
-    """One icon: prompt -> image bytes -> keyed 95×85 PNG. Emits exactly one of
+    """One icon: prompt -> image bytes -> keyed 100×88 PNG. Emits exactly one of
     ``done`` / ``failed``, then ``finished``. Never raises off-thread."""
 
     done = Signal(str, str, object)   # focus_id, base64 PNG, cost_usd | None

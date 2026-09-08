@@ -23,7 +23,7 @@ no numbers.
 Style: semi-realistic painted illustration with clean dark outlines, flat shading with one soft
 light from the upper left, exaggerated chunky proportions the way small game icons are drawn,
 muted desaturated palette ({PALETTE}, one accent of {ACCENT}), slight grain. It must read
-clearly at 95 by 85 pixels: strong silhouette, no fine detail, no thin lines.
+clearly at 100 by 88 pixels: strong silhouette, no fine detail, no thin lines.
 
 Plain solid flat background in pure magenta (#FF00FF) for keying: no gradient, no shadow on
 the background, no vignette, no ground shadow.
@@ -87,7 +87,7 @@ def accent_for(country_tag) -> str:
 def build_icon_prompt(subject: str, *, object_count: int = 2, palette: str,
                       accent: str) -> str:
     """Fill the template. ``object_count`` is clamped to 1..2 because three or
-    more objects never read at 95×85; ``subject`` is collapsed to one clean
+    more objects never read at 100×88; ``subject`` is collapsed to one clean
     sentence so a stray newline from the model can't break the prompt."""
     try:
         count = int(object_count)

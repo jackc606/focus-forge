@@ -95,7 +95,7 @@ def test_template_is_intact_and_filled():
     text = build_icon_prompt("a control tower and a passenger jet", object_count=2,
                              palette=PALETTES["economy"], accent="Mexican green")
     assert "Only 2 object(s) and nothing else: a control tower and a passenger jet." in text
-    assert "pure magenta (#FF00FF)" in text and "95 by 85 pixels" in text
+    assert "pure magenta (#FF00FF)" in text and "100 by 88 pixels" in text
     assert "Square image, 1024 by 1024." in text
     assert "steel grey, faded navy, warm concrete tan, one accent of Mexican green" in text
     assert "{" not in text and "}" not in text
@@ -162,14 +162,14 @@ def test_key_image_keeps_interior_magenta_and_reports_fraction():
 def test_process_icon_keys_trims_fits_and_keeps_interior_stripe(qapp):
     from ui.icon_image import process_icon
     out = _load(process_icon(_subject_png()))
-    assert (out.width(), out.height()) == (95, 85)
+    assert (out.width(), out.height()) == (100, 88)
     for x, y in ((0, 0), (94, 0), (0, 84), (94, 84)):
         assert out.pixelColor(x, y).alpha() == 0
     # Subject (3:2) fills the width; centred vertically with a symmetric transparent band.
     assert out.pixelColor(47, 42).alpha() == 255
     top = next(y for y in range(85) if out.pixelColor(47, y).alpha() > 0)
     bottom = next(y for y in range(84, -1, -1) if out.pixelColor(47, y).alpha() > 0)
-    assert abs(top - (84 - bottom)) <= 1
+    assert abs(top - (87 - bottom)) <= 1
     # The interior magenta stripe survived (not border-connected) — some
     # strongly magenta opaque pixels remain inside the subject.
     kept = [out.pixelColor(x, y) for y in range(top, bottom + 1) for x in range(20, 75)]
@@ -382,7 +382,7 @@ def test_runner_lifecycle_applies_icon_data_and_emits(qapp):
     focus = model.find_focus(ids[0])
     assert focus.icon == "" and focus.iconData
     img = _load(base64.b64decode(focus.iconData))
-    assert (img.width(), img.height()) == (95, 85)
+    assert (img.width(), img.height()) == (100, 88)
     assert ready == [ids[0]] and changed
     status = runner.status()
     assert status["summary"] == {"queued": 0, "running": 0, "done": 1, "failed": 0}
@@ -675,7 +675,7 @@ def test_panel_renders_icon_ready_and_failed_cards(qapp):
     labels = ready_card.findChildren(QLabel)
     assert any(lbl.text() == f"Icon ready · {fid}" for lbl in labels)
     pix = next(lbl.pixmap() for lbl in labels if lbl.objectName() == "iconPreview")
-    assert (pix.width(), pix.height()) == (190, 170)
+    assert (pix.width(), pix.height()) == (200, 176)
     failed_card = lay.itemAt(before).widget()
     assert failed_card.text() == f"Icon failed · {fid} — Out of credits"
     assert failed_card.objectName() == "hint"
@@ -708,7 +708,7 @@ def test_generated_icon_exports_like_a_custom_icon(qapp, tmp_path):
     dds = (tmp_path / "gfx" / "interface" / "goals" / "MEX_tower.dds").read_bytes()
     from core.dds_decode import decode_dds
     w, h, bgra = decode_dds(dds)
-    assert (w, h) == (95, 85) and len(bgra) == 95 * 85 * 4
+    assert (w, h) == (100, 88) and len(bgra) == 100 * 88 * 4
     assert bgra[3] == 0                                   # corner stays transparent
     centre = ((42 * 95) + 47) * 4
     assert bgra[centre + 3] == 255

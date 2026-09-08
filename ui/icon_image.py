@@ -1,4 +1,4 @@
-"""Generated-icon post-processing: key out the magenta, trim, fit to 95×85.
+"""Generated-icon post-processing: key out the magenta, trim, fit to 100×88.
 
 Why here and not in core: Pillow isn't a dependency, so decoding, smooth
 resampling and PNG encoding use QImage (the same decoder that renders
@@ -12,10 +12,10 @@ from PySide6.QtGui import QColor, QImage, QPainter
 
 from core.icon_image import EMPTY_FRACTION, fit_size, key_image, padded_bbox
 
-ICON_SIZE = (95, 85)
+ICON_SIZE = (100, 88)   # what 1,869 of 2,954 vanilla goal icons are; MD matches
 # Keying runs in pure Python; a 1024² image would take ~10 s per icon and hog
 # the GIL, so the source is first smooth-downscaled to at most this — still
-# 5× oversampled against the 95×85 result, so edges stay anti-aliased.
+# 5× oversampled against the 100×88 result, so edges stay anti-aliased.
 _KEY_MAX_PX = 512
 
 EMPTY_IMAGE_TEXT = "the image came back empty"

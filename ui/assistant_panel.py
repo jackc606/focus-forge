@@ -643,7 +643,7 @@ class AssistantPanel(QWidget):
     # ----- generated icons -----
     @Slot(str)
     def add_icon_ready(self, focus_id: str) -> None:
-        """A small "Icon ready" card with the 95×85 result at 2× — the user's
+        """A small "Icon ready" card with the 100×88 result at 2× — the user's
         only look at what the model just attached (the model can't see it)."""
         focus = self._model.find_focus(focus_id)
         data = getattr(focus, "iconData", "") if focus else ""
