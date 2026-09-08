@@ -88,6 +88,23 @@ conversation.
 - Everything it changes is unsaved until you save, and every batch is one undo step
   (Ctrl+Z).
 
+## Generated icons
+
+Ask for it ("give each focus its own icon") and the assistant draws a bespoke 1:1 icon per
+focus through OpenRouter's image endpoint (`generate_icons`), placing it on the focus as it
+finishes; `search_icons` for existing sprites is unaffected.
+
+- **It's off by default.** Turn on ⚙ → *Let the assistant generate focus icons*; the model
+  is told to use sprites instead while it's off.
+- **It needs an OpenRouter key of its own.** Fill in ⚙ → *OpenRouter key for icons*. Icons
+  always go through OpenRouter, whatever the chat provider, so this works in **hosted
+  mode** too — the free allotment doesn't cover images, but your own OpenRouter key does.
+  If you're already on *My own key* with an OpenRouter base URL, leave the icon key empty
+  and that key is reused.
+- **Cost.** About 3 cents per icon on the default model, billed to the icon key (the
+  assistant states the estimate before drawing a whole branch). *Image model* accepts any
+  OpenRouter image model id.
+
 ## Cost
 
 With your own key the header shows the running token count and an estimate

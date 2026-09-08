@@ -3,8 +3,9 @@
 One POST to OpenRouter's Images endpoint per icon. It reuses the assistant's
 transport conventions (Bearer key, JSON, OpenRouter attribution headers,
 ``friendly_http_error``) so a 402 or 429 reads exactly like the chat loop's.
-Documented as OpenRouter-only for now: any other base URL is still sent
-``{base}/images`` and will most likely 404 — the settings dialog says so.
+The endpoint is OpenRouter's, full stop: :func:`image_config_from_assistant`
+always targets :data:`IMAGE_BASE_URL`, whatever the chat provider is, and
+takes the key from the dedicated ``image_api_key`` setting.
 """
 from __future__ import annotations
 
@@ -25,6 +26,9 @@ from .agent_loop import (
 )
 
 DEFAULT_IMAGE_MODEL = "microsoft/mai-image-2.6-flash"
+# Icons only ever go through OpenRouter's images endpoint, regardless of the
+# chat provider (xAI, the hosted relay, ...), so the base URL is a constant.
+IMAGE_BASE_URL = "https://openrouter.ai/api/v1"
 # What one icon roughly costs on the default model; shown to the model as an
 # estimate before it commits a whole branch.
 EST_COST_PER_ICON_USD = 0.03
@@ -111,11 +115,25 @@ class OpenRouterImages:
 
 def image_config_from_assistant(cfg: AgentConfig, image_model: str = "") -> "ImageConfig | None":
     """The image endpoint config implied by the assistant settings, or None
-    when icons can't be generated: hosted mode (the relay's allotment doesn't
-    cover images yet) or an own-key pane with no key."""
-    if cfg is None or cfg.is_hosted() or not (cfg.api_key or "").strip():
+    when there is no key to bill icons to.
+
+    WHY the chat provider is ignored: the images endpoint is OpenRouter's, so
+    a chat config pointed at xAI or at the hosted relay can't generate icons
+    with its own credential. Icons therefore have their own OpenRouter key
+    (``cfg.image_api_key``) and always use :data:`IMAGE_BASE_URL`, which makes
+    them work in both modes. As a convenience, an own-key pane that already
+    talks to OpenRouter falls back to that ``api_key`` when the image key is
+    empty; any other chat provider (or hosted mode) without an image key
+    yields None.
+    """
+    if cfg is None:
+        return None
+    key = (getattr(cfg, "image_api_key", "") or "").strip()
+    if not key and not cfg.is_hosted() and "openrouter.ai" in (cfg.base_url or ""):
+        key = (cfg.api_key or "").strip()
+    if not key:
         return None
     model = (image_model or getattr(cfg, "image_model", "") or DEFAULT_IMAGE_MODEL).strip()
-    return ImageConfig(base_url=cfg.base_url or AgentConfig().base_url,
-                       api_key=cfg.api_key.strip(), model=model or DEFAULT_IMAGE_MODEL,
+    return ImageConfig(base_url=IMAGE_BASE_URL, api_key=key,
+                       model=model or DEFAULT_IMAGE_MODEL,
                        timeout_s=int(getattr(cfg, "timeout_s", 120) or 120))

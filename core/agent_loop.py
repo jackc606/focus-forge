@@ -97,6 +97,11 @@ class AgentConfig:
     # ~3 cents to the user's own key, so it is an explicit opt-in.
     image_model: str = "microsoft/mai-image-2.6-flash"
     icons_enabled: bool = False
+    # Icons are always drawn through OpenRouter's images endpoint, independent
+    # of the chat provider: this key pays for them in BOTH modes (hosted, or an
+    # own-key pane pointed at xAI/etc.). Empty = reuse ``api_key`` when that is
+    # itself an OpenRouter key.
+    image_api_key: str = ""
 
     def is_hosted(self) -> bool:
         return self.mode == MODE_HOSTED

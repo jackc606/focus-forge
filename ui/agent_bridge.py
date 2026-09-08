@@ -53,8 +53,8 @@ _GUI_OPS = ("screenshot", "search_icons", "generate_icons", "icon_jobs")
 
 ICONS_OFF_TEXT = ("Icon generation is off (Assistant settings → 'Let the assistant generate "
                   "focus icons'). Use search_icons to pick a sprite instead.")
-ICONS_NO_KEY_TEXT = ("Icon generation needs your own OpenRouter key for now — the hosted "
-                     "allotment doesn't cover images. Use search_icons instead.")
+ICONS_NO_KEY_TEXT = ("Icon generation needs an OpenRouter key: Assistant settings → "
+                     "'OpenRouter key for icons'. Use search_icons to pick a sprite instead.")
 ICONS_NO_RUNNER_TEXT = "Icon generation isn't available in this session (no icon runner)."
 _MAX_ICON_ITEMS = 25
 _ICON_THEMES = ("economy", "military", "politics", "research")

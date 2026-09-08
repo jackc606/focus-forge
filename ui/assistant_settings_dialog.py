@@ -58,7 +58,8 @@ _MAX_RECENT_MODELS = 8
 
 ICONS_CHECKBOX_TEXT = ("Let the assistant generate focus icons (about 3 cents each, billed "
                        "to this key)")
-HOSTED_ICONS_NOTE = "Icon generation isn't included in the hosted allotment yet."
+IMAGE_KEY_HINT = ("Icons are generated through OpenRouter and billed to this key (about 3 cents "
+                  "each). Leave it empty to reuse your own OpenRouter key from the pane above.")
 
 PRIVACY_NOTE = ("Stored on this computer only. Prompts and your mod content are sent to "
                 "the model provider you configure.")
@@ -98,6 +99,7 @@ def load_config(store: "QSettings | None" = None) -> AgentConfig:
             hosted_token=str(s.value("hosted_token", "") or ""),
             image_model=str(s.value("image_model", defaults.image_model)
                             or defaults.image_model),
+            image_api_key=str(s.value("image_api_key", "") or ""),
             icons_enabled=_to_bool(s.value("icons_enabled"), defaults.icons_enabled),
         )
     finally:
@@ -118,6 +120,7 @@ def save_config(cfg: AgentConfig, store: "QSettings | None" = None) -> None:
         s.setValue("max_rounds", int(cfg.max_rounds))
         s.setValue("temperature", float(cfg.temperature))
         s.setValue("image_model", cfg.image_model)
+        s.setValue("image_api_key", cfg.image_api_key)
         s.setValue("icons_enabled", bool(cfg.icons_enabled))
         recent = [m for m in [cfg.model] + recent_models(s) if m]
         s.setValue("recent_models", list(dict.fromkeys(recent))[:_MAX_RECENT_MODELS])
@@ -294,8 +297,6 @@ class AssistantSettingsDialog(QDialog):
         form.addRow("Model", self._hosted_model_label)
         v.addLayout(form)
         v.addWidget(hint(HOSTED_PRIVACY_NOTE))
-        self._hosted_icons_note = hint(HOSTED_ICONS_NOTE)
-        v.addWidget(self._hosted_icons_note)
         return pane
 
     def _build_own_pane(self, cfg: AgentConfig, recent) -> QWidget:
@@ -327,23 +328,6 @@ class AssistantSettingsDialog(QDialog):
                 self._model.addItem(m)
         self._model.setCurrentText(cfg.model)
         form.addRow("Model", self._model)
-
-        # Icon generation bills the same key, so it lives on this pane only.
-        self._icons_enabled = QCheckBox(ICONS_CHECKBOX_TEXT)
-        self._icons_enabled.setChecked(bool(cfg.icons_enabled))
-        self._icons_enabled.setToolTip(
-            "The assistant draws a bespoke icon per focus via OpenRouter's image "
-            "endpoint (generate_icons). OpenRouter only for now.")
-        form.addRow("", self._icons_enabled)
-        self._image_model = QComboBox()
-        self._image_model.setEditable(True)
-        self._image_model.setInsertPolicy(QComboBox.NoInsert)
-        for m in list(KNOWN_IMAGE_MODELS) + [cfg.image_model]:
-            if m and self._image_model.findText(m) < 0:
-                self._image_model.addItem(m)
-        self._image_model.setCurrentText(cfg.image_model or DEFAULT_IMAGE_MODEL)
-        self._image_model.setToolTip("Any OpenRouter image model id.")
-        form.addRow("Image model", self._image_model)
         v.addLayout(form)
         v.addWidget(hint(PRIVACY_NOTE))
         return pane
@@ -363,6 +347,30 @@ class AssistantSettingsDialog(QDialog):
         self._temperature.setDecimals(2)
         self._temperature.setValue(float(cfg.temperature))
         form.addRow("Temperature", self._temperature)
+
+        # Icon generation is independent of the chat provider (it always goes
+        # through OpenRouter with its own key), so it lives here, shared by
+        # both panes, rather than on the own-key pane.
+        self._icons_enabled = QCheckBox(ICONS_CHECKBOX_TEXT)
+        self._icons_enabled.setChecked(bool(cfg.icons_enabled))
+        self._icons_enabled.setToolTip(
+            "The assistant draws a bespoke icon per focus via OpenRouter's image "
+            "endpoint (generate_icons), billed to the icon key below.")
+        form.addRow("", self._icons_enabled)
+        self._image_api_key = QLineEdit(cfg.image_api_key)
+        self._image_api_key.setPlaceholderText("sk-or-…")
+        holder, self._show_image_key = _secret_row(self._image_api_key)
+        form.addRow("OpenRouter key for icons", holder)
+        form.addRow("", hint(IMAGE_KEY_HINT))
+        self._image_model = QComboBox()
+        self._image_model.setEditable(True)
+        self._image_model.setInsertPolicy(QComboBox.NoInsert)
+        for m in list(KNOWN_IMAGE_MODELS) + [cfg.image_model]:
+            if m and self._image_model.findText(m) < 0:
+                self._image_model.addItem(m)
+        self._image_model.setCurrentText(cfg.image_model or DEFAULT_IMAGE_MODEL)
+        self._image_model.setToolTip("Any OpenRouter image model id.")
+        form.addRow("Image model", self._image_model)
         return form
 
     # ----- api -----
@@ -381,6 +389,7 @@ class AssistantSettingsDialog(QDialog):
             max_rounds=self._max_rounds.value(),
             temperature=self._temperature.value(),
             image_model=self._image_model.currentText().strip() or DEFAULT_IMAGE_MODEL,
+            image_api_key=self._image_api_key.text().strip(),
             icons_enabled=self._icons_enabled.isChecked(),
         )
         cfg.extra_headers = default_extra_headers(cfg.effective_base_url())

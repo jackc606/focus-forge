@@ -9,6 +9,14 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.5",
+        "date": "unreleased",
+        "title": "Generated icons work in hosted mode",
+        "changes": [
+            "Icon generation now has its own \"OpenRouter key for icons\" in Assistant settings, independent of the chat provider: it works in hosted mode and with any own-key endpoint (xAI, a local server), billing about 3 cents per icon to that key. Leave it empty to reuse your own OpenRouter key.",
+        ],
+    },
+    {
         "version": "0.4.4",
         "date": "2026-09-07",
         "title": "Hosted assistant: sign in with Discord, no API key needed",

@@ -277,16 +277,36 @@ def test_bad_payloads_are_transport_errors(monkeypatch):
         OpenRouterImages().generate("p", cfg)
 
 
-def test_image_config_from_assistant_own_vs_hosted():
+def test_image_config_from_assistant_key_resolution_matrix():
+    from core.icon_gen import IMAGE_BASE_URL
+    assert IMAGE_BASE_URL == "https://openrouter.ai/api/v1"
+    # own + OpenRouter chat key, no image key: falls back to the chat key
     own = AgentConfig(mode="own", api_key=" sk-or-a ", base_url="https://openrouter.ai/api/v1",
                       image_model="google/gemini-2.5-flash-image")
     cfg = image_config_from_assistant(own, own.image_model)
-    assert cfg == ImageConfig(base_url="https://openrouter.ai/api/v1", api_key="sk-or-a",
+    assert cfg == ImageConfig(base_url=IMAGE_BASE_URL, api_key="sk-or-a",
                               model="google/gemini-2.5-flash-image", timeout_s=120)
     assert image_config_from_assistant(own).model == "google/gemini-2.5-flash-image"
+    # own + xAI, no image key: an xAI key can't pay OpenRouter -> None
+    xai = AgentConfig(mode="own", api_key="xai-k", base_url="https://api.x.ai/v1")
+    assert image_config_from_assistant(xai) is None
+    # own + xAI with an image key: OpenRouter base + that key, never the xAI one
+    xai.image_api_key = " sk-or-img "
+    cfg = image_config_from_assistant(xai)
+    assert (cfg.base_url, cfg.api_key) == (IMAGE_BASE_URL, "sk-or-img")
+    # own + OpenRouter with an explicit image key: the image key wins
+    own.image_api_key = "sk-or-img"
+    assert image_config_from_assistant(own).api_key == "sk-or-img"
+    # hosted + image key: works (the relay token is never used for images)
+    hosted = AgentConfig(mode="hosted", hosted_token="ffa_x", api_key="sk-or-a",
+                         image_api_key="sk-or-img")
+    cfg = image_config_from_assistant(hosted)
+    assert (cfg.base_url, cfg.api_key) == (IMAGE_BASE_URL, "sk-or-img")
+    # hosted without an image key: None, even if an own OpenRouter key is stored
     assert image_config_from_assistant(AgentConfig(mode="hosted", hosted_token="ffa_x",
                                                    api_key="sk-or-a")) is None
     assert image_config_from_assistant(AgentConfig(mode="own", api_key="")) is None
+    assert image_config_from_assistant(None) is None
 
 
 # ----- job runner (offscreen, fake generator) -------------------------------------------
@@ -436,10 +456,24 @@ def test_generate_icons_refusals(qapp):
     assert "search_icons" in off["error"]
     hosted = AgentConfig(mode="hosted", hosted_token="ffa_x", icons_enabled=True)
     no_key = _bridge(qapp, runner, hosted).run_gui_op("generate_icons", {"items": items})
-    assert no_key["ok"] is False and "own OpenRouter key" in no_key["error"]
+    assert no_key["ok"] is False and "OpenRouter key for icons" in no_key["error"]
+    assert "search_icons" in no_key["error"]
     none = _bridge(qapp, None, _own_cfg()).run_gui_op("generate_icons", {"items": items})
     assert none["ok"] is False and "icon runner" in none["error"]
     assert gen.prompts == []
+
+
+def test_generate_icons_runs_in_hosted_mode_with_an_image_key(qapp):
+    gen = _FakeGenerator()
+    runner, model, ids = _runner(qapp, gen)
+    items = [{"focus_id": ids[0], "subject": "a tower"}]
+    hosted = AgentConfig(mode="hosted", hosted_token="ffa_x", icons_enabled=True,
+                         image_api_key="sk-or-img")
+    out = _bridge(qapp, runner, hosted).run_gui_op("generate_icons", {"items": items})
+    assert out["ok"] is True, out
+    _pump(qapp, runner, lambda: runner.status()["summary"]["done"] == 1)
+    assert len(gen.prompts) == 1
+    assert model.find_focus(ids[0]).iconData
 
 
 def test_generate_icons_validates_items(qapp):
@@ -563,24 +597,48 @@ def test_settings_round_trip_image_fields(qapp, tmp_path):
     save_config(cfg, _ini(tmp_path))
     back = load_config(_ini(tmp_path))
     assert back.icons_enabled is True and back.image_model == "google/gemini-2.5-flash-image"
+    assert back.image_api_key == ""
+    cfg.image_api_key = "sk-or-img"
+    save_config(cfg, _ini(tmp_path))
+    assert load_config(_ini(tmp_path)).image_api_key == "sk-or-img"
     cfg.icons_enabled = False
     save_config(cfg, _ini(tmp_path))
     assert load_config(_ini(tmp_path)).icons_enabled is False
 
 
-def test_settings_dialog_own_pane_controls_and_hosted_note(qapp):
+def test_settings_dialog_icon_controls_are_shared_by_both_modes(qapp):
+    from PySide6.QtWidgets import QLineEdit
     from ui.assistant_settings_dialog import (
-        HOSTED_ICONS_NOTE,
         ICONS_CHECKBOX_TEXT,
         AssistantSettingsDialog,
     )
-    cfg = AgentConfig(mode="own", api_key="sk", icons_enabled=True, image_model="custom/img")
+    cfg = AgentConfig(mode="own", api_key="sk", icons_enabled=True, image_model="custom/img",
+                      image_api_key="sk-or-img")
     dlg = AssistantSettingsDialog(cfg, recent=[], transport_factory=lambda: None)
     assert dlg._icons_enabled.text() == ICONS_CHECKBOX_TEXT and dlg._icons_enabled.isChecked()
     assert dlg._image_model.currentText() == "custom/img"
     seeded = {dlg._image_model.itemText(i) for i in range(dlg._image_model.count())}
     assert {"microsoft/mai-image-2.6-flash", "google/gemini-2.5-flash-image", "custom/img"} <= seeded
-    assert dlg._hosted_icons_note.text() == HOSTED_ICONS_NOTE
+    assert not hasattr(dlg, "_hosted_icons_note")
+    # The icon controls live outside the stacked panes: neither pane owns them,
+    # so they stay visible whichever mode is picked.
+    for w in (dlg._icons_enabled, dlg._image_api_key, dlg._image_model):
+        assert not dlg._panes.isAncestorOf(w)
+    assert dlg._panes.isAncestorOf(dlg._api_key)
+    dlg._hosted_radio.setChecked(True)
+    assert dlg._panes.currentIndex() == 0
+    assert not dlg._panes.isAncestorOf(dlg._image_api_key)
+    # image key round-trips and has the same Show/Hide pattern as the other keys
+    assert dlg._image_api_key.text() == "sk-or-img"
+    assert dlg._image_api_key.echoMode() == QLineEdit.EchoMode.Password
+    dlg._show_image_key.setChecked(True)
+    assert dlg._image_api_key.echoMode() == QLineEdit.EchoMode.Normal
+    assert dlg._show_image_key.text() == "Hide"
+    dlg._show_image_key.setChecked(False)
+    assert dlg._image_api_key.echoMode() == QLineEdit.EchoMode.Password
+    dlg._image_api_key.setText("  sk-or-new  ")
+    out = dlg.config()
+    assert out.mode == "hosted" and out.image_api_key == "sk-or-new"
     dlg._icons_enabled.setChecked(False)
     dlg._image_model.setCurrentText("  ")
     out = dlg.config()
