@@ -5,6 +5,8 @@ import pytest
 
 from core.md_edition import (
     BETA,
+    EDITIONS,
+    LEGACY_MAIN,
     MAIN,
     active_edition,
     edition,
@@ -48,13 +50,24 @@ def test_edition_lookup_falls_back_to_main():
 
 
 def test_editions_differ_where_md_does():
+    # Since MD 2.0 the two Workshop items carry the same content; only the
+    # item and its descriptor name differ.
     assert MAIN.workshop_id != BETA.workshop_id
     assert MAIN.dependency == "Millennium Dawn: A Modern Day Mod"
     assert BETA.dependency == "Millennium Dawn: A Beta Test Mod"
-    assert MAIN.supported_version == "1.17.*" and BETA.supported_version == "1.19.*"
-    assert MAIN.party_popularity_effect == "add_relative_party_popularity"
-    assert BETA.party_popularity_effect == "change_relative_party_popularity"
-    assert MAIN.has_radicalization and not BETA.has_radicalization
+    for e in (MAIN, BETA):
+        assert e.supported_version == "1.19.*"
+        assert e.party_popularity_effect == "change_relative_party_popularity"
+        assert not e.has_radicalization
+
+
+def test_md_1x_is_retired_not_selectable():
+    assert LEGACY_MAIN not in EDITIONS
+    assert LEGACY_MAIN.supported_version == "1.17.*"
+    assert LEGACY_MAIN.party_popularity_effect == "add_relative_party_popularity"
+    assert LEGACY_MAIN.has_radicalization
+    assert LEGACY_MAIN.dependency == MAIN.dependency      # same Workshop item, older content
+    assert edition(LEGACY_MAIN.key) is MAIN              # never stored -> falls back to main
 
 
 # ----- detection ---------------------------------------------------------------
@@ -149,26 +162,33 @@ def test_party_popularity_helper_follows_edition():
     item = {"kind": "relative_party_popularity", "enabled": True,
             "params": {"partyIndex": 14, "popularity": 0.05, "outlook": 0}}
     main_lines = build_reward_item_lines(item)
-    assert main_lines[-1] == "add_relative_party_popularity = yes"
+    assert main_lines[-1] == "change_relative_party_popularity = yes"
     with edition_context("beta"):
-        beta_lines = build_reward_item_lines(item)
-    assert beta_lines[-1] == "change_relative_party_popularity = yes"
-    assert beta_lines[:-1] == main_lines[:-1]   # inputs identical
+        assert build_reward_item_lines(item) == main_lines
+    with edition_context(LEGACY_MAIN):
+        legacy_lines = build_reward_item_lines(item)
+    assert legacy_lines[-1] == "add_relative_party_popularity = yes"
+    assert legacy_lines[:-1] == main_lines[:-1]   # inputs identical
 
 
-def test_radicalization_hidden_and_flagged_in_beta():
+def test_radicalization_hidden_and_flagged_since_md_2():
     rad = get_reward_preset("radicalization")
-    assert preset_available(rad, MAIN)
+    assert not preset_available(rad, MAIN)
     assert not preset_available(rad, BETA)
+    assert preset_available(rad, LEGACY_MAIN)
     main_kinds = {p.kind for _g, ps in reward_preset_groups(MAIN) for p in ps}
     beta_kinds = {p.kind for _g, ps in reward_preset_groups(BETA) for p in ps}
-    assert "radicalization" in main_kinds
-    assert main_kinds - beta_kinds == {"radicalization"}
+    legacy_kinds = {p.kind for _g, ps in reward_preset_groups(LEGACY_MAIN) for p in ps}
+    assert main_kinds == beta_kinds
+    assert legacy_kinds - main_kinds == {"radicalization"}
     item = {"kind": "radicalization", "enabled": True, "params": {"amount": -5}}
-    assert validate_reward_item(item) == []
+    issues = validate_reward_item(item)                   # an old project's card
+    assert issues and "not available in Millennium Dawn" in issues[0]
     with edition_context("beta"):
         issues = validate_reward_item(item)
     assert issues and "Millennium Dawn Beta" in issues[0]
+    with edition_context(LEGACY_MAIN):
+        assert validate_reward_item(item) == []
 
 
 def test_structure_accepts_either_editions_helper_name():
@@ -186,11 +206,14 @@ def test_structure_accepts_either_editions_helper_name():
         assert leftover == []
         assert len(items) == 1 and items[0]["kind"] == "relative_party_popularity"
         assert items[0]["params"] == {"partyIndex": "14", "popularity": "0.05", "outlook": "0"}
-        # Re-emits with the ACTIVE edition's name regardless of the source spelling.
-        assert build_reward_item_lines(items[0])[-1] == "add_relative_party_popularity = yes"
+        # Re-emits with the ACTIVE edition's name regardless of the source spelling
+        # - so structuring an MD 1.x reward is how it migrates to 2.0.
+        assert build_reward_item_lines(items[0])[-1] == "change_relative_party_popularity = yes"
         with edition_context("beta"):
             assert build_reward_item_lines(items[0])[-1] == "change_relative_party_popularity = yes"
-    # Under the beta edition the main-spelled source still structures.
+        with edition_context(LEGACY_MAIN):
+            assert build_reward_item_lines(items[0])[-1] == "add_relative_party_popularity = yes"
+    # Under the beta edition the 1.x-spelled source still structures.
     with edition_context("beta"):
         items, leftover = parse_reward_lines(main_raw)
     assert leftover == [] and items[0]["kind"] == "relative_party_popularity"
@@ -202,23 +225,20 @@ def test_export_uses_projects_edition_not_ui_state():
         RewardItem(kind="relative_party_popularity",
                    params={"partyIndex": 1, "popularity": 0.02, "outlook": 0}),
     ])
-    project.mdEdition = "beta"
-    set_active_edition("main")                      # UI shows main…
-    text = "\n".join(f.content for f in export_project_files(project))
-    assert "change_relative_party_popularity = yes" in text   # …export targets beta
-    assert "add_relative_party_popularity" not in text
-    assert active_edition() is MAIN                 # context restored
-
-    project.mdEdition = "main"
-    text = "\n".join(f.content for f in export_project_files(project))
-    assert "add_relative_party_popularity = yes" in text
+    for key in ("main", "beta"):
+        project.mdEdition = key
+        set_active_edition(LEGACY_MAIN)             # whatever the UI context holds...
+        text = "\n".join(f.content for f in export_project_files(project))
+        assert "change_relative_party_popularity = yes" in text   # ...export targets the project
+        assert "add_relative_party_popularity" not in text
+        assert active_edition() is LEGACY_MAIN      # context restored
 
 
 def test_completion_reward_lines_default_main():
     reward = CompletionReward(items=[
         RewardItem(kind="relative_party_popularity",
                    params={"partyIndex": 1, "popularity": 0.02, "outlook": 0})])
-    assert "add_relative_party_popularity = yes" in "\n".join(export_completion_reward_lines(reward))
+    assert "change_relative_party_popularity = yes" in "\n".join(export_completion_reward_lines(reward))
 
 
 # ----- project field ------------------------------------------------------------
@@ -261,15 +281,39 @@ def test_retarget_mod_meta_swaps_only_edition_facts():
     assert out["dependencies"] == ["Millennium Dawn: A Beta Test Mod", "Some Other Mod"]
     assert out["supported_version"] == "1.19.*"
     assert out["name"] == "Chile" and meta["dependencies"][0] == MD_DEPENDENCY  # input untouched
-    # back again
+    # back again (same HOI4 version since MD 2.0)
     back = retarget_mod_meta(out, "main")
     assert back["dependencies"] == [MD_DEPENDENCY, "Some Other Mod"]
-    assert back["supported_version"] == "1.17.*"
+    assert back["supported_version"] == "1.19.*"
     # hand-typed version and custom-only deps are respected; blank version filled
     custom = retarget_mod_meta({"dependencies": ["Only Mine"], "supported_version": "1.18.2"}, "beta")
     assert custom == {"dependencies": ["Only Mine"], "supported_version": "1.18.2"}
     assert retarget_mod_meta({}, "beta")["supported_version"] == "1.19.*"
     assert "dependencies" not in retarget_mod_meta({}, "beta")
+
+
+def test_retarget_mod_meta_lifts_md_1x_version():
+    from core.md_edition import retarget_mod_meta
+    old = {"name": "Chile", "dependencies": [MD_DEPENDENCY], "supported_version": "1.17.*"}
+    assert retarget_mod_meta(old, "main") == {"name": "Chile", "dependencies": [MD_DEPENDENCY],
+                                              "supported_version": "1.19.*"}
+    assert retarget_mod_meta(old, "beta")["dependencies"] == ["Millennium Dawn: A Beta Test Mod"]
+    assert retarget_mod_meta(old, "beta")["supported_version"] == "1.19.*"
+    # custom versions still untouched
+    assert retarget_mod_meta({"supported_version": "1.16.*"}, "main")["supported_version"] == "1.16.*"
+
+
+def test_retarget_descriptor_lifts_md_1x_descriptor(tmp_path):
+    from core.mod_scaffold import retarget_descriptor
+    # A submod scaffolded by an older build for MD 1.x
+    scaffold_submod(str(tmp_path), "md_old", "MD: Old", supported_version="1.17.*")
+    changed = retarget_descriptor(tmp_path / "md_old", "main")
+    assert len(changed) == 2
+    for path in (tmp_path / "md_old" / "descriptor.mod", tmp_path / "md_old.mod"):
+        text = path.read_text(encoding="utf-8")
+        assert 'supported_version="1.19.*"' in text
+        assert f'"{MD_DEPENDENCY}"' in text                      # still the main mod
+    assert retarget_descriptor(tmp_path / "md_old", "main") == []   # idempotent
 
 
 def test_retarget_descriptor_rewrites_both_files(tmp_path):
@@ -301,8 +345,11 @@ def test_retarget_descriptor_keeps_custom_version(tmp_path):
 
 def test_foreign_helpers_per_edition():
     from core.md_edition import foreign_helpers
-    assert set(foreign_helpers(MAIN)) == {"change_relative_party_popularity"}
-    assert set(foreign_helpers(BETA)) == {"add_relative_party_popularity", "modify_radicalization_effect"}
+    md2 = {"add_relative_party_popularity", "modify_radicalization_effect"}
+    assert set(foreign_helpers(MAIN)) == md2
+    assert set(foreign_helpers(BETA)) == md2
+    assert "1.x" in foreign_helpers(MAIN)["add_relative_party_popularity"]
+    assert set(foreign_helpers(LEGACY_MAIN)) == {"change_relative_party_popularity"}
 
 
 def test_validation_flags_other_editions_raw_helpers_and_unknown_tags():
@@ -323,9 +370,15 @@ def test_validation_flags_other_editions_raw_helpers_and_unknown_tags():
     assert "modify_radicalization_effect" in helper_msgs and "add_relative_party_popularity" in helper_msgs
     tag_issues = [i for i in issues if i.code == "focus.reward.tag.unknown"]
     assert len(tag_issues) == 1 and "GRL" in tag_issues[0].message and tag_issues[0].focusId == f.id
+    assert "renamed it to GRN" in tag_issues[0].message
     assert all(i.severity == "warning" for i in issues if "edition" in i.code or "tag.unknown" in i.code)
-    # Under main the raw radicalization line is fine and GRL exists there
+    # Main is MD 2.0 too: same findings
     with edition_context("main"):
+        issues = validate_project(project, known_country_tags=known)
+    assert [i.code for i in issues].count("focus.reward.editionHelper") == 2
+    assert len([i for i in issues if i.code == "focus.reward.tag.unknown"]) == 1
+    # Under MD 1.x rules the raw lines were fine and GRL existed
+    with edition_context(LEGACY_MAIN):
         issues = validate_project(project, known_country_tags={"MEX", "GRL"})
     assert not [i for i in issues if i.code in ("focus.reward.tag.unknown",)]
     assert [i.message for i in issues if i.code == "focus.reward.editionHelper"] == []
@@ -339,9 +392,50 @@ def test_validation_flags_unknown_project_tag_and_condition_tag():
     from core.validation import validate_project
     from core.types import AvailabilityRule
     project = make_sample_project()
-    project.countryTag = "NOR"                                   # renamed NRY in the beta
+    project.countryTag = "NOR"                                   # renamed NRY in MD 2.0
     project.focuses[0].available = AvailabilityRule(items=[RewardItem(kind="in_faction_with", params={"tag": "LOG"})])
     issues = validate_project(project, known_country_tags={"NRY", "MEX"})
-    codes = {i.code for i in issues}
-    assert "project.countryTag.unknown" in codes
-    assert "focus.available.tag.unknown" in codes
+    by_code = {i.code: i for i in issues}
+    assert "project.countryTag.unknown" in by_code
+    assert "calls that country NRY" in by_code["project.countryTag.unknown"].message
+    assert "focus.available.tag.unknown" in by_code               # LOG: dropped, no rename
+    assert "pick it again from the list" in by_code["focus.available.tag.unknown"].message
+
+
+def test_legacy_helper_flagged_in_every_raw_site_exactly_once():
+    """1.x helpers in raw script outside focus rewards / event options (decisions,
+    availability, triggers) used to slip through: the token check skips foreign
+    helpers because the edition check reports them - which only scanned two sites."""
+    from core.validation import validate_project
+    from core.types import AvailabilityRule
+    project = make_sample_project()
+    project.focuses[0].available = AvailabilityRule(rawLines=["add_relative_party_popularity = yes"])
+    issues = validate_project(project, script_vocab=frozenset({"has_country_flag"}))
+    hits = [i for i in issues if "add_relative_party_popularity" in i.message]
+    assert len(hits) == 1
+    assert hits[0].code == "script.editionHelper" and hits[0].focusId == project.focuses[0].id
+    assert "change_relative_party_popularity" in hits[0].message
+
+
+def test_equipment_rename_hint():
+    from core.validation import validate_project
+    project = make_sample_project()
+    project.focuses[0].completionReward = CompletionReward(rawLines=[
+        "add_equipment_to_stockpile = { type = Inf_equipment amount = 500 }"])
+    issues = validate_project(project, equipment_types=frozenset({"infantry_weapons_type"}))
+    eq = [i for i in issues if i.code == "script.equipment.unknown"]
+    assert len(eq) == 1 and "renamed it to infantry_weapons_type" in eq[0].message
+
+
+def test_equipment_respelling_suggested_not_fuzzy():
+    from core.validation import validate_project
+    known = frozenset({"infantry_weapons_1", "infantry_weapons_9", "cnc_equipment_type"})
+    project = make_sample_project()
+    project.focuses[0].completionReward = CompletionReward(rawLines=[
+        "add_equipment_to_stockpile = { type = infantry_weapons1 amount = 500 }",
+        "add_equipment_to_stockpile = { type = infantry_weapons amount = 500 }"])
+    msgs = {i.message for i in validate_project(project, equipment_types=known)
+            if i.code == "script.equipment.unknown"}
+    assert any("infantry_weapons1" in m and "spells it infantry_weapons_1" in m for m in msgs)
+    bare = [m for m in msgs if "type infantry_weapons " in m]
+    assert bare and "pick one from the list" in bare[0]

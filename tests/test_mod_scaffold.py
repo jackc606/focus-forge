@@ -86,7 +86,7 @@ def test_descriptors_content(tmp_path):
     outer = (tmp_path / "md_chile.mod").read_text(encoding="utf-8")
     assert 'name="Millennium Dawn: Chile"' in inner
     assert MD_DEPENDENCY in inner
-    assert 'supported_version="1.17.*"' in inner
+    assert 'supported_version="1.19.*"' in inner    # Millennium Dawn 2.0
     assert "path=" not in inner                      # inner has NO path
     assert 'path="' in outer                          # outer DOES
     assert outer.count("\\") == 0                     # path uses forward slashes

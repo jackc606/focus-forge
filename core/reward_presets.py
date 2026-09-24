@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from .ideologies import IDEOLOGY_TREE
-from .md_edition import active_edition
+from .md_edition import EDITIONS, active_edition
 from .presets import MD_TECH_CATEGORIES
 
 # sub-ideology -> top ideology, for putting a leader's party in power.
@@ -47,11 +47,13 @@ BUILDING_TYPES = [
     "nuclear_reactor",
 ]
 
-# Equipment archetypes verified against MD's common/units/equipment files
+# Equipment archetypes verified against MD 2.0's common/units/equipment files
 # (ids are case-sensitive; the widget stays typable for anything not listed).
+# Only the fallback: with game data configured the picker lists the live
+# archetypes. MD 2.0 renamed Inf_equipment / util_vehicle_equipment.
 EQUIPMENT_TYPES = [
-    "Inf_equipment",
-    "util_vehicle_equipment",
+    "infantry_weapons_type",
+    "util_vehicle_type",
     "artillery_equipment",
     "AA_Equipment",
     "L_AT_Equipment",
@@ -65,7 +67,10 @@ EQUIPMENT_TYPES = [
     "heavy_tank_chassis",
 ]
 
-RESOURCE_TYPES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium", "coal"]
+# MD's common/resources/00_resources.txt replaces the vanilla file: no coal,
+# plus MD's microchips and composites (verified against MD 2.0).
+RESOURCE_TYPES = ["oil", "aluminium", "rubber", "tungsten", "steel", "chromium",
+                  "microchips", "composites"]
 
 # MD internal-faction opinion helpers (common/scripted_effects/
 # 00_internal_faction_effects.txt) — each reads temp_opinion and no-ops unless
@@ -452,8 +457,8 @@ def _b_foreign_influence(p):
 
 
 def _b_relative_party_popularity(p):
-    # The helper was renamed in the MD beta (add_ → change_); its inputs are the
-    # same. Emit whichever the active edition defines.
+    # MD 2.0 renamed the helper (1.x add_ → change_); its inputs are the same.
+    # Emit whichever the active edition defines.
     return [
         f"set_temp_variable = {{ party_index = {_number_value(p, 'partyIndex')} }}",
         f"set_temp_variable = {{ party_popularity_increase = {_number_value(p, 'popularity')} }}",
@@ -773,7 +778,7 @@ _RAW_PRESETS = [
                   RewardParamDef("province", "Province", "string", "",
                                  placeholder="needed for naval base / bunker")], _b_state_building),
     RewardPreset("equipment_stockpile", "State and Material", "Equipment Stockpile", "Adds equipment, optionally with a producer tag.",
-                 [RewardParamDef("type", "Equipment Type", "equipment", "Inf_equipment", required=True, options=EQUIPMENT_TYPES),
+                 [RewardParamDef("type", "Equipment Type", "equipment", "infantry_weapons_type", required=True, options=EQUIPMENT_TYPES),
                   RewardParamDef("amount", "Amount", "number", 1000, required=True),
                   RewardParamDef("producer", "Producer", "country_tag", "")], _b_equipment_stockpile),
     RewardPreset("opinion_modifier", "Diplomacy and War", "Opinion Modifier", "Adds an opinion modifier toward another country (e.g. USA gains +25).",
@@ -888,9 +893,12 @@ def validate_reward_item(item) -> list:
 
     issues: list = []
     if not preset_available(preset):
+        # Only suggest switching editions when one still has the helper (since
+        # MD 2.0 neither has radicalization).
+        fix = ("remove it or switch the project's Millennium Dawn edition in Settings"
+               if any(preset_available(preset, e) for e in EDITIONS) else "remove it")
         issues.append(f"{preset.label} is not available in {active_edition().label} "
-                      f"(its scripted effect does not exist there) — remove it or "
-                      f"switch the project's Millennium Dawn edition in Settings.")
+                      f"(its scripted effect does not exist there) — {fix}.")
     for param in preset.params:
         current = params.get(param.key)
         s = "" if current is None else str(current).strip()

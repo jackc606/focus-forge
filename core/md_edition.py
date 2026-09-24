@@ -2,9 +2,15 @@
 
 Focus Forge reads game data from, and exports script for, ONE Millennium Dawn
 base mod at a time. The two editions ship as separate Steam Workshop items with
-different dependency names, different supported HOI4 versions and a few renamed
-or removed scripted-effect helpers. Everything edition-specific lives here so the
-rest of the app asks ``active_edition()`` instead of hardcoding main-branch facts.
+different dependency names. Everything edition-specific lives here so the rest
+of the app asks ``active_edition()`` instead of hardcoding one release's facts.
+
+Millennium Dawn 2.0 (September 2026) promoted the beta's content to the main
+release: both Workshop items are now the same mod (HOI4 1.19.*, the renamed
+party-popularity helper, no radicalization system) and differ only in their
+descriptor name. The 1.x main release survives here as ``LEGACY_MAIN`` — never
+offered or exported for, but still recognised so raw script, stored modMeta and
+descriptor.mod files written for it get flagged and upgraded.
 
 Two notions, deliberately separate:
 
@@ -35,9 +41,9 @@ class MDEdition:
     supported_version: str   # HOI4 version the edition targets
     # Scripted-effect helper that shifts one party's relative popularity
     # (inputs party_index / party_popularity_increase / temp_outlook_increase
-    # are identical in both editions; only the helper's name changed).
+    # are identical in 1.x and 2.0; only the helper's name changed).
     party_popularity_effect: str
-    # The beta removed the counter-terror radicalization system, so its
+    # MD 2.0 removed the counter-terror radicalization system, so its
     # `modify_radicalization_effect` helper no longer exists.
     has_radicalization: bool
 
@@ -47,9 +53,9 @@ MAIN = MDEdition(
     label="Millennium Dawn",
     workshop_id="2777392649",
     dependency="Millennium Dawn: A Modern Day Mod",
-    supported_version="1.17.*",
-    party_popularity_effect="add_relative_party_popularity",
-    has_radicalization=True,
+    supported_version="1.19.*",
+    party_popularity_effect="change_relative_party_popularity",
+    has_radicalization=False,
 )
 
 BETA = MDEdition(
@@ -62,13 +68,44 @@ BETA = MDEdition(
     has_radicalization=False,
 )
 
+# Millennium Dawn 1.x (main release up to v1.12, HOI4 1.17.*). Retired by MD
+# 2.0: not in EDITIONS, so it is never offered in a combo, stored in a project or
+# exported for. It only feeds the recognisers below (old helper names, old
+# supported_version defaults) so projects built against 1.x migrate cleanly.
+LEGACY_MAIN = MDEdition(
+    key="main_1x",
+    label="Millennium Dawn 1.x",
+    workshop_id="2777392649",
+    dependency="Millennium Dawn: A Modern Day Mod",
+    supported_version="1.17.*",
+    party_popularity_effect="add_relative_party_popularity",
+    has_radicalization=True,
+)
+
 EDITIONS = [MAIN, BETA]
 EDITIONS_BY_KEY = {e.key: e for e in EDITIONS}
 DEFAULT_EDITION = MAIN
+RETIRED_EDITIONS = [LEGACY_MAIN]
+# Everything a project, descriptor or raw script may have been written for.
+KNOWN_EDITIONS = EDITIONS + RETIRED_EDITIONS
 
-# Every helper name any edition uses for the same preset, so importers accept
-# script written for either edition.
-PARTY_POPULARITY_EFFECTS = tuple(e.party_popularity_effect for e in EDITIONS)
+# Every helper name any edition (current or retired) uses for the same preset,
+# so importers accept script written for any of them.
+PARTY_POPULARITY_EFFECTS = tuple(dict.fromkeys(e.party_popularity_effect for e in KNOWN_EDITIONS))
+
+# Equipment archetypes Millennium Dawn 2.0 renamed (1.x name -> 2.0 name).
+# Validation names the replacement when script still uses the old one.
+LEGACY_EQUIPMENT_RENAMES = {
+    "Inf_equipment": "infantry_weapons_type",
+    "util_vehicle_equipment": "util_vehicle_type",
+}
+
+# Country tags Millennium Dawn 2.0 renamed (1.x tag -> 2.0 tag). Tags it simply
+# dropped are caught by the live tag list; these get the new tag in the message.
+LEGACY_TAG_RENAMES = {
+    "GRL": "GRN",   # Greenland
+    "NOR": "NRY",   # Norway
+}
 
 
 def edition(key) -> MDEdition:
@@ -172,13 +209,14 @@ def roots_with_md_root(roots, new_md_root: str) -> list:
 def retarget_mod_meta(meta, new_edition) -> dict:
     """A copy of a project's stored ``modMeta`` re-pointed at ``new_edition``:
     any dependency that names ANOTHER edition's base mod becomes the new one's,
-    and a supported_version that is another edition's default (or blank)
-    becomes the new default. A user's custom dependencies and a hand-typed
-    version are left alone."""
+    and a supported_version that is another edition's default — including the
+    retired MD 1.x ``1.17.*`` — (or blank) becomes the new default. A user's
+    custom dependencies and a hand-typed version are left alone."""
     e = new_edition if isinstance(new_edition, MDEdition) else edition(new_edition)
     out = dict(meta or {})
-    other_deps = {x.dependency for x in EDITIONS if x is not e}
-    other_versions = {x.supported_version for x in EDITIONS if x is not e}
+    other_deps = {x.dependency for x in KNOWN_EDITIONS if x.dependency != e.dependency}
+    other_versions = {x.supported_version for x in KNOWN_EDITIONS
+                      if x.supported_version != e.supported_version}
     deps = list(out.get("dependencies") or [])
     if deps:
         deps = [e.dependency if d in other_deps else d for d in deps]
@@ -197,20 +235,25 @@ def retarget_mod_meta(meta, new_edition) -> dict:
 
 def foreign_helpers(for_edition=None) -> dict:
     """Scripted-effect helper names that do NOT exist in ``for_edition`` because
-    they belong to another edition (or to a system it removed), mapped to a short
-    human hint. Validation uses this to catch raw script carried over from a
-    project that targeted the other edition."""
+    they belong to another edition — current or retired (MD 1.x) — or to a
+    system it removed, mapped to a short human hint. Validation uses this to
+    catch raw script carried over from a project built for another edition."""
     e = for_edition or active_edition()
     out = {}
-    for other in EDITIONS:
+    for other in KNOWN_EDITIONS:
         if other is e:
             continue
-        if other.party_popularity_effect != e.party_popularity_effect:
-            out[other.party_popularity_effect] = (
+        name = other.party_popularity_effect
+        if name != e.party_popularity_effect and name not in out:
+            fix = ("… → Update for Millennium Dawn 2.0 renames every one"
+                   if other in RETIRED_EDITIONS and e not in RETIRED_EDITIONS
+                   else "rename it, or use the Relative Party Popularity preset")
+            out[name] = (
                 f"the {other.label} name; in {e.label} it is {e.party_popularity_effect} "
-                f"(the Relative Party Popularity preset emits the right one)")
+                f"(same inputs — {fix})")
     if not e.has_radicalization:
-        out["modify_radicalization_effect"] = f"{e.label} removed the radicalization system"
+        out["modify_radicalization_effect"] = (
+            f"{e.label} has no radicalization system (Millennium Dawn 2.0 removed it)")
     return out
 
 

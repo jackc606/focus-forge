@@ -270,6 +270,21 @@ def test_unknown_reward_kind_rejected_with_closest():
     assert "list_reward_presets(compact=true)" in msg
 
 
+def test_removed_md_presets_hidden_and_refused():
+    """MD 2.0 removed radicalization: agents neither see the preset nor can add
+    it enabled (it would export a call to a helper that no longer exists)."""
+    kinds = {p["kind"] for p in _ok(_model(), "list_reward_presets", compact=True)}
+    assert "radicalization" not in kinds and "political_power" in kinds
+    assert "radicalization" not in guide.md_specific_reward_kinds()
+    item = {"kind": "radicalization", "params": {"amount": -5}}
+    msg = _err(_model(), "add_focus", x=10, y=10, completionReward={"items": [item]})
+    assert "Radicalization Change is not available in Millennium Dawn" in msg
+    assert '"enabled": false' in msg
+    # an old project's card can still round-trip when disabled
+    _ok(_model(), "add_focus", x=10, y=10,
+        completionReward={"items": [dict(item, enabled=False)]})
+
+
 def test_reward_param_checks():
     m = _model()
     base = dict(x=10, y=10)
@@ -529,6 +544,7 @@ FOCUS_FILTER_SECTARIANISM FOCUS_FILTER_SOCIAL_CONSERVATISM FOCUS_FILTER_COUNTER_
 FOCUS_FILTER_POL_REFORM FOCUS_FILTER_ARMY_XP FOCUS_FILTER_NAVY_XP FOCUS_FILTER_AIR_XP
 FOCUS_FILTER_MIGRANT_CRISIS FOCUS_FILTER_NATO FOCUS_FILTER_EUROPEAN_UNION FOCUS_FILTER_MERCOSUR
 FOCUS_FILTER_UNASUL FOCUS_FILTER_ASEAN FOCUS_FILTER_SPACE
+FOCUS_FILTER_POWER_INFRASTRUCTURE FOCUS_FILTER_RENEWABLE_ENERGY_INFRASTRUCTURE
 """.split()
 
 
@@ -536,7 +552,8 @@ def test_standard_filter_list_matches_both_editions_in_order():
     assert MD_FOCUS_FILTERS == _SPEC_FILTERS
     assert "FOCUS_FILTER_AIR" not in MD_FOCUS_FILTERS
     assert "FOCUS_FILTER_MILITARY" not in MD_FOCUS_FILTERS
-    assert EDITION_ONLY_FOCUS_FILTERS["main"] == ["FOCUS_FILTER_MILITARY"]
+    # MD 2.0: both editions localise the same set (1.x main's MILITARY is gone)
+    assert EDITION_ONLY_FOCUS_FILTERS == {"main": [], "beta": []}
 
 
 def test_validation_warns_on_nonstandard_filter_with_edition_awareness():
@@ -546,8 +563,8 @@ def test_validation_warns_on_nonstandard_filter_with_edition_awareness():
     assert len(issues) == 1 and issues[0].severity == "warning"
     assert "FOCUS_FILTER_AIR is not a standard Millennium Dawn filter" in issues[0].message
     assert "filter button will not appear" in issues[0].message
-    p.focuses[0].filters = ["FOCUS_FILTER_MILITARY"]
-    assert not [i for i in validate_project(p, edition=MAIN) if i.code == "focus.filter.nonstandard"]
+    p.focuses[0].filters = ["FOCUS_FILTER_MILITARY"]          # MD 1.x main only
+    assert [i for i in validate_project(p, edition=MAIN) if i.code == "focus.filter.nonstandard"]
     assert [i for i in validate_project(p, edition=BETA) if i.code == "focus.filter.nonstandard"]
     p.focuses[0].filters = ["political"]
     assert "focus.filter.invalid" in {i.code for i in validate_project(p)}

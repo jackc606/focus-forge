@@ -62,7 +62,7 @@ def normalize_country_tag(tag: str) -> str:
 
 def _country_name(tag: str, roots=None) -> str:
     """Core has no access to the configured game roots; a caller that has them
-    passes ``roots`` to get the live (main/beta) name, otherwise the static
+    passes ``roots`` to get the live name from the configured MD, otherwise the static
     list keeps the historic behaviour."""
     entries = country_tags_for_roots(roots) if roots is not None else MD_COUNTRY_TAGS
     for entry in entries:

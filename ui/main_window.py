@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.base_tree import apply_base_tree_to_project
-from core.md_edition import edition as md_edition, set_active_edition
+from core.md_edition import edition as md_edition, retarget_mod_meta, set_active_edition
 from core.reward_script import structure_all_rewards
 from core.focus_import import find_focus_trees, import_focus_tree
 from core.mod_scaffold import (
@@ -228,7 +228,7 @@ class MainWindow(QMainWindow):
         # In-game icon provider: seed roots on first run, repaint when they change.
         provider().changed.connect(self._on_icons_changed)
         provider().ensure_default_roots()
-        # Country-tag lists follow the configured roots (MD main vs beta differ);
+        # Country-tag lists follow the configured roots (tags differ between MD versions);
         # also lets the AI bridge serve live tags before any picker exists.
         install_country_tag_hooks()
         # Warm the sprite index and the game-data providers (tech, states,
@@ -353,6 +353,11 @@ class MainWindow(QMainWindow):
             tooltip="Convert every focus's raw reward AND availability script "
                     "into editable cards, where fully recognized. One undo "
                     "restores everything.")
+        md2_act = act(
+            "Update for Millennium Dawn 2.0…", self._migrate_to_md2,
+            tooltip="Rename what Millennium Dawn 2.0 renamed, everywhere in this "
+                    "project: the party-popularity helper, two equipment types, "
+                    "NOR/GRL. Shows what it will change first; one undo restores it.")
         self._bridge_action = QAction("AI Bridge", self)
         self._bridge_action.setCheckable(True)
         self._bridge_action.setToolTip(
@@ -366,7 +371,7 @@ class MainWindow(QMainWindow):
                                    "lines about it, mapped back to your focuses.")
         more_menu = QMenu(self)
         for a in (import_act, save_as_act, export_as_act, structure_act,
-                  shortcuts_act):
+                  md2_act, shortcuts_act):
             more_menu.addAction(a)
         more_menu.addSeparator()
         more_menu.addAction(scan_log_act)
@@ -919,10 +924,12 @@ class MainWindow(QMainWindow):
                     f"Updated {len(changed)} descriptor file(s) to depend on {ed.dependency} "
                     f"({ed.supported_version}).")
             return True
-        meta = self._model.project.modMeta or {}
+        target_ed = md_edition(getattr(self._model.project, "mdEdition", "main"))
+        # Re-pointed at the target edition: modMeta stored by an older build may
+        # still name the other edition's base mod or MD 1.x's 1.17.* version.
+        meta = retarget_mod_meta(self._model.project.modMeta or {}, target_ed)
         name = meta.get("name") or self._model.project.projectName or os.path.basename(target)
         tags = meta.get("tags") or list(DEFAULT_TAGS)
-        target_ed = md_edition(getattr(self._model.project, "mdEdition", "main"))
         deps = meta.get("dependencies")
         if deps is None:
             deps = [target_ed.dependency]
@@ -939,6 +946,46 @@ class MainWindow(QMainWindow):
             provider().set_roots(roots + [target])
         self._model.status_message.emit(f"Created mod folder {target}")
         return True
+
+    def _migrate_to_md2(self) -> None:
+        """Rename Millennium Dawn 1.x tokens to their 2.0 names project-wide
+        (core.md_migrate): preview the counts, confirm, apply as one undo step."""
+        from core.md_edition import LEGACY_TAG_RENAMES
+        from core.md_migrate import describe_counts, migrate_project, own_legacy_tags
+        self._flush_focused_editor()
+        ed = md_edition(getattr(self._model.project, "mdEdition", "main"))
+        title = "Update for Millennium Dawn 2.0"
+        own = sorted(own_legacy_tags(self._model.project))
+        own_note = "".join(
+            f"\n\n{t} is this project's own tag or prefix, so it is left as is — "
+            f"Millennium Dawn 2.0 calls that country {LEGACY_TAG_RENAMES[t]}. Change the "
+            f"project's country tag and prefix yourself if you want to follow it."
+            for t in own)
+        preview = migrate_project(self._model.project, ed, dry_run=True)
+        if not preview:
+            QMessageBox.information(
+                self, title,
+                "Nothing to rename — this project doesn't use any of the names "
+                "Millennium Dawn 2.0 changed.\n\nRemoved things (the radicalization "
+                "system, dropped country tags, deleted helpers) have no 2.0 "
+                "equivalent; the Validation tab lists any that are left." + own_note)
+            return
+        lines = "\n".join(f"  • {ln}" for ln in describe_counts(preview, ed))
+        ans = QMessageBox.question(
+            self, title,
+            f"Rename these Millennium Dawn 1.x names in raw script and reward/"
+            f"condition cards?\n\n{lines}\n\nEach new name takes the same inputs "
+            f"as the old one. Undo restores everything.{own_note}",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
+        if ans != QMessageBox.Yes:
+            return
+        with self._model.batch():
+            done = migrate_project(self._model.project, ed)
+        from core.applog import logger
+        logger().info("md2-migrate: %s", dict(done))
+        total = sum(done.values())
+        self._model.status_message.emit(
+            f"Updated {total} Millennium Dawn 1.x name{'s' if total != 1 else ''} to 2.0.")
 
     def _structure_all_rewards(self) -> None:
         """Project-wide raw-script conversion (rewards AND availability/bypass

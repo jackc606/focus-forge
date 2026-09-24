@@ -11,8 +11,13 @@ CHANGELOG = [
     {
         "version": "0.4.5",
         "date": "unreleased",
-        "title": "Generated icons work in hosted mode",
+        "title": "Millennium Dawn 2.0 support",
         "changes": [
+            "Millennium Dawn 2.0 is out, and the main mod now runs what the beta ran: HOI4 1.19, change_relative_party_popularity, no radicalization system. Focus Forge now targets 2.0 for main-mod projects too. Relative Party Popularity cards export the new helper, the Radicalization card is gone (Validation flags any you still have), and new submods declare supported_version 1.19.*.",
+            "New: … → Update for Millennium Dawn 2.0 migrates a 1.x project in one undoable step. It lists what it will change, then renames everything with a direct 2.0 equivalent across raw script and cards: add_relative_party_popularity → change_relative_party_popularity, Inf_equipment → infantry_weapons_type, util_vehicle_equipment → util_vehicle_type, NOR → NRY, GRL → GRN.",
+            "Validation points at everything else 2.0 changed: 1.x helpers anywhere in raw script (now including decisions, triggers and availability), the 2.0 spelling of re-tiered equipment (infantry_weapons1 → infantry_weapons_1), and the new tag for a renamed one. The next export raises an existing mod's supported_version from 1.17.* to 1.19.*. MD 2.0 also renamed its focus-tree files (05_usa.txt, …); if your tree replaces MD's, the Export tab's Fix points it at the new file.",
+            "Built-in lists re-checked against MD 2.0: the resource picker drops coal (MD has none) and gains microchips and composites; the fallback equipment and country lists use 2.0's names; the Power Infrastructure and Renewable Energy Infrastructure focus filters are offered, and FOCUS_FILTER_MILITARY, which 2.0 no longer localises, is flagged.",
+            "Help → \"My submod was made for Millennium Dawn 1.x\" lists what to change.",
             "Icon generation now has its own \"OpenRouter key for icons\" in Assistant settings, independent of the chat provider: it works in hosted mode and with any own-key endpoint (xAI, a local server), billing about 3 cents per icon to that key. Leave it empty to reuse your own OpenRouter key.",
         ],
     },

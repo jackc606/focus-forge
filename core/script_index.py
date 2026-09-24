@@ -228,8 +228,8 @@ def _archetypes_cached(roots_key: tuple) -> tuple:
 
 def build_equipment_archetypes(roots) -> list:
     """Equipment ARCHETYPE names (``is_archetype = yes``) — what add_equipment_to_
-    stockpile / production pickers should offer; the edition renames these (main
-    ``Inf_equipment`` vs beta ``infantry_weapons_type``)."""
+    stockpile / production pickers should offer; MD versions rename these (1.x
+    ``Inf_equipment`` vs 2.0 ``infantry_weapons_type``)."""
     return list(_archetypes_cached(tuple(roots or ())))
 
 

@@ -1,6 +1,6 @@
 """Searchable country tag picker — scrollable popup over the live MD tag list.
 
-Items come from the configured game roots (MD main vs beta differ), so the
+Items come from the configured game roots (tags differ between MD versions), so the
 list is rebuilt when ``roots_changed`` fires, keeping the chosen tag."""
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class CountryTagPicker(QLineEdit):
         return [f"{e.tag} - {e.name}" for e in self._entries]
 
     def _refresh_entries(self) -> None:
-        """Roots changed (e.g. user switched MD main -> beta): rebuild the
+        """Roots changed (e.g. user switched MD edition): rebuild the
         completer items but keep whatever tag is currently chosen — a tag the
         new list lacks simply shows bare, exactly like a free-form entry."""
         current = self.current_tag()

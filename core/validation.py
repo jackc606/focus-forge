@@ -7,7 +7,9 @@ from typing import Iterable
 from .availability_presets import get_availability_preset, validate_availability_item
 from .exporters import _FILENAME_BAD_RE, sanitize_filename_component
 from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
-from .md_edition import active_edition, foreign_helpers
+from .md_edition import (
+    LEGACY_EQUIPMENT_RENAMES, LEGACY_TAG_RENAMES, active_edition, foreign_helpers,
+)
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .presets import EDITION_ONLY_FOCUS_FILTERS, FOCUS_FILTER_PATTERN, MD_FOCUS_FILTERS
 from .reward_presets import (
@@ -225,9 +227,46 @@ def _raw_script_sites(project: FocusForgeProject):
             lines = getattr(rule, "rawLines", None) if rule is not None else None
             if lines:
                 yield lines, f"decision {d.id} {attr}", None
+        if getattr(d, "rawLines", None):
+            yield d.rawLines, f"decision {d.id} extra fields", None
+    for c in getattr(project, "decisionCategories", None) or []:
+        lines = getattr(c.visible, "rawLines", None) if c.visible is not None else None
+        if lines:
+            yield lines, f"decision category {c.id} visible", None
+        if getattr(c, "rawLines", None):
+            yield c.rawLines, f"decision category {c.id} extra fields", None
     for s in getattr(project, "shortcuts", None) or []:
         if getattr(s, "triggerRawLines", None):
             yield s.triggerRawLines, f"shortcut {s.label or s.target} trigger", None
+
+
+def _tag_rename_hint(tag: str, known, project_tag: bool = False) -> str:
+    """' — Millennium Dawn 2.0 renamed it to X' when ``tag`` is a 1.x tag whose
+    2.0 replacement exists in ``known``; else ''. The project's own tag is not
+    something the migration action touches (core.md_migrate.own_legacy_tags),
+    so it gets different advice."""
+    new = LEGACY_TAG_RENAMES.get(tag)
+    if not new or (known and new not in known):
+        return ""
+    if project_tag:
+        return (f" — Millennium Dawn 2.0 calls that country {new}; change the project's "
+                f"country tag (and prefix) to {new} to follow it")
+    return f" — Millennium Dawn 2.0 renamed it to {new} (… → Update for Millennium Dawn 2.0)"
+
+
+def _equipment_hint(name: str, known) -> str:
+    new = LEGACY_EQUIPMENT_RENAMES.get(name)
+    if new and (not known or new in known):
+        return f"Millennium Dawn 2.0 renamed it to {new} (… → Update for Millennium Dawn 2.0)"
+    # MD 2.0 also respelled equipment ids (1.x infantry_weapons1 → 2.0
+    # infantry_weapons_1, …). Not provably the same item, so suggest rather
+    # than rename — and only an exact match once underscores/case are ignored
+    # (fuzzy matching offers infantry_weapons_9 for infantry_weapons).
+    squash = name.replace("_", "").lower()
+    same = sorted(k for k in (known or ()) if k.replace("_", "").lower() == squash)
+    if same:
+        return f"Millennium Dawn 2.0 spells it {same[0]}; check it is the item you meant"
+    return "pick one from the list"
 
 
 def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=None,
@@ -275,7 +314,7 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
         (_warn_focus if focus_id else _warn)(issues, "script.equipment.unknown", *(
             [focus_id] if focus_id else []),
             f"{where}: equipment type {name} is not defined in {e.label} "
-            f"(common/units/equipment) — pick one from the list.")
+            f"(common/units/equipment) — {_equipment_hint(name, equipment_types)}.")
 
     for lines, where, focus_id in _raw_script_sites(project):
         found = scan_raw_script(lines)
@@ -286,7 +325,7 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                 (_warn_focus if focus_id else _warn)(issues, "script.unknownToken", *(
                     [focus_id] if focus_id else []),
                     f"{where}: `{key}` is not an effect or trigger used anywhere in the game or "
-                    f"{e.label} — check the spelling, or it may belong to the other MD edition.")
+                    f"{e.label} — check the spelling, or it may come from an older Millennium Dawn.")
         for sid in found["states"]:
             report_state(sid, where, focus_id, claim_only=sid in found["claim_only"])
         if known_tags:
@@ -294,7 +333,8 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                 if t not in known_tags:
                     (_warn_focus if focus_id else _warn)(issues, "script.tag.unknown", *(
                         [focus_id] if focus_id else []),
-                        f"{where}: country tag {t} does not exist in {e.label}.")
+                        f"{where}: country tag {t} does not exist in {e.label}"
+                        f"{_tag_rename_hint(t, known_tags)}.")
         for eq in found["equipment"]:
             report_equipment(eq, where, focus_id)
 
@@ -359,18 +399,23 @@ def _validate_edition(project: FocusForgeProject, issues: list, edition=None,
     """Things that break when a project targets a different Millennium Dawn
     edition than it was written for:
 
-    * raw script calling a helper that only exists in the OTHER edition (the
+    * raw script calling a helper that only exists in ANOTHER edition —
+      including Millennium Dawn 1.x, whose helpers 2.0 renamed or removed (the
       structured presets adapt by themselves; raw lines are exported verbatim);
-    * country tags that the active edition does not define (the beta renamed
-      about fifteen) — checked when the live tag list is available."""
+    * country tags that the active edition does not define (MD 2.0 added,
+      dropped and renamed several) — checked when the live tag list is
+      available."""
     e = edition or active_edition()
     foreign = foreign_helpers(e)
     pat = re.compile(r"\b(" + "|".join(re.escape(h) for h in foreign) + r")\b") if foreign else None
 
+    scanned: set = set()
+
     def scan(lines, code, where, focus_id=None):
-        if not pat:
+        if not pat or not lines:
             return
-        hits = sorted({m.group(1) for ln in (lines or []) for m in pat.finditer(ln)})
+        scanned.add(id(lines))
+        hits = sorted({m.group(1) for ln in lines for m in pat.finditer(ln)})
         for h in hits:
             issues.append(ValidationIssue(
                 severity="warning", code=code, focusId=focus_id,
@@ -384,6 +429,12 @@ def _validate_edition(project: FocusForgeProject, issues: list, edition=None,
         for i, opt in enumerate(event.options or [], start=1):
             scan(opt.effectRawLines, "event.option.editionHelper",
                  f"event {event.id} option {i} effects")
+    # Every other raw site (availability, triggers, decisions, …). The script-
+    # token check skips these helpers because they are reported here, so a site
+    # missing from this pass would let them through silently.
+    for lines, where, focus_id in _raw_script_sites(project):
+        if id(lines) not in scanned:
+            scan(lines, "script.editionHelper", where, focus_id)
 
     if known_country_tags is None:
         return
@@ -394,32 +445,51 @@ def _validate_edition(project: FocusForgeProject, issues: list, edition=None,
     def tag_params(preset):
         return [p.key for p in (preset.params if preset else []) if getattr(p, "type", "") == "country_tag"]
 
-    def check_tag(value, code, where, focus_id=None):
+    def check_tag(value, code, where, focus_id=None, project_tag=False):
         v = (value or "").strip()
         if v and _TAG_RE.match(v) and v not in known:
+            hint = (_tag_rename_hint(v, known, project_tag)
+                    or " (tags differ between MD versions — pick it again from the list)")
             issues.append(ValidationIssue(
                 severity="warning", code=code, focusId=focus_id,
-                message=f"{where}: country tag {v} does not exist in {e.label} "
-                        f"(tags differ between MD editions — pick it again from the list)."))
+                message=f"{where}: country tag {v} does not exist in {e.label}{hint}."))
 
-    check_tag(project.countryTag, "project.countryTag.unknown", "Project country tag")
+    check_tag(project.countryTag, "project.countryTag.unknown", "Project country tag",
+              project_tag=True)
+
+    def check_items(items, lookup, code, where, focus_id=None, noun="condition"):
+        for index, item in enumerate(items or [], start=1):
+            for key in tag_params(lookup(item.kind)):
+                check_tag((item.params or {}).get(key), code, f"{where} {noun} {index}", focus_id)
+
+    def rule_items(rule):
+        return (rule.items or []) if rule is not None else []
+
     for focus in project.focuses:
         items = (focus.completionReward.items or []) if focus.completionReward else []
-        for index, item in enumerate(items, start=1):
-            for key in tag_params(get_reward_preset(item.kind)):
-                check_tag((item.params or {}).get(key), "focus.reward.tag.unknown",
-                          f"{focus.id} reward {index}", focus.id)
+        check_items(items, get_reward_preset, "focus.reward.tag.unknown", focus.id, focus.id,
+                    noun="reward")
         for label, rule in (("availability", focus.available), ("bypass", getattr(focus, "bypass", None))):
-            for index, item in enumerate((rule.items or []) if rule else [], start=1):
-                for key in tag_params(get_availability_preset(item.kind)):
-                    check_tag((item.params or {}).get(key), "focus.available.tag.unknown",
-                              f"{focus.id} {label} condition {index}", focus.id)
+            check_items(rule_items(rule), get_availability_preset, "focus.available.tag.unknown",
+                        f"{focus.id} {label}", focus.id)
+        for i, mod in enumerate(getattr(focus, "aiModifiers", None) or [], start=1):
+            check_items(rule_items(mod.trigger), get_availability_preset, "focus.ai.tag.unknown",
+                        f"{focus.id} AI modifier {i}", focus.id)
     for event in project.events:
+        check_items(rule_items(event.trigger), get_availability_preset, "event.trigger.tag.unknown",
+                    f"event {event.id} trigger")
         for i, opt in enumerate(event.options or [], start=1):
-            for index, item in enumerate(opt.items or [], start=1):
-                for key in tag_params(get_reward_preset(item.kind)):
-                    check_tag((item.params or {}).get(key), "event.option.tag.unknown",
-                              f"event {event.id} option {i} effect {index}")
+            check_items(opt.items, get_reward_preset, "event.option.tag.unknown",
+                        f"event {event.id} option {i}", noun="effect")
+            check_items(rule_items(opt.trigger), get_availability_preset,
+                        "event.option.tag.unknown", f"event {event.id} option {i} trigger")
+    for d in getattr(project, "decisions", None) or []:
+        for attr in ("visible", "available"):
+            check_items(rule_items(getattr(d, attr, None)), get_availability_preset,
+                        "decision.tag.unknown", f"decision {d.id} {attr}")
+        for attr in ("completeEffect", "removeEffect", "timeoutEffect"):
+            check_items(rule_items(getattr(d, attr, None)), get_reward_preset,
+                        "decision.tag.unknown", f"decision {d.id} {attr}", noun="effect")
 
 
 def _validate_shortcuts(project: FocusForgeProject, focus_ids: set, issues: list) -> None:

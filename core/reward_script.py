@@ -262,7 +262,7 @@ def parse_reward_lines(lines):
                     i += 4
                     matched = True
         # Relative party popularity: 3 temp vars + the helper, whose name differs
-        # between MD editions (add_… in main, change_… in the beta) — both parse.
+        # between MD versions (add_… in 1.x, change_… since 2.0) — both parse.
         if joined.startswith("set_temp_variable = { party_index") and i + 3 < len(stmts):
             group = stmts[i:i + 4]
             g = [_joined(s) for s in group]

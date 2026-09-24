@@ -82,8 +82,8 @@ class NewSubmodDialog(QDialog):
         idx = self._edition.findData(current.key if current else "main")
         self._edition.setCurrentIndex(idx if idx >= 0 else 0)
         self._edition.setToolTip(
-            "The beta is a separate Workshop mod (different dependency name, newer "
-            "game version, some renamed scripted effects). Pick the one you play.")
+            "Main and beta are separate Workshop mods with different dependency "
+            "names (same content since Millennium Dawn 2.0). Pick the one you play.")
         form.addRow("Millennium Dawn edition", self._edition)
 
         self._supported_edited = False

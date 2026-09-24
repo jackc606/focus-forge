@@ -7,7 +7,7 @@ from ui.country_tag_picker import clean_country_tag_text
 def test_usa_country_tag_uses_full_display_name() -> None:
     usa = next(entry for entry in MD_COUNTRY_TAGS if entry.tag == "USA")
 
-    assert usa.name == "United States of America"
+    assert usa.name == "United States"          # MD 2.0's own English name
 
 
 def test_country_tag_picker_display_text_cleans_to_tag() -> None:

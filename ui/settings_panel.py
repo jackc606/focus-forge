@@ -169,9 +169,10 @@ class SettingsPanel(QWidget):
         v.addWidget(section_header("Millennium Dawn Edition"))
         v.addWidget(hint(
             "Which Millennium Dawn this project is for. The beta is a separate "
-            "Workshop mod with a different dependency name, a newer game version "
-            "and a few renamed scripted effects — Focus Forge exports the right "
-            "ones and reads game data (icons, parties, techs) from that edition."))
+            "Workshop mod with its own dependency name (same content as the main "
+            "mod since Millennium Dawn 2.0) — Focus Forge writes the matching "
+            "descriptor and reads game data (icons, parties, techs) from that "
+            "edition's folder."))
         ed_form = QFormLayout()
         ed_form.setSpacing(T.SPACE_SM)
         v.addLayout(ed_form)

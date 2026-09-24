@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 
-# Focus search filters localised in BOTH Millennium Dawn editions (verified
-# 2026-09-05 against workshop items 2777392649 main and 3374271790 beta).
+# Focus search filters Millennium Dawn localises (verified 2026-09-24 against
+# MD 2.0 — workshop items 2777392649 main and 3374271790 beta, identical content).
 # Order matters: the inspector's chip selector shows them in this order, so
 # the common ones come first. Country-specific FOCUS_FILTER_<TAG>_* filters
 # are real too but must be defined by the mod itself — the validator flags
@@ -55,13 +55,16 @@ MD_FOCUS_FILTERS = [
     "FOCUS_FILTER_UNASUL",
     "FOCUS_FILTER_ASEAN",
     "FOCUS_FILTER_SPACE",
+    "FOCUS_FILTER_POWER_INFRASTRUCTURE",
+    "FOCUS_FILTER_RENEWABLE_ENERGY_INFRASTRUCTURE",
 ]
 
 # Filters only ONE edition localises; keyed by edition key. Kept out of the
 # shared list so the chip selector never offers a filter the other edition
-# lacks, but the validator stays quiet about them on the right edition.
+# lacks, but the validator stays quiet about them on the right edition. Empty
+# since MD 2.0 (1.x main's FOCUS_FILTER_MILITARY is no longer localised).
 EDITION_ONLY_FOCUS_FILTERS = {
-    "main": ["FOCUS_FILTER_MILITARY"],
+    "main": [],
     "beta": [],
 }
 

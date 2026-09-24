@@ -10,7 +10,7 @@ filters are derived from the registries for the same reason.
 from __future__ import annotations
 
 from .presets import MD_FOCUS_FILTERS
-from .reward_presets import REWARD_PRESETS
+from .reward_presets import REWARD_PRESETS, preset_available
 from .validation import MIN_SAME_ROW_DX
 
 # Groups whose presets wrap Millennium Dawn scripted effects (as opposed to
@@ -22,7 +22,8 @@ def md_specific_reward_kinds() -> list:
     """Kinds of the reward presets that emit MD scripted-effect helpers — the
     ones a model is most tempted to write as rawLines even though a preset
     exists."""
-    return [p.kind for p in REWARD_PRESETS if p.group.startswith(_MD_GROUP_PREFIX)]
+    return [p.kind for p in REWARD_PRESETS
+            if p.group.startswith(_MD_GROUP_PREFIX) and preset_available(p)]
 
 
 # ----- conventions shared with reference_data ----------------------------------

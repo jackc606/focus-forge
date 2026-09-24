@@ -42,6 +42,8 @@ from .reward_presets import (
     REWARD_PRESETS,
     WARGOAL_TYPES,
     get_reward_preset,
+    preset_available,
+    reward_presets,
 )
 from .serialization import (
     _ai_modifier_from_dict,
@@ -309,6 +311,12 @@ def _check_items(items, label: str, registry: str) -> None:
             raise ValueError(f"Unknown {noun} preset '{kind}'. Closest: "
                              f"{', '.join(close) if close else 'none'}. "
                              f"Call {list_op}(compact=true) for the full list.")
+        if (registry == "reward" and item.get("enabled", True) is not False
+                and not preset_available(preset)):
+            from .md_edition import active_edition
+            raise ValueError(f"{where} ({kind}): {preset.label} is not available in "
+                             f"{active_edition().label} (its scripted effect no longer exists) "
+                             f"— remove the item, or disable it with \"enabled\": false.")
         params = item.get("params")
         if params is None:
             params = {}
@@ -649,7 +657,8 @@ def _list_presets(presets, args, noun: str):
 
 
 def _op_list_reward_presets(model, args):
-    return _list_presets(REWARD_PRESETS, args, "reward")
+    # Only what the active (= open project's) Millennium Dawn edition defines.
+    return _list_presets(reward_presets(), args, "reward")
 
 
 def _op_list_condition_presets(model, args):
@@ -689,8 +698,8 @@ def _reference_roots():
 
 
 def _reference_equipment_types() -> list:
-    """Equipment archetypes of the configured MD edition (they differ between
-    main and beta); the static list only when no roots are configured."""
+    """Equipment archetypes of the configured MD edition (MD versions rename
+    them); the static list only when no roots are configured."""
     roots = _reference_roots()
     if roots:
         from .script_index import build_equipment_archetypes
@@ -1114,6 +1123,16 @@ def _op_export(model, args):
     if args.get("dir"):
         out["count"] = model.export_to_directory(Path(args["dir"]))
         out["written_to"] = str(args["dir"])
+        # Same as the GUI's Export to Mod: an existing descriptor still naming
+        # the other edition (or MD 1.x's 1.17.*) is re-pointed at the target.
+        if (Path(args["dir"]) / "descriptor.mod").is_file():
+            from .mod_scaffold import retarget_descriptor
+            try:
+                changed = retarget_descriptor(args["dir"], getattr(model.project, "mdEdition", "main"))
+            except OSError:
+                changed = []
+            if changed:
+                out["descriptors_updated"] = changed
     return out
 
 

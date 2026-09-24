@@ -3,7 +3,8 @@
 MD's ``party_pop_array`` and ``party_index`` use a single, GLOBAL ordering of
 24 parties (sub-ideologies) — the same index means the same party in every
 country (e.g. index 1 is always "Western Conservatives"). The
-``add_relative_party_popularity`` helper picks the party to shift by this index.
+``change_relative_party_popularity`` helper (``add_…`` in MD 1.x) picks the
+party to shift by this index.
 
 Source: MD ``common/scripted_effects/00_subideology_scripted_effects.txt``
 (the per-party ``# comment`` labels) + ``attract_voters_pos.*`` localisation for

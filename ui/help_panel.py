@@ -287,16 +287,33 @@ HELP_TOPICS = [
          "bites hand-renamed events. Validation flags it either way. Also check "
          "the focus that fires it is actually completable!"),
         ("I play the Millennium Dawn BETA, not the main mod",
-         "Focus Forge supports both. They are separate Workshop mods: the beta "
-         "has a different dependency name, targets a newer HOI4 version, and "
-         "renamed or removed a few scripted effects.\n\n"
+         "Focus Forge supports both. Since Millennium Dawn 2.0 they run the same "
+         "content (HOI4 1.19), but they are still separate Workshop mods with "
+         "different names — a submod has to depend on the one you actually "
+         "subscribe to.\n\n"
          "Pick the edition when you create a submod (New Submod → Millennium "
          "Dawn edition), or change it any time in Settings → Millennium Dawn "
          "Edition. Focus Forge then reads icons, parties and techs from that "
-         "edition's folder and writes the matching descriptor and effects on "
-         "export.\n\n"
-         "A mod built for one edition won't load cleanly under the other — "
-         "keep separate submods if you play both."),
+         "edition's folder and writes the matching descriptor on export."),
+        ("My submod was made for Millennium Dawn 1.x",
+         "Millennium Dawn 2.0 renamed or removed some things older submods use. "
+         "Start with … → Update for Millennium Dawn 2.0: it shows, then renames "
+         "in one undoable step, everything with a direct 2.0 equivalent:\n\n"
+         "• add_relative_party_popularity → change_relative_party_popularity "
+         "(same inputs).\n"
+         "• Equipment Inf_equipment → infantry_weapons_type, "
+         "util_vehicle_equipment → util_vehicle_type.\n"
+         "• Country tags NOR → NRY and GRL → GRN.\n\n"
+         "Then check the Validation tab for what has no equivalent: the "
+         "radicalization system is gone (delete those rewards), a few dozen "
+         "minor tags were dropped, some equipment was re-tiered (e.g. "
+         "infantry_weapons1 is now infantry_weapons_1 — Validation suggests "
+         "the 2.0 spelling), and helpers MD deleted show as unknown.\n\n"
+         "MD's focus-tree files are now named like 05_usa.txt. If your tree "
+         "replaces MD's, the Export tab offers a Fix so it overwrites the new "
+         "file instead of loading next to it. Reward cards update by "
+         "themselves, and the next export raises the mod's supported_version "
+         "from 1.17.* to 1.19.*."),
         ("Millennium Dawn has no tree for my country",
          "Lots of countries (Mexico, Morocco, Portugal…) just use MD's generic "
          "tree.\n\n"

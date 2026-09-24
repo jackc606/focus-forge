@@ -27,10 +27,12 @@ def retarget_descriptor(mod_dir, edition_key: str) -> list:
     for this edition's. Custom dependencies and hand-typed versions are untouched.
     Returns the paths that were rewritten (empty = nothing referenced another
     edition). Export calls this so a project converted in Settings does not keep
-    shipping a descriptor for the edition it no longer targets."""
-    from .md_edition import EDITIONS, edition as _edition
+    shipping a descriptor for the edition it no longer targets — and so a submod
+    first exported for Millennium Dawn 1.x (``1.17.*``) is lifted to 2.0's
+    supported version instead of showing as outdated in the launcher."""
+    from .md_edition import KNOWN_EDITIONS, edition as _edition
     e = _edition(edition_key)
-    others = [x for x in EDITIONS if x is not e]
+    others = [x for x in KNOWN_EDITIONS if x is not e]
     mod_dir = Path(mod_dir)
     targets = [mod_dir / "descriptor.mod", mod_dir.parent / f"{mod_dir.name}.mod"]
     changed = []
@@ -55,7 +57,7 @@ def retarget_descriptor(mod_dir, edition_key: str) -> list:
 def scaffold_defaults(edition_key: str = "main") -> dict:
     """``{"dependencies": [...], "supported_version": "..."}`` for the Millennium
     Dawn edition a submod targets (the beta is a separate Workshop item with its
-    own dependency name and a newer supported HOI4 version)."""
+    own dependency name)."""
     e = md_edition(edition_key)
     return {"dependencies": [e.dependency], "supported_version": e.supported_version}
 
