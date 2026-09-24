@@ -10,7 +10,7 @@ from __future__ import annotations
 CHANGELOG = [
     {
         "version": "0.4.5",
-        "date": "unreleased",
+        "date": "2026-09-24",
         "title": "Millennium Dawn 2.0 support",
         "changes": [
             "Millennium Dawn 2.0 is out, and the main mod now runs what the beta ran: HOI4 1.19, change_relative_party_popularity, no radicalization system. Focus Forge now targets 2.0 for main-mod projects too. Relative Party Popularity cards export the new helper, the Radicalization card is gone (Validation flags any you still have), and new submods declare supported_version 1.19.*.",
