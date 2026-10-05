@@ -72,12 +72,16 @@ def test_state_building_province_param():
 
 
 def test_legacy_state_ideology_normalizes_to_communist_state():
-    assert "Communist-State" in IDEOLOGY_TREE["communism"]
+    # MD 2.0.2 id; both earlier spellings ("State", "Communist-State") map forward.
+    assert "communist_state" in IDEOLOGY_TREE["communism"]
     assert "State" not in IDEOLOGY_TREE["communism"]
-    out = _build("promote_leader",
-                 leader=encode_leader("Test Person", ideology="State"))
-    assert "ideology = Communist-State" in out
-    assert "ruling_party = communism" in out  # set_politics no longer dropped
+    assert "Communist-State" not in IDEOLOGY_TREE["communism"]
+    for old in ("State", "Communist-State"):
+        out = _build("promote_leader", leader=encode_leader(
+            "Test Person", ideology=old, traits=["emerging_Communist-State"]))
+        assert "ideology = communist_state" in out
+        assert "traits = { emerging_communist_state }" in out
+        assert "ruling_party = communism" in out  # set_politics no longer dropped
 
 
 # ----- semantic fixes -----

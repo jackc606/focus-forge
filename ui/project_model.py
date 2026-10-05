@@ -141,7 +141,8 @@ class ProjectModel(QObject):
                                 state_index=self._script_index("state_index_cached"),
                                 equipment_types=self._script_index("equipment_types_cached"),
                                 tree_index=self._tree_index(),
-                                loc_key_exists=self._loc_key_exists())
+                                loc_key_exists=self._loc_key_exists(),
+                                tech_categories=self._script_index("tech_categories_cached"))
 
     def _tree_index(self):
         """The base-tree index (core.tree_index) for the configured roots, or

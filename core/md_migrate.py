@@ -7,7 +7,10 @@ thing — so it is safe to apply mechanically:
 
 * the relative party-popularity helper (``add_…`` → ``change_…``);
 * the infantry / utility-vehicle equipment archetypes;
-* two country tags (Norway, Greenland).
+* two country tags (Norway, Greenland);
+* the doctrine cost-reduction categories (CAT_land_doctrine → land_doctrine, …);
+* MD 2.0.2's sub-ideology rename (Communist-State → communist_state, also
+  inside derived tokens like emerging_Communist-State / TAG.Communist-State_desc).
 
 What 2.0 *removed* (the radicalization system, dropped tags, helpers MD deleted)
 has no replacement and is left for the user — validation points at each one.
@@ -21,6 +24,8 @@ import re
 from collections import Counter
 
 from .availability_presets import get_availability_preset
+from .ideologies import rename_legacy_ideology_tokens
+from .presets import LEGACY_DOCTRINE_CATEGORIES
 from .md_edition import (
     LEGACY_EQUIPMENT_RENAMES,
     LEGACY_MAIN,
@@ -38,6 +43,7 @@ def md2_renames(edition=None) -> dict:
         out[LEGACY_MAIN.party_popularity_effect] = e.party_popularity_effect
     out.update(LEGACY_EQUIPMENT_RENAMES)
     out.update(LEGACY_TAG_RENAMES)
+    out.update(LEGACY_DOCTRINE_CATEGORIES)
     return out
 
 
@@ -147,8 +153,13 @@ def _item_sites(project):
         yield rule_items(c.visible), cond
 
 
+# Counter key for the sub-ideology rename (counted per token, derived ones too).
+_IDEOLOGY_OLD = "Communist-State"
+
 # Structured params whose value is a single renameable token.
 _PARAM_TYPES = {"equipment": LEGACY_EQUIPMENT_RENAMES, "country_tag": LEGACY_TAG_RENAMES}
+# ...and single params of one card kind.
+_KIND_PARAMS = {("doctrine_cost_reduction", "category"): LEGACY_DOCTRINE_CATEGORIES}
 
 
 def migrate_project(project, edition=None, dry_run: bool = False) -> Counter:
@@ -159,15 +170,22 @@ def migrate_project(project, edition=None, dry_run: bool = False) -> Counter:
     renames = _project_renames(project, edition)
     pat = _pattern(renames)
     counts: Counter = Counter()
-    if pat is None:
-        return counts
     for lines in _raw_sites(project):
         if not lines:
             continue
-        new = [_rename_line(ln, pat, renames, counts) if isinstance(ln, str) else ln
-               for ln in lines]
+        new = []
+        for ln in lines:
+            if isinstance(ln, str):
+                if pat is not None:
+                    ln = _rename_line(ln, pat, renames, counts)
+                ln, n = rename_legacy_ideology_tokens(ln)
+                if n:
+                    counts[_IDEOLOGY_OLD] += n
+            new.append(ln)
         if not dry_run and new != lines:
             lines[:] = new
+    if pat is None:
+        return counts
     for items, lookup in _item_sites(project):
         for item in items:
             if isinstance(item, dict):
@@ -178,7 +196,8 @@ def migrate_project(project, edition=None, dry_run: bool = False) -> Counter:
             if not preset or not isinstance(params, dict):
                 continue
             for pdef in preset.params:
-                table = _PARAM_TYPES.get(getattr(pdef, "type", ""))
+                table = (_KIND_PARAMS.get((kind, pdef.key))
+                         or _PARAM_TYPES.get(getattr(pdef, "type", "")))
                 value = params.get(pdef.key)
                 if (table and isinstance(value, str) and value.strip() in table
                         and value.strip() in renames):
@@ -190,5 +209,5 @@ def migrate_project(project, edition=None, dry_run: bool = False) -> Counter:
 
 def describe_counts(counts: Counter, edition=None) -> list:
     """Human lines like ``add_relative_party_popularity → change_… (548×)``."""
-    renames = md2_renames(edition)
+    renames = {**md2_renames(edition), _IDEOLOGY_OLD: "communist_state"}
     return [f"{old} → {renames[old]} ({n}×)" for old, n in counts.most_common()]

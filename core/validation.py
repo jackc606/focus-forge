@@ -6,7 +6,8 @@ from typing import Iterable
 
 from .availability_presets import get_availability_preset, validate_availability_item
 from .exporters import _FILENAME_BAD_RE, sanitize_filename_component
-from .ideologies import TOP_IDEOLOGIES, all_sub_ideologies
+from .presets import LEGACY_DOCTRINE_CATEGORIES, LEGACY_TECH_CATEGORY_HINTS
+from .ideologies import has_legacy_ideology_token, TOP_IDEOLOGIES, all_sub_ideologies
 from .md_edition import (
     LEGACY_EQUIPMENT_RENAMES, LEGACY_TAG_RENAMES, active_edition, foreign_helpers,
 )
@@ -61,7 +62,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
                      known_idea_ids=None, edition=None,
                      known_country_tags=None, script_vocab=None,
                      state_index=None, equipment_types=None,
-                     tree_index=None, loc_key_exists=None) -> list:
+                     tree_index=None, loc_key_exists=None, tech_categories=None) -> list:
     """``icon_exists`` is an optional callable(icon_name) -> bool | None used to
     warn about icons that don't resolve in the user's configured sources (None
     = unknown, e.g. the sprite index isn't built yet — no warning emitted).
@@ -168,7 +169,7 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _validate_ai_weights(project, issues)
     _validate_filters(project, issues, edition)
     _validate_script_tokens(project, issues, edition, script_vocab, state_index,
-                            equipment_types, known_country_tags)
+                            equipment_types, known_country_tags, tech_categories)
     if tree_index is not None:
         from .tree_index import collision_issues, find_collisions
         issues.extend(collision_issues(find_collisions(project, tree_index)))
@@ -269,9 +270,27 @@ def _equipment_hint(name: str, known) -> str:
     return "pick one from the list"
 
 
+def _tech_category_hint(name: str, known) -> str:
+    doctrine = LEGACY_DOCTRINE_CATEGORIES.get(name)
+    if doctrine:
+        # Valid only inside add_doctrine_cost_reduction (which the migration
+        # renames); a research bonus on doctrines has no 2.0 equivalent.
+        return (f"doctrines are no longer technologies — discount them with a Doctrine "
+                f"Cost Reduction (category {doctrine}); inside one, … → Update for "
+                f"Millennium Dawn 2.0 renames it")
+    new = LEGACY_TECH_CATEGORY_HINTS.get(name)
+    if new and new in known:
+        return (f"Millennium Dawn 2.0 rebuilt the tech tree — {new} holds most of the same "
+                f"technologies; check it is what you meant")
+    return "Millennium Dawn 2.0 rebuilt the tech tree — pick a current category from the list"
+
+
+_RAW_TECH_CATEGORY = re.compile(r"\bcategory\s*=\s*(CAT_[A-Za-z0-9_]+)")
+
+
 def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=None,
                             script_vocab=None, state_index=None, equipment_types=None,
-                            known_country_tags=None) -> None:
+                            known_country_tags=None, tech_categories=None) -> None:
     """Check raw script (and the state/equipment params of structured items)
     against what the configured game/MD roots actually define:
 
@@ -308,6 +327,16 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                 f"{where}: state {sid} ({name}) is not owned by {tag or 'this country'} at game "
                 f"start — fine for claims/cores, wrong for buildings.")
 
+    def report_tech_category(name, where, focus_id):
+        # A research bonus on a category MD doesn't define applies to nothing,
+        # silently — the export is otherwise valid.
+        if tech_categories is None or not name or name in tech_categories:
+            return
+        (_warn_focus if focus_id else _warn)(issues, "script.techCategory.unknown", *(
+            [focus_id] if focus_id else []),
+            f"{where}: research category {name} does not exist in {e.label}, so the bonus "
+            f"does nothing — {_tech_category_hint(name, tech_categories)}.")
+
     def report_equipment(name, where, focus_id):
         if equipment_types is None or not name or name in equipment_types:
             return
@@ -317,6 +346,13 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
             f"(common/units/equipment) — {_equipment_hint(name, equipment_types)}.")
 
     for lines, where, focus_id in _raw_script_sites(project):
+        # Needs no index: 2.0.2 removed the old spelling everywhere.
+        if any(isinstance(ln, str) and has_legacy_ideology_token(ln) for ln in lines):
+            (_warn_focus if focus_id else _warn)(issues, "script.ideology.renamed", *(
+                [focus_id] if focus_id else []),
+                f"{where}: Communist-State was renamed to communist_state in Millennium Dawn "
+                f"2.0.2 — the old name no longer exists in-game (… → Update for Millennium "
+                f"Dawn 2.0 renames it).")
         found = scan_raw_script(lines)
         if script_vocab is not None:
             for key in found["keys"]:
@@ -337,6 +373,10 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                         f"{_tag_rename_hint(t, known_tags)}.")
         for eq in found["equipment"]:
             report_equipment(eq, where, focus_id)
+        for ln in lines:
+            if isinstance(ln, str):
+                for m in _RAW_TECH_CATEGORY.finditer(ln):
+                    report_tech_category(m.group(1), where, focus_id)
 
     # Structured items: state / equipment params.
     def structured_items(focus):
@@ -360,6 +400,8 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                         pass
                 elif getattr(p, "type", "") == "equipment":
                     report_equipment(str(v), where, focus.id)
+                elif getattr(p, "type", "") == "tech_category":
+                    report_tech_category(str(v).strip(), where, focus.id)
 
 
 def _validate_ai_weights(project: FocusForgeProject, issues: list) -> None:

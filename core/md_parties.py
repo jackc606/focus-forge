@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import re
 
-from .ideologies import IDEOLOGY_TREE
+from .ideologies import IDEOLOGY_TREE, canonical_sub_ideology
 
 # (party_index, display name), ordered by index. Index order roughly groups the
 # parties by their top ideology: 0-3 democratic, 4-9 communism (incl. the two
@@ -52,7 +52,7 @@ MD_PARTY_SUBIDEOLOGY_BY_INDEX = {
     1: "conservatism",
     2: "liberalism",
     3: "socialism",
-    4: "Communist-State",
+    4: "communist_state",
     5: "anarchist_communism",
     6: "Conservative",
     7: "Autocracy",
@@ -89,8 +89,8 @@ MD_PARTY_LABEL_BY_INDEX = dict(MD_PARTIES)
 _SUB_TOP = {sub: top for top, subs in IDEOLOGY_TREE.items() for sub in subs}
 # Value = up to the LAST '"' on the line, tolerating trailing comments /
 # whitespace after the closing quote (same fix as core.pdx_loc._LOC_LINE).
-# Key charset includes '-': MD's Communist-State sub-ideology is hyphenated
-# (e.g. RUS.Communist-State_desc) — without it those parties silently vanish.
+# Key charset includes '-': MD before 2.0.2 hyphenated a sub-ideology
+# (RUS.Communist-State_desc, now communist_state) and submods may still.
 _LOC_LINE = re.compile(r'^\s*([A-Za-z0-9_.\-]+):\d*\s*"(.*)"', re.MULTILINE)
 
 
@@ -145,7 +145,8 @@ def parse_country_parties(roots, tag: str) -> list:
             sub, kind = rest[:-5], "desc"
         else:
             sub, kind = rest, "name"
-        fields.setdefault(sub, {})[kind] = value
+        # Pre-2.0.2 keys (a submod's TAG.Communist-State) belong to the renamed sub.
+        fields.setdefault(canonical_sub_ideology(sub), {})[kind] = value
 
     parties = []
     for sub, f in fields.items():

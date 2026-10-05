@@ -45,9 +45,10 @@ def test_unknown_tag_returns_empty(tmp_path):
     assert parse_country_parties(_roots(tmp_path), "ZZZ") == []
 
 
-def test_hyphenated_subideology_imports(tmp_path):
-    """MD's Communist-State sub is hyphenated — the loc-key regex must accept
-    '-' or those parties (and their descriptions) silently vanish."""
+def test_legacy_hyphenated_subideology_maps_forward(tmp_path):
+    """MD 2.0.2 renamed Communist-State to communist_state. Loc written for the
+    old id (an older submod's TAG.Communist-State keys) still imports — as the
+    new sub-ideology — instead of silently vanishing."""
     loc = tmp_path / "localisation" / "english"
     loc.mkdir(parents=True)
     (loc / "x_l_english.yml").write_text(
@@ -57,6 +58,15 @@ def test_hyphenated_subideology_imports(tmp_path):
         encoding="utf-8")
     parties = parse_country_parties([str(tmp_path)], "ARG")
     by_sub = {p["subIdeology"]: p for p in parties}
-    assert "Communist-State" in by_sub
-    assert by_sub["Communist-State"]["name"] == "Communist Party"
-    assert by_sub["Communist-State"]["description"] == "Workers of the pampas."
+    assert set(by_sub) == {"communist_state"}
+    assert by_sub["communist_state"]["name"] == "Communist Party"
+    assert by_sub["communist_state"]["description"] == "Workers of the pampas."
+
+
+def test_communist_state_subideology_imports(tmp_path):
+    loc = tmp_path / "localisation" / "english"
+    loc.mkdir(parents=True)
+    (loc / "x_l_english.yml").write_text(
+        'l_english:\n ARG.communist_state:0 "Partido Comunista"\n', encoding="utf-8")
+    parties = parse_country_parties([str(tmp_path)], "ARG")
+    assert [(p["subIdeology"], p["ideology"]) for p in parties] == [("communist_state", "communism")]

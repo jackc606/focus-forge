@@ -709,6 +709,18 @@ def _reference_equipment_types() -> list:
     return list(EQUIPMENT_TYPES)
 
 
+def _reference_tech_categories() -> list:
+    """Research-bonus categories of the configured MD (2.0 rebuilt them); the
+    static common subset only when no roots are configured."""
+    roots = _reference_roots()
+    if roots:
+        from .tech_index import build_tech_categories
+        live = build_tech_categories(roots)
+        if live:
+            return live
+    return list(MD_TECH_CATEGORIES)
+
+
 def _reference_country_states(model) -> list:
     """States the project's country owns at game start: ``[{id, name}]`` — the
     ids state-scoped rewards (buildings, resources) should target."""
@@ -737,7 +749,7 @@ def _op_reference_data(model, args):
         "parties": lambda: [{"index": idx, "name": name} for idx, name in MD_PARTIES],
         "focusFilters": lambda: list(MD_FOCUS_FILTERS),
         "iconPresets": lambda: list(MD_ICON_PRESETS),
-        "techCategories": lambda: list(MD_TECH_CATEGORIES),
+        "techCategories": _reference_tech_categories,
         "resourceTypes": lambda: list(RESOURCE_TYPES),
         "equipmentTypes": _reference_equipment_types,
         "countryStates": lambda: _reference_country_states(model),

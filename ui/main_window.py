@@ -948,7 +948,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _migrate_to_md2(self) -> None:
-        """Rename Millennium Dawn 1.x tokens to their 2.0 names project-wide
+        """Rename older Millennium Dawn tokens (1.x, 2.0.0) to current 2.0 names project-wide
         (core.md_migrate): preview the counts, confirm, apply as one undo step."""
         from core.md_edition import LEGACY_TAG_RENAMES
         from core.md_migrate import describe_counts, migrate_project, own_legacy_tags
@@ -973,7 +973,7 @@ class MainWindow(QMainWindow):
         lines = "\n".join(f"  • {ln}" for ln in describe_counts(preview, ed))
         ans = QMessageBox.question(
             self, title,
-            f"Rename these Millennium Dawn 1.x names in raw script and reward/"
+            f"Rename these older Millennium Dawn names in raw script and reward/"
             f"condition cards?\n\n{lines}\n\nEach new name takes the same inputs "
             f"as the old one. Undo restores everything.{own_note}",
             QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
@@ -985,7 +985,7 @@ class MainWindow(QMainWindow):
         logger().info("md2-migrate: %s", dict(done))
         total = sum(done.values())
         self._model.status_message.emit(
-            f"Updated {total} Millennium Dawn 1.x name{'s' if total != 1 else ''} to 2.0.")
+            f"Updated {total} older Millennium Dawn name{'s' if total != 1 else ''} to 2.0.")
 
     def _structure_all_rewards(self) -> None:
         """Project-wide raw-script conversion (rewards AND availability/bypass

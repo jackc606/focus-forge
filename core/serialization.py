@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from typing import Any
 
+from .ideologies import canonical_sub_ideology, rename_legacy_ideology_tokens
 from .types import (
     AiModifier,
     AvailabilityRule,
@@ -282,15 +283,17 @@ def _export_settings_from_dict(d: dict) -> ExportSettings:
 def _party_from_dict(d: dict) -> PartyData:
     return PartyData(ideology=d.get("ideology", ""), name=d.get("name", ""),
                      longName=d.get("longName", ""),
-                     subIdeology=d.get("subIdeology", ""),
+                     # MD renames sub-ideologies (2.0.2: Communist-State) — map forward.
+                     subIdeology=canonical_sub_ideology(d.get("subIdeology", "")),
                      logoRef=d.get("logoRef", ""), logoData=d.get("logoData", ""),
                      description=d.get("description", ""))
 
 
 def _leader_from_dict(d: dict) -> LeaderData:
     return LeaderData(
-        name=d.get("name", ""), ideology=d.get("ideology", ""),
-        traits=list(d.get("traits") or []),
+        name=d.get("name", ""), ideology=canonical_sub_ideology(d.get("ideology", "")),
+        traits=[rename_legacy_ideology_tokens(t)[0] if isinstance(t, str) else t
+                for t in (d.get("traits") or [])],
         pictureRef=d.get("pictureRef", ""), pictureData=d.get("pictureData", ""),
         description=d.get("description", ""))
 

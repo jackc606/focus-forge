@@ -139,7 +139,8 @@ class TechProvider(QObject):
                                            build_script_vocabulary, build_state_index)
             builder = {"vocab": build_script_vocabulary, "states": build_state_index,
                        "equipment": build_equipment_types,
-                       "archetypes": build_equipment_archetypes}[which]
+                       "archetypes": build_equipment_archetypes,
+                       "techcats": lambda r: frozenset(build_tech_categories(r))}[which]
 
             def _build() -> None:
                 try:
@@ -163,6 +164,10 @@ class TechProvider(QObject):
 
     def equipment_types_cached(self):
         return self._script_index_cached("equipment")
+
+    def tech_categories_cached(self):
+        """Set of the configured MD's research categories, or None while building."""
+        return self._script_index_cached("techcats")
 
     def equipment_archetypes_cached(self):
         """Archetype names for pickers (list), or None while building/unavailable."""

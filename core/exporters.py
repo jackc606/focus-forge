@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .availability_presets import build_availability_item_lines
+from .ideologies import canonical_sub_ideology, rename_legacy_ideology_tokens
 from .md_edition import edition_context
 from .md_parties import MD_PARTY_LABEL_BY_INDEX, MD_PARTY_SUBIDEOLOGY_BY_INDEX
 from .reward_presets import build_reward_item_lines, tooltip_texts_by_owner
@@ -185,9 +186,10 @@ def _leader_block_lines(leader, tag: str, depth: int = 0, country=None) -> list:
         lines.append(f'{inner}desc = "{_leader_desc_key(tag, leader, country)}"')
     if picture:
         lines.append(f'{inner}picture = "{picture}"')
-    lines.append(f"{inner}ideology = {leader.ideology}")
+    lines.append(f"{inner}ideology = {canonical_sub_ideology(leader.ideology)}")
     if leader.traits:
-        lines.append(f"{inner}traits = {{ {' '.join(leader.traits)} }}")
+        traits = " ".join(rename_legacy_ideology_tokens(t)[0] for t in leader.traits)
+        lines.append(f"{inner}traits = {{ {traits} }}")
     lines.append(f"{prefix}}}")
     return lines
 
@@ -616,17 +618,18 @@ def export_country_localisation(project: FocusForgeProject) -> str:
     for party in c.parties:
         if not party.subIdeology:
             continue
+        sub = canonical_sub_ideology(party.subIdeology)
         value = _party_logo_loc_value(tag, party)
         if value:
-            lines.append(f' {tag}.{party.subIdeology}_icon:0 "£{value}"')
+            lines.append(f' {tag}.{sub}_icon:0 "£{value}"')
         # MD displays the party name from <TAG>.<sub> (with a leading £icon token),
         # not from set_party_name — so write it here too or edits won't show in-game.
         if (party.name or "").strip():
             prefix = f"£{value} " if value else ""
-            lines.append(f' {tag}.{party.subIdeology}:0 "{prefix}{_escape_loc(party.name)}"')
+            lines.append(f' {tag}.{sub}:0 "{prefix}{_escape_loc(party.name)}"')
         if (party.description or "").strip():
             # MD party description shown in the politics screen (<TAG>.<sub>_desc).
-            lines.append(f' {tag}.{party.subIdeology}_desc:0 "{_escape_loc(party.description)}"')
+            lines.append(f' {tag}.{sub}_desc:0 "{_escape_loc(party.description)}"')
     # Leader descriptions (main leaders + election-timeline leaders): the text
     # behind each create_country_leader's desc = "<key>".
     for leader in _country_leaders_for_assets(c):

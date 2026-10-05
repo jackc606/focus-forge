@@ -8,9 +8,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from .ideologies import IDEOLOGY_TREE
+from .ideologies import IDEOLOGY_TREE, canonical_sub_ideology, rename_legacy_ideology_tokens
 from .md_edition import EDITIONS, active_edition
-from .presets import MD_TECH_CATEGORIES
+from .presets import DOCTRINE_CATEGORIES, LEGACY_DOCTRINE_CATEGORIES, MD_TECH_CATEGORIES
 
 # sub-ideology -> top ideology, for putting a leader's party in power.
 _SUB_TOP = {sub: top for top, subs in IDEOLOGY_TREE.items() for sub in subs}
@@ -291,12 +291,10 @@ def _b_promote_leader(p):
     inner = [f'name = "{_escape_quoted(data["name"])}"']
     if data.get("picture"):
         inner.append(f'picture = "{data["picture"]}"')
-    ideo = (data.get("ideology") or "").strip()
-    if ideo == "State":  # legacy token from before the rename — MD's id is Communist-State
-        ideo = "Communist-State"
+    ideo = canonical_sub_ideology(data.get("ideology"))  # renamed ids map forward
     if ideo:
         inner.append(f"ideology = {ideo}")
-    traits = [t for t in (data.get("traits") or []) if t]
+    traits = [rename_legacy_ideology_tokens(t)[0] for t in (data.get("traits") or []) if t]
     if traits:
         inner.append("traits = { " + " ".join(traits) + " }")
     lines = _block("create_country_leader", inner)
@@ -487,7 +485,8 @@ def _b_doctrine_cost_reduction(p):
         "add_doctrine_cost_reduction",
         [
             *_maybe_line(f"name = {_value(p, 'name')}", bool(_value(p, "name"))),
-            f"category = {_value(p, 'category')}",
+            # MD 1.x's CAT_*_doctrine names no longer exist — map them forward.
+            f"category = {LEGACY_DOCTRINE_CATEGORIES.get(_value(p, 'category'), _value(p, 'category'))}",
             f"uses = {_number_value(p, 'uses')}",
             f"cost_reduction = {_number_value(p, 'costReduction')}",
         ],
@@ -690,8 +689,8 @@ _RAW_PRESETS = [
                  "Discounts doctrine research in one doctrine category (MD uses this on "
                  "military-reform focuses, typically 0.15-0.5 reduction).",
                  [RewardParamDef("name", "Bonus Name", "string", "focus_doctrine_bonus"),
-                  RewardParamDef("category", "Category", "select", "CAT_land_doctrine", required=True,
-                                 options=["CAT_land_doctrine", "CAT_naval_doctrine", "CAT_air_doctrine"]),
+                  RewardParamDef("category", "Category", "select", "land_doctrine", required=True,
+                                 options=DOCTRINE_CATEGORIES),
                   RewardParamDef("uses", "Uses", "number", 1, required=True),
                   RewardParamDef("costReduction", "Cost Reduction", "number", 0.3, required=True, step=0.05)],
                  _b_doctrine_cost_reduction),
