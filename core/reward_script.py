@@ -70,6 +70,16 @@ _SIMPLE = [
      "reverse_opinion_modifier", lambda m: {"target": m.group(1), "modifier": m.group(2)}),
     (re.compile(rf"^add_popularity = \{{ ideology = {_ID} popularity = {_NUM} \}}$"),
      "ideology_popularity", lambda m: {"ideology": m.group(1), "popularity": m.group(2)}),
+    (re.compile(r"^add_state_core = (\d+)$"),
+     "add_core", lambda m: {"state": m.group(1), "country": ""}),
+    (re.compile(rf"^(\d+) = \{{ add_core_of = {_ID} \}}$"),
+     "add_core", lambda m: {"state": m.group(1), "country": m.group(2)}),
+    (re.compile(r"^add_state_claim = (\d+)$"),
+     "add_claim", lambda m: {"state": m.group(1), "country": ""}),
+    (re.compile(rf"^(\d+) = \{{ add_claim_by = {_ID} \}}$"),
+     "add_claim", lambda m: {"state": m.group(1), "country": m.group(2)}),
+    (re.compile(r"^every_owned_state = \{ add_core_of = ROOT \}$"),
+     "core_owned_states", lambda m: {}),
 ]
 
 # Block effects whose key order the game ignores — matched as key/value pairs.

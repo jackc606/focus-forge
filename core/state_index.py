@@ -89,3 +89,19 @@ def resolve_states(roots, tag: str) -> list:
         labelled.append((sid, f"{sid} — {name}"))
     labelled.sort(key=lambda s: s[1].lower())
     return labelled
+
+
+def resolve_all_states(roots) -> list:
+    """[(id, "id — Name (OWNER)")] for every state in the game, sorted by
+    display name — for cores/claims, which target states the country may not own."""
+    index = build_state_index(roots)
+    if not index:
+        return []
+    loc = load_english_localisation(roots, {info["name_key"] for info in index.values()})
+    labelled = []
+    for sid, info in index.items():
+        name = loc.get(info["name_key"], info["name_key"])
+        owner = f" ({info['owner']})" if info["owner"] else ""
+        labelled.append((sid, f"{sid} — {name}{owner}"))
+    labelled.sort(key=lambda s: s[1].lower())
+    return labelled

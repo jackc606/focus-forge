@@ -135,6 +135,14 @@ HELP_TOPICS = [
          "The default is 10. Raise it to make the AI rush a focus, lower it to "
          "make it a late pick, 0 to make the AI avoid it entirely. Players are "
          "unaffected — this only steers the AI."),
+        ("How do I give cores or claims?",
+         "Add reward… → Territory. Add Core and Add Claim each take one state, "
+         "and the picker lists every state in the game with its current owner, "
+         "so you can core land you don't own yet. Leave Country blank for the "
+         "country completing the focus, or pick a tag to give it to someone "
+         "else.\n\n"
+         "Core All Owned States cores everything the country owns when the "
+         "focus completes, which is how MD's integration focuses do it."),
         ("Can I write raw HOI4 script?",
          "Yes. Tick “Show raw script && generated blocks” at the top of the "
          "Inspector.\n\n"

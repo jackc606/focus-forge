@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject
 
-from core.state_index import build_state_index, resolve_states
+from core.state_index import build_state_index, resolve_all_states, resolve_states
 
 from .icon_provider import provider as icon_provider
 
@@ -18,11 +18,13 @@ class StateProvider(QObject):
         super().__init__()
         self._index = None
         self._by_tag: dict = {}
+        self._all = None
         icon_provider().roots_changed.connect(self._invalidate)
 
     def _invalidate(self) -> None:
         self._index = None
         self._by_tag = {}
+        self._all = None
 
     def states_for_country(self, tag: str) -> list:
         """[(id:int, label:str)] for the country's states; cached per tag."""
@@ -32,6 +34,12 @@ class StateProvider(QObject):
         if t not in self._by_tag:
             self._by_tag[t] = resolve_states(icon_provider().roots(), t)
         return self._by_tag[t]
+
+    def all_states(self) -> list:
+        """[(id:int, label:str)] for every state, owner in the label; cached."""
+        if self._all is None:
+            self._all = resolve_all_states(icon_provider().roots())
+        return self._all
 
 
 _INSTANCE = None

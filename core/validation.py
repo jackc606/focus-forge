@@ -351,9 +351,11 @@ def _validate_script_tokens(project: FocusForgeProject, issues: list, edition=No
                 v = (item.params or {}).get(p.key)
                 if v in (None, ""):
                     continue
-                if getattr(p, "type", "") == "state":
+                if getattr(p, "type", "") in ("state", "any_state"):
+                    # any_state = cores/claims, where a foreign state is the point.
                     try:
-                        report_state(int(float(v)), where, focus.id)
+                        report_state(int(float(v)), where, focus.id,
+                                     claim_only=p.type == "any_state")
                     except (TypeError, ValueError):
                         pass
                 elif getattr(p, "type", "") == "equipment":

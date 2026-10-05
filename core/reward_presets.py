@@ -203,6 +203,14 @@ CONTEXTUAL_PARAM_HELP: dict = {
     "create_wargoal.target": "Country tag that the wargoal is created against.",
     "create_wargoal.type": "Wargoal type used by HOI4 or Millennium Dawn, such as puppet_wargoal_focus.",
     "productivity_growth.amount": "Flat productivity change added to every state (MD), in percentage points on a 100 base. ~25 is a solid boost, 50 is large; negative cuts it (e.g. a crisis).",
+    "add_core.state": "Numeric HOI4 state id to core. Lists every state in the game with its "
+                      "current owner, so you can core land you don't own yet.",
+    "add_core.country": "Country tag that gets the core. Leave blank for the country "
+                        "completing the focus.",
+    "add_claim.state": "Numeric HOI4 state id to claim. Lists every state in the game with its "
+                       "current owner.",
+    "add_claim.country": "Country tag that gets the claim. Leave blank for the country "
+                         "completing the focus.",
     "state_productivity.state": "Numeric HOI4 state id whose productivity is changed.",
     "state_productivity.amount": "Productivity points added to that one state (MD, base 100). ~25 solid, 50 large; negative reduces.",
     "economic_growth.times": "How many times to trigger Millennium Dawn's one-shot GDP growth boost.",
@@ -246,7 +254,7 @@ SHARED_PARAM_HELP: dict = {
 class RewardParamDef:
     key: str
     label: str
-    type: str  # 'string' | 'number' | 'select' | 'textarea'
+    type: str  # 'string' | 'number' | 'select' | 'textarea' | 'state' | 'any_state' | …
     defaultValue: object = ""
     required: bool = False
     step: Optional[float] = None
@@ -601,6 +609,29 @@ def _b_set_temp_variable(p):
     return [f"set_temp_variable = {{ {_value(p, 'variable')} = {_number_value(p, 'amount')} }}"]
 
 
+def _b_add_core(p):
+    # Blank country = the focus's own country (country-scoped add_state_core);
+    # otherwise core the state for the named tag from the state's scope.
+    country = _value(p, "country")
+    state = _number_value(p, "state")
+    if not country:
+        return [f"add_state_core = {state}"]
+    return [f"{state} = {{ add_core_of = {country} }}"]
+
+
+def _b_add_claim(p):
+    country = _value(p, "country")
+    state = _number_value(p, "state")
+    if not country:
+        return [f"add_state_claim = {state}"]
+    return [f"{state} = {{ add_claim_by = {country} }}"]
+
+
+def _b_core_owned_states(p):
+    # MD's own "integrate the territories" idiom; already-cored states are a no-op.
+    return _block("every_owned_state", ["add_core_of = ROOT"])
+
+
 # ----- preset definitions ------------------------------------------------------
 
 _RAW_PRESETS = [
@@ -781,6 +812,22 @@ _RAW_PRESETS = [
                  [RewardParamDef("type", "Equipment Type", "equipment", "infantry_weapons_type", required=True, options=EQUIPMENT_TYPES),
                   RewardParamDef("amount", "Amount", "number", 1000, required=True),
                   RewardParamDef("producer", "Producer", "country_tag", "")], _b_equipment_stockpile),
+    RewardPreset("add_core", "Territory", "Add Core",
+                 "Gives a country a core on a state — any state, owned or not. Leave "
+                 "Country blank to core it for this country. Add one card per state.",
+                 [RewardParamDef("state", "State", "any_state", "", required=True),
+                  RewardParamDef("country", "Country", "country_tag", "",
+                                 placeholder="blank = this country")], _b_add_core),
+    RewardPreset("add_claim", "Territory", "Add Claim",
+                 "Gives a country a claim on a state — any state, owned or not. Leave "
+                 "Country blank to claim it for this country.",
+                 [RewardParamDef("state", "State", "any_state", "", required=True),
+                  RewardParamDef("country", "Country", "country_tag", "",
+                                 placeholder="blank = this country")], _b_add_claim),
+    RewardPreset("core_owned_states", "Territory", "Core All Owned States",
+                 "Cores every state this country owns when the focus completes "
+                 "(every_owned_state, the idiom MD uses for integration focuses).",
+                 [], _b_core_owned_states),
     RewardPreset("opinion_modifier", "Diplomacy and War", "Opinion Modifier", "Adds an opinion modifier toward another country (e.g. USA gains +25).",
                  [RewardParamDef("target", "Target", "country_tag", "", required=True),
                   RewardParamDef("modifier", "Modifier", "opinion_modifier", "", required=True)], _b_opinion_modifier),
@@ -904,14 +951,14 @@ def validate_reward_item(item) -> list:
         s = "" if current is None else str(current).strip()
         if param.required and s == "":
             issues.append(f"{preset.label} is missing {param.label}.")
-        if param.type in ("number", "state", "party_index") and s != "":
+        if param.type in ("number", "state", "any_state", "party_index") and s != "":
             try:
                 float(current)
             except (TypeError, ValueError):
                 issues.append(f"{preset.label} has an invalid number for {param.label}.")
                 continue
             # State ids start at 1 — a 0/negative value exports a broken block.
-            if param.type == "state" and float(current) < 1:
+            if param.type in ("state", "any_state") and float(current) < 1:
                 issues.append(f"{preset.label} needs a real state id (1 or higher) for {param.label}.")
     return issues
 

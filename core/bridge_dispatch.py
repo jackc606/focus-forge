@@ -273,7 +273,7 @@ _REGISTRIES = {
     "condition": (get_availability_preset, [p.kind for p in AVAILABILITY_PRESETS], "condition",
                   "list_condition_presets"),
 }
-_NUMERIC_PARAM_TYPES = ("number", "state", "party_index")
+_NUMERIC_PARAM_TYPES = ("number", "state", "any_state", "party_index")
 
 
 def _require_block(value, label: str, registry: str) -> None:

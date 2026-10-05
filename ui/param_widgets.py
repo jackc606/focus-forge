@@ -65,6 +65,9 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
         states = state_provider().states_for_country(country_tag)
         return _id_combo(states, current, set_value, numeric=True,
                          empty_tip="No MD states for this tag — type a state id")
+    if param.type == "any_state":
+        return _id_combo(state_provider().all_states(), current, set_value, numeric=True,
+                         completer=True, empty_tip="No MD states found — type a state id")
     if param.type == "focus":
         items = [(fid, fid) for fid in (focus_ids or [])]
         return _id_combo(items, current, set_value, numeric=False,
@@ -88,8 +91,11 @@ def make_param_widget(param, current, set_value, *, country_tag: str = "",
         return _id_combo(items, current, set_value, numeric=False, completer=True,
                          empty_tip="No MD opinion modifiers — type a modifier id")
     if param.type == "country_tag":
-        return _id_combo(_country_items(), current, set_value, numeric=False,
-                         completer=True, empty_tip="Type a country tag")
+        cb = _id_combo(_country_items(), current, set_value, numeric=False,
+                       completer=True, empty_tip="Type a country tag")
+        if param.placeholder:
+            cb.lineEdit().setPlaceholderText(param.placeholder)
+        return cb
     if param.type == "party_index":
         items = [(idx, f"{name}  ({idx})") for idx, name in MD_PARTIES]
         return _id_combo(items, current, set_value, numeric=True, completer=True,
