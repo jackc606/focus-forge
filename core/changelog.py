@@ -9,6 +9,17 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.6",
+        "date": "2026-10-05",
+        "title": "Cores and claims, Millennium Dawn 2.0.2 support",
+        "changes": [
+            "New Territory rewards: Add Core and Add Claim pick from every state in the game, each labelled with its current owner, so a focus can core land you don't own yet. Leave Country blank for the country completing the focus, or pick a tag to give the core or claim to someone else. Core All Owned States cores everything the country owns, the way MD's integration focuses do. Raw core/claim lines turn into these cards with Structure raw script.",
+            "Millennium Dawn 2.0.2 renamed the Communist-State ideology to communist_state (and the names built from it, like the emerging_Communist-State trait). Leaders and parties update on their own when you open a project, exports always write the new name, and … → Update for Millennium Dawn 2.0 renames it in raw script. Validation points at any that are left.",
+            "Fixed: Doctrine Cost Reduction exported CAT_land_doctrine (and naval/air), which Millennium Dawn 2.0 no longer has. It now uses land_doctrine, naval_doctrine, air_doctrine, special_forces_doctrine or equipment_doctrine; older cards export correctly without changes, and the update action renames them in raw script.",
+            "Millennium Dawn 2.0 rebuilt the tech tree, so Tech Bonus rewards on old categories (CAT_inf_wep, CAT_computing_tech, …) quietly did nothing. Validation now flags them and, where MD's own data shows a clear match, names the current category that holds the same technologies.",
+        ],
+    },
+    {
         "version": "0.4.5",
         "date": "2026-09-24",
         "title": "Millennium Dawn 2.0 support",
