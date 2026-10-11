@@ -171,7 +171,9 @@ OP_SPECS: dict = {
     "search_icons": OpSpec(
         "Case-insensitive substring search over the real focus-icon sprite index. An exact "
         "match is listed first with exact=true — use it to verify a GFX_ name before "
-        "assigning it. GUI-only (needs icon roots configured).",
+        "assigning it. Search a short subject word ('oil', 'army', 'election'); a query with "
+        "no substring hit falls back to names containing any of its words, best first. "
+        "GUI-only (needs icon roots configured).",
         {"query": _a("string", "At least 2 characters.", required=True),
          "limit": _a("integer", "Max results (1-100, default 30).")},
         "{icons, total_matches, shown, exact?}", {"query": "nuclear", "limit": 10}),

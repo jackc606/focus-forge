@@ -116,3 +116,26 @@ def test_handled_in_bridge_and_marked_quiet(monkeypatch):
     resp = b._handle_line(line)
     assert resp["ok"] is True and resp["id"] == 4
     assert resp["result"]["total_matches"] == 2
+
+
+def test_multi_word_query_falls_back_to_word_ranking(monkeypatch):
+    sprites = [("GFX_goal_generic_oil_refinery", "a"), ("oil", "b"), ("UKoil", "c"),
+               ("GFX_focus_generic_army", "d")]
+    _fake_provider(monkeypatch, sprites)
+    r = _ok(AgentBridge._search_icons({"query": "oil refinery"}))
+    assert r["icons"] == ["GFX_goal_generic_oil_refinery", "oil", "UKoil"]
+    assert "some of its words" in r["note"]
+
+
+def test_guessed_gfx_name_finds_its_subject(monkeypatch):
+    _fake_provider(monkeypatch)
+    r = _ok(AgentBridge._search_icons({"query": "GFX_focus_industry_icon"}))
+    assert r["icons"] == ["GFX_focus_generic_industry"]   # gfx/focus/icon are filler
+    r = _ok(AgentBridge._search_icons({"query": "nuclear deals"}))
+    assert r["icons"][0] == "GFX_focus_NUCLEAR_deal"       # plural trimmed, both words hit
+
+
+def test_no_match_says_how_to_search(monkeypatch):
+    _fake_provider(monkeypatch)
+    r = _ok(AgentBridge._search_icons({"query": "xyzzy"}))
+    assert r["icons"] == [] and "ONE short English word" in r["note"]

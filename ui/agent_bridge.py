@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import secrets
 
 from PySide6.QtCore import QObject, QRectF, QTimer, Signal
@@ -74,6 +75,41 @@ def render_scene_region(scene, src: QRectF, max_px: int = 1800) -> QImage:
     scene.render(painter, QRectF(0, 0, iw, ih), src)
     painter.end()
     return img
+
+
+# Words that say nothing about a sprite's subject ("GFX_focus_generic_…").
+_ICON_FILLER_WORDS = {"gfx", "focus", "goal", "generic", "icon", "icons", "the", "and", "of",
+                      "a", "an", "for", "to", "in"}
+
+
+def _icon_words(text: str) -> list:
+    """The query's meaningful words, lower-case, with a simple plural trim
+    ("ships" also finds "ship")."""
+    words = []
+    for w in re.split(r"[^a-z0-9]+", text.lower()):
+        if len(w) < 2 or w in _ICON_FILLER_WORDS:
+            continue
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        if w not in words:
+            words.append(w)
+    return words
+
+
+def _rank_by_words(names: list, query: str) -> list:
+    """Names containing at least one of the query's words: most words matched
+    first, then shorter (more on-topic) names."""
+    words = _icon_words(query)
+    if not words:
+        return []
+    scored = []
+    for n in names:
+        low = n.lower()
+        hits = sum(1 for w in words if w in low)
+        if hits:
+            scored.append((-hits, len(n), n))
+    scored.sort()
+    return [n for _h, _l, n in scored]
 
 
 class AgentBridge(QObject):
@@ -415,7 +451,15 @@ class AgentBridge(QObject):
                     "note": "No icon roots configured in Focus Forge "
                             "(Settings -> In-game Icons)."}}
             q = query.lower()
-            matches = [name for name, _path in sprites if q in name.lower()]
+            names = [name for name, _path in sprites]
+            matches = [n for n in names if q in n.lower()]
+            fallback = False
+            if not matches:
+                # Models write "oil refinery" or guess "GFX_focus_industry"; a
+                # whole-query substring finds nothing and they rephrase forever.
+                # Rank names by how many of the query's words they contain.
+                matches = _rank_by_words(names, q)
+                fallback = bool(matches)
             # An exact hit goes first — agents use it to verify a guessed name.
             exact = next((n for n in matches if n.lower() == q), None)
             if exact is not None:
@@ -424,6 +468,14 @@ class AgentBridge(QObject):
             result = {"icons": shown, "total_matches": len(matches), "shown": len(shown)}
             if exact is not None:
                 result["exact"] = True
+            if fallback:
+                result["note"] = (f"No sprite name contains '{query}'; these contain some of "
+                                  "its words, best first. Pick one of them.")
+            elif not matches:
+                result["note"] = ("No matches. Search ONE short English word that would appear "
+                                  "in a sprite name (e.g. 'oil', 'army', 'factory', 'nuclear'). "
+                                  "If a couple of tries find nothing, use a generic icon such as "
+                                  "GFX_goal_generic_construct_civ_factory and move on.")
             return {"ok": True, "result": result}
         except Exception as exc:
             return {"ok": False, "error": f"search_icons failed: {type(exc).__name__}: {exc}"}

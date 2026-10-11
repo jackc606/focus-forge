@@ -458,12 +458,36 @@ def test_test_connection_with_fake_transport():
     t = FakeTransport([{"model": "meta/muse-spark-1.3-contributor", **reply("OK")}])
     msg = probe_connection(AgentConfig(api_key="k"), t)
     assert msg == "Connected — meta/muse-spark-1.3-contributor replied."
-    assert t.payloads[0]["max_tokens"] == 1
+    assert t.payloads[0]["max_tokens"] == 16
     with pytest.raises(TransportError) as info:
         probe_connection(AgentConfig(api_key=""), t)
     assert "No API key" in info.value.message
     with pytest.raises(TransportError):
         probe_connection(AgentConfig(api_key="k"), FakeTransport([TransportError(401, "API key rejected")]))
+
+
+def test_test_connection_retries_without_cap_when_provider_rejects_it():
+    floor = TransportError(400, "Request failed (HTTP 400): max_tokens must be at least 16 for Muse Spark 1.3 Contributor.")
+    t = FakeTransport([floor, {"model": "m", **reply("OK")}])
+    assert probe_connection(AgentConfig(api_key="k"), t) == "Connected — m replied."
+    assert "max_tokens" not in t.payloads[1]
+    with pytest.raises(TransportError):
+        probe_connection(AgentConfig(api_key="k"), FakeTransport([TransportError(400, "bad model id")]))
+
+
+def test_repeated_static_lookup_is_refused_after_the_limit():
+    search = tool_reply([("c", "search_icons", '{"query": "oil refinery"}')])
+    loop = [search] * 3
+    s, ex, *_ = _session(loop + [reply("done")], tools=None)
+    s.run_turn("pick icons")
+    tool_msgs = [m for m in s.messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 3 and len(ex.calls) == 2
+    assert "already made this exact call" in tool_msgs[2]["content"]
+    assert "already made this exact call" not in tool_msgs[1]["content"]
+    # A new turn starts the count over.
+    s.transport.responses = [loop[0], reply("ok")]
+    s.run_turn("again")
+    assert "already made this exact call" not in s.messages[-2]["content"]
 
 
 def test_usage_cost_and_labels():

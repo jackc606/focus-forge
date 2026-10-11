@@ -47,6 +47,16 @@ DESTRUCTIVE_OPS = frozenset({
 # call it, and a model that cannot will invent a name for it.
 EXCLUDED_TOOLS = ("guide", "load_project")
 
+# Lookups over static data: the same arguments always give the same answer, so a
+# model asking a third time in one turn is looping (seen with GLM on search_icons).
+REPEAT_GUARDED_OPS = frozenset({
+    "search_icons", "reference_data", "describe_op", "list_reward_presets",
+    "list_condition_presets",
+})
+REPEAT_LIMIT = 2
+REPEAT_TEXT = ("You already made this exact call {n} times this turn and got the same "
+               "answer each time. Use that earlier result, try a different query, or move on.")
+
 DECLINED_TEXT = ("The user declined this action. Do not retry it; ask them what "
                  "they'd like instead.")
 CANCELLED_TOOL = {"ok": False, "error": "cancelled by user"}
@@ -307,10 +317,19 @@ def test_connection(config: AgentConfig, transport: Transport) -> str:
         return _test_hosted(config, transport)
     if not config.api_key:
         raise TransportError(0, "No API key entered.")
+    # Keep the probe cheap, but some providers set a floor on max_tokens (NanoGPT's
+    # Muse Spark: "must be at least 16"); if the cap itself is refused, retry once
+    # without it rather than failing a working key.
     payload = {"model": config.model,
                "messages": [{"role": "user", "content": "Reply with OK."}],
-               "max_tokens": 1}
-    data = transport.chat(payload, config)
+               "max_tokens": 16}
+    try:
+        data = transport.chat(payload, config)
+    except TransportError as exc:
+        if exc.status != 400 or "max_tokens" not in exc.message:
+            raise
+        payload.pop("max_tokens")
+        data = transport.chat(payload, config)
     model = data.get("model") or config.model
     return f"Connected — {model} replied."
 
@@ -552,6 +571,7 @@ class AgentSession:
         self.usage = Usage()
         self.session_id = ""
         self._call_counter = 0
+        self._repeat_counts: dict = {}
         self._dropped_keys_seen: set = set()
         self.reset()
 
@@ -570,6 +590,7 @@ class AgentSession:
 
     def run_turn(self, user_text: str, cancel: Callable[[], bool] = lambda: False) -> str:
         self.messages.append({"role": "user", "content": user_text})
+        self._repeat_counts = {}
         for _round in range(self.config.max_rounds):
             if cancel():
                 return self._stop()
@@ -734,6 +755,8 @@ class AgentSession:
             op = op.rsplit(".", 1)[-1]        # "default.hello" -> "hello" (namespaced by the model)
         if op not in names:
             result = {"ok": False, "error": f"Unknown tool '{op}'. Available: {', '.join(names)}"}
+        elif self._repeated(op, args):
+            result = {"ok": False, "error": REPEAT_TEXT.format(n=REPEAT_LIMIT)}
         elif needs_approval(op, args) and not self._approved(op, args):
             result = {"ok": False, "error": DECLINED_TEXT}
             self._emit(AgentEvent("approval_denied", op=op, args=args, call_id=call_id))
@@ -746,6 +769,19 @@ class AgentSession:
                 result = {"ok": True, "result": result}
         self._emit(AgentEvent("tool_result", op=op, args=args, result=result, call_id=call_id))
         return result
+
+    def _repeated(self, op: str, args: dict) -> bool:
+        """True once a static lookup is asked for, with the same arguments,
+        more than REPEAT_LIMIT times in the current turn."""
+        if op not in REPEAT_GUARDED_OPS:
+            return False
+        try:
+            key = op + json.dumps(args, sort_keys=True, default=str).lower()
+        except (TypeError, ValueError):
+            return False
+        n = self._repeat_counts.get(key, 0) + 1
+        self._repeat_counts[key] = n
+        return n > REPEAT_LIMIT
 
     def _approved(self, op: str, args: dict) -> bool:
         try:
