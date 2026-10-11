@@ -9,6 +9,17 @@ from __future__ import annotations
 # [{version, date (YYYY-MM-DD), title, changes: [str, …]}, …] — newest first.
 CHANGELOG = [
     {
+        "version": "0.4.7",
+        "date": "2026-10-10",
+        "title": "Several trees in one file, assistant fixes",
+        "changes": [
+            "Countries that keep several focus trees in one file now import whole. Millennium Dawn's Australia, for example, has eight trees and 89 shared focuses. A tree box above the canvas switches between them, and Export to Mod writes every tree and shared focus back, so replacing the file no longer drops the trees you weren't editing.",
+            "Shared focuses are tagged SHARED and appear in every tree that uses their branch. Editing one changes it in all of them. Focus ids stay unique across the whole file, and validation checks every tree. A problem in another tree carries that tree's id in [brackets]; click it to jump there.",
+            "Fixed: Test connection failed with 'max_tokens must be at least 16' on some providers, such as NanoGPT's Muse Spark, even when the key worked.",
+            "Fixed: the assistant could loop while picking focus icons. Icon search now handles queries like 'oil refinery' or a guessed GFX_ name by matching their words, and says how to search when nothing matches.",
+        ],
+    },
+    {
         "version": "0.4.6",
         "date": "2026-10-05",
         "title": "Cores and claims, Millennium Dawn 2.0.2 support",
