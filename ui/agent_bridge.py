@@ -60,6 +60,22 @@ _MAX_ICON_ITEMS = 25
 _ICON_THEMES = ("economy", "military", "politics", "research")
 
 
+def render_scene_region(scene, src: QRectF, max_px: int = 1800) -> QImage:
+    """Paint the scene rectangle ``src`` into an image at most ``max_px`` on its
+    longer side (never upscaled past 2×). The one canvas-to-image path: the
+    ``screenshot`` op saves the result to its fixed app-owned file."""
+    scale = min(max_px / max(src.width(), 1.0), max_px / max(src.height(), 1.0), 2.0)
+    iw, ih = max(1, int(src.width() * scale)), max(1, int(src.height() * scale))
+    img = QImage(iw, ih, QImage.Format_RGB32)
+    img.fill(QColor(T.BG_BASE))
+    painter = QPainter(img)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.TextAntialiasing)
+    scene.render(painter, QRectF(0, 0, iw, ih), src)
+    painter.end()
+    return img
+
+
 class AgentBridge(QObject):
     state_changed = Signal(bool, int)    # listening?, port
     client_changed = Signal(bool)        # a client connected / disconnected
@@ -355,16 +371,8 @@ class AgentBridge(QObject):
             src = src.adjusted(-margin * _GRID_X, -margin * _GRID_Y,
                                margin * _GRID_X, margin * _GRID_Y)
 
-            max_px = int(args.get("max_px", 1800))
-            scale = min(max_px / max(src.width(), 1.0), max_px / max(src.height(), 1.0), 2.0)
-            iw, ih = max(1, int(src.width() * scale)), max(1, int(src.height() * scale))
-            img = QImage(iw, ih, QImage.Format_RGB32)
-            img.fill(QColor(T.BG_BASE))
-            painter = QPainter(img)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setRenderHint(QPainter.TextAntialiasing)
-            scene.render(painter, QRectF(0, 0, iw, ih), src)
-            painter.end()
+            img = render_scene_region(scene, src, int(args.get("max_px", 1800)))
+            iw, ih = img.width(), img.height()
 
             # App-owned, fixed location only — never a client-supplied path, so
             # the screenshot op can't be turned into an arbitrary-file-write

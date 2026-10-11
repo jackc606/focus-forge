@@ -12,6 +12,13 @@ from .md_edition import (
     LEGACY_EQUIPMENT_RENAMES, LEGACY_TAG_RENAMES, active_edition, foreign_helpers,
 )
 from .md_parties import MD_PARTY_SUBIDEOLOGY_BY_INDEX
+from .multi_tree import (
+    active_index,
+    all_shared,
+    is_multi,
+    tree_views,
+    visible_shared_ids,
+)
 from .presets import EDITION_ONLY_FOCUS_FILTERS, FOCUS_FILTER_PATTERN, MD_FOCUS_FILTERS
 from .reward_presets import (
     get_reward_preset,
@@ -75,7 +82,125 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     tag-prefixed idea references found there are legal, not warnings.
     ``tree_index`` is an optional ``core.tree_index.BaseTreeIndex`` of the
     trees the game/MD already ship; with it, an export that would load next
-    to (instead of replacing) a base tree sharing its focus ids is an error."""
+    to (instead of replacing) a base tree sharing its focus ids is an error.
+
+    A multi-tree project (``core.multi_tree``) is validated tree by tree: the
+    active tree exactly like an ordinary project, every parked tree through
+    the same per-tree checks with its issues prefixed ``[<treeId>] ``."""
+    kwargs = dict(icon_exists=icon_exists,
+                  known_decision_categories=known_decision_categories,
+                  known_idea_ids=known_idea_ids, edition=edition,
+                  known_country_tags=known_country_tags, script_vocab=script_vocab,
+                  state_index=state_index, equipment_types=equipment_types,
+                  loc_key_exists=loc_key_exists, tech_categories=tech_categories)
+    if not is_multi(project):
+        issues = _validate_tree(project, tree_index=tree_index, **kwargs)
+        _validate_cross_tree(project, issues)
+        return issues
+
+    views = tree_views(project)
+    current = active_index(project)
+    issues = _validate_tree(views[current], **kwargs)
+    shared_ids = {f.id for f in all_shared(project)}
+    # A shared focus is the same object in every tree that shows it: report a
+    # problem with it once, not once per tree.
+    seen = {(i.code, i.focusId, i.message) for i in issues if i.focusId in shared_ids}
+    for n, view in enumerate(views):
+        if n == current:
+            continue
+        prefix = f"[{view.treeId}] "
+        for issue in _validate_tree(view, tree_only=True, **kwargs):
+            if not _is_tree_issue(issue):
+                continue      # project-level content was checked with the active tree
+            if issue.focusId in shared_ids:
+                key = (issue.code, issue.focusId, issue.message)
+                if key in seen:
+                    continue
+                seen.add(key)
+            issue.message = prefix + issue.message
+            issue.treeId = view.treeId      # lets the UI jump to the right tree
+            issues.append(issue)
+    _validate_cross_tree(project, issues)
+    if tree_index is not None:
+        from .tree_index import collision_issues, find_collisions
+        issues.extend(collision_issues(find_collisions(project, tree_index)))
+    return issues
+
+
+def _is_tree_issue(issue) -> bool:
+    """True for an issue that belongs to a TREE (its focuses, its shortcuts,
+    its id) rather than to project-wide content (ideas, events, decisions,
+    export settings), which is validated once with the active tree."""
+    if issue.focusId is not None:
+        return True
+    code = issue.code or ""
+    return (code == "focus.id.empty" or code.startswith("shortcut.")
+            or code.startswith("project.treeId")
+            or (issue.message or "").startswith("shortcut "))
+
+
+def _validate_cross_tree(project: FocusForgeProject, issues: list) -> None:
+    """What only shows up across trees: a focus id defined in two trees (or in
+    a tree and as a shared focus), a ``shared_focus = X`` reference to a focus
+    this project doesn't define, and shared focuses no tree references.
+    Nothing to do — and nothing walked — for an ordinary project."""
+    multi = is_multi(project)
+    own_refs = getattr(project, "sharedFocusRefs", None) or []
+    if not multi and not own_refs and not any(getattr(f, "shared", False) for f in project.focuses):
+        return
+    shared = all_shared(project)
+    shared_ids = {f.id for f in shared}
+    trees = [(project.treeId, [f.id for f in project.focuses if not getattr(f, "shared", False)],
+              own_refs)]
+    trees += [(t.treeId, [f.id for f in t.focuses], t.sharedFocusRefs or [])
+              for t in (getattr(project, "otherTrees", None) or [])]
+
+    owners: dict = {}
+    for tree_id, ids, _refs in trees:
+        for fid in set(ids):
+            if fid:
+                owners.setdefault(fid, []).append(f"tree {tree_id}")
+    for fid in shared_ids:
+        if fid:
+            owners.setdefault(fid, []).append("the shared focuses")
+    for fid, where in owners.items():
+        if len(where) > 1:
+            issues.append(ValidationIssue(
+                severity="error", code="focus.id.duplicateAcrossTrees", focusId=fid,
+                message=f"{fid} is defined more than once in this file ({', '.join(where)}) — "
+                        f"focus ids must be unique across every tree and shared focus."))
+
+    seen_tree_ids: set = set()
+    visible: set = set()
+    for tree_id, _ids, refs in trees:
+        if multi and tree_id and tree_id in seen_tree_ids:
+            _err(issues, "project.treeId.duplicate",
+                 f"Focus tree id '{tree_id}' is used by more than one tree in this file.")
+        seen_tree_ids.add(tree_id)
+        for ref in refs:
+            if ref not in shared_ids:
+                _warn(issues, "tree.sharedRef.external",
+                      f"Tree {tree_id} references shared focus {ref}, which is defined "
+                      f"elsewhere, kept as a reference — it is exported as written and "
+                      f"can't be edited here.")
+        visible |= visible_shared_ids(shared, refs)
+    for f in shared:
+        if f.id not in visible:
+            _warn_focus(issues, "focus.shared.unreferenced", f.id,
+                        f"{f.id} is a shared focus that no tree references (directly or "
+                        f"through its prerequisites) — it is exported but never shown in-game.")
+
+
+def _validate_tree(project: FocusForgeProject, icon_exists=None,
+                   known_decision_categories=None,
+                   known_idea_ids=None, edition=None,
+                   known_country_tags=None, script_vocab=None,
+                   state_index=None, equipment_types=None,
+                   tree_index=None, loc_key_exists=None, tech_categories=None,
+                   tree_only: bool = False) -> list:
+    """Every check over ONE tree (``project`` presents it as the active one).
+    ``tree_only`` skips the project metadata checks (a parked tree only needs
+    its own id checked) — the caller drops the remaining project-level issues."""
     issues: list = []
     focus_ids: set = set()
     seen_positions: dict = {}
@@ -164,7 +289,10 @@ def validate_project(project: FocusForgeProject, icon_exists=None,
     _detect_cycles(project, issues)
     _detect_unreachable(project, issues)
     _validate_shortcuts(project, focus_ids, issues)
-    _validate_metadata(project, issues, known_decision_categories)
+    if tree_only:
+        _validate_tree_id(project, issues)
+    else:
+        _validate_metadata(project, issues, known_decision_categories)
     _validate_edition(project, issues, edition, known_country_tags)
     _validate_ai_weights(project, issues)
     _validate_filters(project, issues, edition)
@@ -585,6 +713,13 @@ def _lint_all_raw_script(project: FocusForgeProject, issues: list) -> None:
             if mod.trigger is not None:
                 check(mod.trigger.rawLines, "focus.ai.script",
                       f"{focus.id} AI modifier {i} trigger", focus.id)
+        # Imported statements the editor doesn't model are exported verbatim —
+        # a stray brace there corrupts the file just the same.
+        if getattr(focus, "extraRawLines", None):
+            check(focus.extraRawLines, "focus.extra.script",
+                  f"{focus.id} extra statements", focus.id)
+        for block in (getattr(focus, "offsets", None) or []):
+            check(block, "focus.extra.script", f"{focus.id} offset", focus.id)
     for idea in project.ideas:
         check(idea.modifierRawLines, "idea.modifier.script",
               f"idea {idea.id} modifiers")
@@ -725,11 +860,7 @@ def _validate_metadata(project: FocusForgeProject, issues: list,
     settings = project.exportSettings
 
     # ----- focus tree + country tag -----
-    tree_id = (project.treeId or "").strip()
-    if not tree_id:
-        _err(issues, "project.treeId.empty", "Focus tree has no id (treeId).")
-    elif not _TOKEN_PATTERN.match(tree_id):
-        _err(issues, "project.treeId.invalid", f"Focus tree id '{tree_id}' is not a valid HOI4 id.")
+    _validate_tree_id(project, issues)
 
     tag = (project.countryTag or "").strip()
     if not tag:
@@ -778,6 +909,14 @@ def _validate_metadata(project: FocusForgeProject, issues: list,
         _validate_events(project.events, issues)
     if settings.includeDecisions:
         _validate_decisions(project, issues, known_decision_categories)
+
+
+def _validate_tree_id(project, issues: list) -> None:
+    tree_id = (project.treeId or "").strip()
+    if not tree_id:
+        _err(issues, "project.treeId.empty", "Focus tree has no id (treeId).")
+    elif not _TOKEN_PATTERN.match(tree_id):
+        _err(issues, "project.treeId.invalid", f"Focus tree id '{tree_id}' is not a valid HOI4 id.")
 
 
 def _validate_decisions(project, issues: list, known_categories=None) -> None:

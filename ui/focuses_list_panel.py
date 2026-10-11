@@ -19,14 +19,16 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme as T
+from .focus_node_item import SHARED_LABEL, SHARED_TOOLTIP
 from .icon_provider import provider
 from .project_model import ProjectModel
-from .widgets import divider, issue_card, mono_font, section_header
+from .widgets import activate_issue, divider, issue_card, mono_font, section_header
 
 ROLE_ID = Qt.UserRole
 ROLE_TITLE = Qt.UserRole + 1
 ROLE_ICON = Qt.UserRole + 2
 ROLE_STATUS = Qt.UserRole + 3  # None | "warning" | "error"
+ROLE_SHARED = Qt.UserRole + 4  # True for a shared focus (multi-tree files)
 
 _STATUS_COLORS = {"error": T.STATUS_ERROR, "warning": T.STATUS_WARN}
 
@@ -107,10 +109,20 @@ class _FocusRowDelegate(QStyledItemDelegate):
         id_font = mono_font(T.TEXT_MICRO)
         fm2 = QFontMetrics(id_font)
         p.setFont(id_font)
+        id_w = text_w
+        if index.data(ROLE_SHARED):
+            # Same tag (wording + colour) as the canvas node's corner chip,
+            # right-aligned on the id row; the id elides to make room.
+            tag_w = fm2.horizontalAdvance(SHARED_LABEL)
+            p.setPen(QColor(T.PREREQ_LINE))
+            p.drawText(QRect(text_left + text_w - tag_w, r.bottom() - fm2.height() - 4,
+                             tag_w, fm2.height()),
+                       Qt.AlignRight | Qt.AlignVCenter, SHARED_LABEL)
+            id_w = max(10, text_w - tag_w - 8)
         p.setPen(QColor(T.TEXT_MUTED))
-        p.drawText(QRect(text_left, r.bottom() - fm2.height() - 4, text_w, fm2.height()),
+        p.drawText(QRect(text_left, r.bottom() - fm2.height() - 4, id_w, fm2.height()),
                    Qt.AlignLeft | Qt.AlignVCenter,
-                   fm2.elidedText(fid, Qt.ElideRight, text_w))
+                   fm2.elidedText(fid, Qt.ElideRight, id_w))
         p.restore()
 
 
@@ -208,12 +220,17 @@ class FocusesListPanel(QWidget):
             item.setData(ROLE_TITLE, f.title or f.id)
             item.setData(ROLE_ICON, f.icon or "")
             item.setData(ROLE_STATUS, self._status_map.get(f.id))
+            if getattr(f, "shared", False):
+                item.setData(ROLE_SHARED, True)
+                item.setToolTip(SHARED_TOOLTIP)
             self._list.addItem(item)
             if f.id == self._model.selected_id:
                 item.setSelected(True)
         self._list.blockSignals(False)
         n = self._list.count()
-        self._focus_count.setText(f"{n} focus{'es' if n != 1 else ''}")
+        shared = sum(1 for f in self._model.project.focuses if getattr(f, "shared", False))
+        self._focus_count.setText(f"{n} focus{'es' if n != 1 else ''}"
+                                  + (f" · {shared} shared" if shared else ""))
         self._apply_filter()
         self._list.verticalScrollBar().setValue(scroll)
 
@@ -261,11 +278,11 @@ class FocusesListPanel(QWidget):
             self._warnings_box.addStretch(1)
             return
         for issue in issues[:6]:
-            # Clicking an issue that names a focus jumps to it.
+            # Clicking an issue that names a focus jumps to it (and to its
+            # tree, for an issue on a parked tree of a multi-tree project).
             on_click = None
             if issue.focusId:
-                on_click = (lambda fid=issue.focusId:
-                            self._model.set_selection(fid))
+                on_click = lambda i=issue: activate_issue(self._model, i)
             self._warnings_box.addWidget(
                 issue_card(issue.severity, issue.message, on_click=on_click))
         if len(issues) > 6:

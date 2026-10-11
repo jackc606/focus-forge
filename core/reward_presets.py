@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from .ideologies import IDEOLOGY_TREE, canonical_sub_ideology, rename_legacy_ideology_tokens
 from .md_edition import EDITIONS, active_edition
+from .multi_tree import all_focuses
 from .presets import DOCTRINE_CATEGORIES, LEGACY_DOCTRINE_CATEGORIES, MD_TECH_CATEGORIES
 
 # sub-ideology -> top ideology, for putting a leader's party in power.
@@ -995,8 +996,10 @@ def iter_reward_item_sites(project, enabled_only: bool = True):
     """Every structured reward item in the project with its owner — focus
     completion rewards, event option effects and decision effects. The ONE
     enumeration validation and export share, so a new item site can never be
-    covered by one and forgotten by the other."""
-    for focus in project.focuses:
+    covered by one and forgotten by the other. Covers every tree of a
+    multi-tree file and every shared focus (a ``multi_tree`` view carries only
+    its own tree, which is how validation walks them one tree at a time)."""
+    for focus in all_focuses(project):
         reward = focus.completionReward
         for n, item in enumerate((reward.items if reward else None) or [], start=1):
             if enabled_only and not _item_enabled(item):

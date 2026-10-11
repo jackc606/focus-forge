@@ -34,6 +34,7 @@ from .md_focus_guide import (
     REWARD_AUTHORING_NOTE,
 )
 from .md_parties import MD_PARTIES
+from .multi_tree import all_shared, index_of_tree, is_multi, tree_count, tree_summaries
 from .presets import FOCUS_FILTER_PATTERN, MD_FOCUS_FILTERS, MD_ICON_PRESETS, MD_TECH_CATEGORIES
 from .reward_presets import (
     BUILDING_TYPES,
@@ -75,6 +76,15 @@ _DYNAMIC_TAG_RE = re.compile(r"^D\d\d$")
 # ----- shaping helpers ---------------------------------------------------------
 
 def _focus_summary(f) -> dict:
+    out = _focus_summary_base(f)
+    if getattr(f, "shared", False):
+        # A top-level shared_focus: it appears in every tree that references
+        # its branch, so an edit here changes all of them.
+        out["shared"] = True
+    return out
+
+
+def _focus_summary_base(f) -> dict:
     return {
         "id": f.id,
         "title": f.title,
@@ -90,7 +100,13 @@ def _focus_summary(f) -> dict:
 
 
 _SUMMARY_FIELDS = ("id", "title", "x", "y", "icon", "cost", "prerequisites",
-                   "mutuallyExclusive", "aiWillDo", "aiModifierCount")
+                   "mutuallyExclusive", "aiWillDo", "aiModifierCount", "shared")
+
+
+def _has_trees(project) -> bool:
+    """True when the project is more than one plain tree: several trees, or
+    shared focuses. Only then do read ops mention trees at all."""
+    return is_multi(project) or bool(all_shared(project))
 
 
 def _preset_dict(p) -> dict:
@@ -530,13 +546,17 @@ def _require(args: dict, *keys: str) -> None:
 
 def _op_hello(model, args):
     p = model.project
+    project = {"name": p.projectName, "tag": p.countryTag,
+               "treeId": p.treeId, "focuses": len(p.focuses),
+               "ideas": len(p.ideas), "events": len(p.events)}
+    if _has_trees(p):
+        # Multi-tree file: focus ops act on the ACTIVE tree (treeId above).
+        project["trees"] = tree_summaries(p)
     return {
         "app": "Focus Forge",
         "version": _APP_VERSION,
         "protocol": BRIDGE_PROTOCOL,
-        "project": {"name": p.projectName, "tag": p.countryTag,
-                    "treeId": p.treeId, "focuses": len(p.focuses),
-                    "ideas": len(p.ideas), "events": len(p.events)},
+        "project": project,
         "layout": LAYOUT_CONVENTION,
         "ops": sorted(OP_SPECS),
         "start_here": "Call guide, then describe_op for any op before first use.",
@@ -552,7 +572,34 @@ def _op_describe_op(model, args):
 
 
 def _op_get_project(model, args):
-    return project_to_dict(model.project)
+    out = project_to_dict(model.project)
+    if _has_trees(model.project):
+        out["trees"] = tree_summaries(model.project)   # read-only summary
+    return out
+
+
+def _op_list_trees(model, args):
+    """Every focus_tree of the project's file, in file order."""
+    return tree_summaries(model.project)
+
+
+def _op_switch_tree(model, args):
+    p = model.project
+    index = _int_arg(args, "index")
+    tree_id = args.get("treeId")
+    if index is None and tree_id in (None, ""):
+        raise ValueError("Pass index or treeId (see list_trees).")
+    if index is None:
+        index = index_of_tree(p, str(tree_id))
+        if index < 0:
+            known = ", ".join(t["treeId"] for t in tree_summaries(p))
+            raise ValueError(f"No tree '{tree_id}'. Trees in this project: {known}.")
+    if not 0 <= index < tree_count(p):
+        raise ValueError(f"index must be 0..{tree_count(p) - 1} (got {index}); see list_trees.")
+    switched = model.switch_tree(index)
+    p = model.project
+    return {"switched": bool(switched), "index": index, "treeId": p.treeId,
+            "focuses": len(p.focuses), "trees": tree_summaries(p)}
 
 
 def _int_arg(args: dict, key: str):
@@ -637,6 +684,8 @@ def _op_validate(model, args):
     out = {"errors": [], "warnings": []}
     for i in issues:
         rec = {"code": i.code, "message": i.message, "focusId": i.focusId}
+        if getattr(i, "treeId", None):
+            rec["treeId"] = i.treeId    # a parked tree's issue: switch_tree first
         (out["errors"] if i.severity == "error" else out["warnings"]).append(rec)
     out["summary"] = {"errors": len(out["errors"]), "warnings": len(out["warnings"])}
     return out
@@ -1300,6 +1349,8 @@ _OPS = {
     "guide": _op_guide,
     "describe_op": _op_describe_op,
     "get_project": _op_get_project,
+    "list_trees": _op_list_trees,
+    "switch_tree": _op_switch_tree,
     "list_focuses": _op_list_focuses,
     "get_focus": _op_get_focus,
     "get_selection": _op_get_selection,

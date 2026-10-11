@@ -4,8 +4,9 @@ Two halves:
 
 **Pre-flight** — ``smoke_check(files)`` parses every generated file with the
 app's own Paradox-script reader and applies the structural rules the game
-enforces at load: balanced braces and quotes, a single ``focus_tree`` with an
-id and unique focus ids whose prerequisite / mutually-exclusive / relative-
+enforces at load: balanced braces and quotes, ``focus_tree`` blocks (one, or
+several plus top-level ``shared_focus`` blocks) each with an id, and focus ids
+unique across the file whose prerequisite / mutually-exclusive / relative-
 position references resolve, events inside their namespace with a title and an
 option and a way to fire, localisation files with the ``l_english:`` header, a
 BOM and well-formed entries, sprite blocks with a name and texture — plus the
@@ -107,48 +108,73 @@ def parse_script(text: str) -> list:
 # Per-file checks
 # ---------------------------------------------------------------------------
 def _check_focus_tree(rel: str, text: str, issues: list) -> dict:
-    """Returns {"focus_ids": [...]} for the cross-file loc check."""
+    """Returns {"focus_ids": [...]} for the cross-file loc check.
+
+    A file may hold several ``focus_tree`` blocks and top-level
+    ``shared_focus`` blocks. Focus ids must be unique across the whole file; a
+    tree's focuses may reference its own focuses and any shared focus, shared
+    focuses only other shared focuses."""
     body = _strip_comments(text)
-    trees = [(k, v) for k, kind, v in _statements(body) if kind == "block" and k.lower() == "focus_tree"]
+    top = [(k.lower(), v) for k, kind, v in _statements(body) if kind == "block"]
+    trees = [v for k, v in top if k == "focus_tree"]
     out = {"focus_ids": []}
     if not trees:
         _err(issues, "export.focus.noTree", f"{rel}: no focus_tree block.")
         return out
-    if len(trees) > 1:
-        _err(issues, "export.focus.multipleTrees", f"{rel}: {len(trees)} focus_tree blocks — one per file.")
-    _k, tree = trees[0]
-    stmts = list(_statements(tree))
-    if not any(kind == "scalar" and k.lower() == "id" for k, kind, _v in stmts):
-        _err(issues, "export.focus.treeId", f"{rel}: focus_tree has no id.")
-    if not any(kind == "block" and k.lower() == "country" for k, kind, _v in stmts):
-        _warn(issues, "export.focus.country", f"{rel}: focus_tree has no country = {{ }} block — no country will use it.")
-    parsed = [_parse_focus(v) for k, kind, v in stmts if kind == "block" and k.lower() == "focus"]
+    shared = [_parse_focus(v) for k, v in top if k == "shared_focus"]
+    shared_ids = {pf.id for pf in shared if pf.id}
+    multi = len(trees) > 1
     ids: list = []
-    for pf in parsed:
+    seen: set = set()
+    tree_ids: set = set()
+
+    def register(pf) -> bool:
         if not pf.id:
             _err(issues, "export.focus.noId", f"{rel}: a focus has no id.")
-            continue
-        if pf.id in ids:
+            return False
+        if pf.id in seen:
             _err(issues, "export.focus.duplicateId", f"{rel}: focus id {pf.id} appears twice.", pf.id)
+        seen.add(pf.id)
         ids.append(pf.id)
-    idset = set(ids)
-    for pf in parsed:
-        if not pf.id:
-            continue
+        return True
+
+    def check_refs(pf, scope: set, where: str) -> None:
         for blk in pf.prereqs:
             for p in (blk if isinstance(blk, list) else [blk]):
-                if p not in idset:
+                if p not in scope:
                     _err(issues, "export.focus.prereqMissing",
-                         f"{rel}: {pf.id} requires {p}, which is not in this tree.", pf.id)
+                         f"{rel}: {pf.id} requires {p}, which is not in {where}.", pf.id)
         for m in pf.mutex:
-            if m not in idset:
+            if m not in scope:
                 _err(issues, "export.focus.mutexMissing",
-                     f"{rel}: {pf.id} is mutually exclusive with {m}, which is not in this tree.", pf.id)
-        if pf.rel and pf.rel not in idset:
+                     f"{rel}: {pf.id} is mutually exclusive with {m}, which is not in {where}.", pf.id)
+        if pf.rel and pf.rel not in scope:
             _err(issues, "export.focus.relativeMissing",
-                 f"{rel}: {pf.id} is positioned relative to {pf.rel}, which is not in this tree.", pf.id)
+                 f"{rel}: {pf.id} is positioned relative to {pf.rel}, which is not in {where}.", pf.id)
         if not pf.icon:
             _warn(issues, "export.focus.noIcon", f"{rel}: {pf.id} has no icon.", pf.id)
+
+    for tree in trees:
+        stmts = list(_statements(tree))
+        tid = next((v for k, kind, v in stmts if kind == "scalar" and k.lower() == "id"), "")
+        label = f"focus_tree {tid}" if (multi and tid) else "focus_tree"
+        if not tid:
+            _err(issues, "export.focus.treeId", f"{rel}: focus_tree has no id.")
+        elif tid in tree_ids:
+            _err(issues, "export.focus.duplicateTreeId",
+                 f"{rel}: focus_tree id {tid} is declared twice.")
+        tree_ids.add(tid)
+        if not any(kind == "block" and k.lower() == "country" for k, kind, _v in stmts):
+            _warn(issues, "export.focus.country",
+                  f"{rel}: {label} has no country = {{ }} block — no country will use it.")
+        parsed = [_parse_focus(v) for k, kind, v in stmts if kind == "block" and k.lower() == "focus"]
+        own = [pf for pf in parsed if register(pf)]
+        scope = {pf.id for pf in own} | shared_ids
+        for pf in own:
+            check_refs(pf, scope, "this tree")
+    kept = [pf for pf in shared if register(pf)]
+    for pf in kept:
+        check_refs(pf, shared_ids, "the file's shared focuses")
     out["focus_ids"] = ids
     return out
 
@@ -370,6 +396,9 @@ class LogHit:
 _LOG_LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\]\[([^\]]*)\]\[([^\]]*)\]:\s*(.*)$")
 _LOG_FILE_REF = re.compile(r'file:\s*"?([^"\s]+?\.(?:txt|yml|gfx))"?\s*(?:near\s+)?line:\s*(\d+)', re.IGNORECASE)
 _FOCUS_ID_LINE = re.compile(r"^\t\tid\s*=\s*(\S+)")
+# A top-level shared_focus block sits one indent level up from a tree's focuses.
+_SHARED_OPEN_LINE = re.compile(r"^shared_focus\s*=\s*\{")
+_SHARED_ID_LINE = re.compile(r"^\tid\s*=\s*(\S+)")
 
 
 def default_error_log() -> str:
@@ -392,7 +421,8 @@ def log_needles(project, files, mod_dir: str = "") -> list:
     if mod_dir:
         needles.add(os.path.basename(os.path.normpath(mod_dir)))
     if project is not None:
-        for fo in project.focuses:
+        from .multi_tree import all_focuses
+        for fo in all_focuses(project):
             if fo.id:
                 needles.add(fo.id)
         for i in project.ideas:
@@ -411,10 +441,20 @@ def log_needles(project, files, mod_dir: str = "") -> list:
 
 def _focus_at_line(content: str, line: int) -> str:
     current = ""
+    in_shared = False
     for n, ln in enumerate((content or "").split("\n"), start=1):
         m = _FOCUS_ID_LINE.match(ln)
         if m:
             current = m.group(1)
+        elif _SHARED_OPEN_LINE.match(ln):
+            in_shared = True
+        elif in_shared:
+            m = _SHARED_ID_LINE.match(ln)
+            if m:
+                current = m.group(1)
+                in_shared = False
+            elif ln.startswith("focus_tree"):
+                in_shared = False
         if n >= line:
             return current
     return current

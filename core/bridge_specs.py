@@ -104,10 +104,23 @@ OP_SPECS: dict = {
         "The entire project as JSON (.focusforge.json shape). Large on big trees — prefer "
         "list_focuses with filters.",
         {}, "project dict", {}),
+    "list_trees": OpSpec(
+        "Every focus_tree of the project's file, in file order. Most projects have one; a "
+        "file imported from Millennium Dawn may hold several plus shared focuses. Focus ops "
+        "act on the ACTIVE tree only.",
+        {}, "[{index, treeId, active, ownFocuses, sharedFocuses}]", {}),
+    "switch_tree": OpSpec(
+        "Make another tree of a multi-tree project the active one (by index or treeId, from "
+        "list_trees). One undo step; clears the selection. Nothing is lost: the other trees "
+        "stay in the project and are all exported.",
+        {"index": _a("integer", "Tree index from list_trees."),
+         "treeId": _a("string", "Tree id from list_trees (alternative to index).",
+                      aliases=("tree_id",))},
+        "{switched, index, treeId, focuses, trees}", {"treeId": "australia_abbottgov_focus"}),
     "list_focuses": OpSpec(
         "Focus summaries (id, title, x, y, icon, cost, prerequisites, mutuallyExclusive, "
-        "aiWillDo, aiModifierCount). With no args: the bare list. With any filter/limit: "
-        "{focuses, total, returned}.",
+        "aiWillDo, aiModifierCount; plus shared=true on a shared focus) of the ACTIVE tree. "
+        "With no args: the bare list. With any filter/limit: {focuses, total, returned}.",
         {
             "prefix": _a("string", "Only ids starting with this."),
             "ids": _a("array", "Only these ids.", aliases=("focus_ids",)),

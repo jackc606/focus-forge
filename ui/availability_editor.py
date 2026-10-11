@@ -19,6 +19,7 @@ from core.availability_presets import (
     create_availability_item,
     get_availability_preset,
 )
+from core.multi_tree import all_focuses
 from core.types import AvailabilityRule, RewardItem
 
 from . import theme as T
@@ -127,7 +128,9 @@ class AvailabilityEditor(QWidget):
             self._suspend = False
             return
         rule = focus.available or AvailabilityRule()
-        focus_ids = [f.id for f in self._model.project.focuses if f.id != self._focus_id]
+        # has_completed_focus may name a focus of ANY tree of the file.
+        focus_ids = [f.id for f in all_focuses(self._model.project)
+                     if f.id != self._focus_id]
         tag = self._model.project.countryTag
         for index, item in enumerate(rule.items or []):
             card = PresetItemCard(

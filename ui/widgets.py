@@ -8,9 +8,43 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from . import theme as T
+
+
+def flush_focused_editor() -> None:
+    """Commit any in-progress edit in the focused text/spin editor. Those
+    widgets write to the model on editingFinished, which only fires when
+    they lose focus — so anything that snapshots the project or swaps what the
+    editors point at (save, export, autosave, a tree switch) must flush them
+    first or the value still sitting in the widget is lost. Focus is given
+    back afterwards so an autosave mid-typing doesn't steal the caret."""
+    w = QApplication.focusWidget()
+    if isinstance(w, (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)):
+        w.clearFocus()  # fires editingFinished synchronously → model commit
+        w.setFocus()
+
+
+def activate_issue(model, issue) -> None:
+    """Click handler for a validation issue card: select the focus it names.
+    An issue raised on a parked tree of a multi-tree project switches to that
+    tree first — after flushing the focused editor, whose pending edit belongs
+    to a focus of the tree being left."""
+    if model.issue_tree_index(issue) >= 0:
+        flush_focused_editor()
+    model.reveal_issue(issue)
 
 
 class ClickableLabel(QLabel):

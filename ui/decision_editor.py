@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.multi_tree import all_focuses
 from core.reward_presets import format_number
 from core.types import (
     AvailabilityRule,
@@ -142,7 +143,7 @@ class DecisionCategoryEditorDialog(QDialog):
             items=(category.visible.items if (category and category.visible) else None),
             raw_lines=(category.visible.rawLines if (category and category.visible) else None),
             country_tag=model.project.countryTag,
-            focus_ids=[f.id for f in model.project.focuses])
+            focus_ids=[f.id for f in all_focuses(model.project)])
         v.addWidget(self._visible)
 
         v.addWidget(section_header("Raw category fields (optional)"))
@@ -222,7 +223,7 @@ class DecisionEditorDialog(QDialog):
 
         tag = model.project.countryTag
         self._country_tag = tag
-        focus_ids = [f.id for f in model.project.focuses]
+        focus_ids = [f.id for f in all_focuses(model.project)]   # every tree's
         idea_refs = [(i.id, f"{i.title or i.id} ({i.id})") for i in model.project.ideas]
         event_refs = [(e.id, f"{e.title or e.id} ({e.id})") for e in model.project.events]
         from .leader_options import build_leader_refs

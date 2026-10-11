@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from .focus_import import _ID, _TREE_START, _match_brace, _statements, _strip_comments
 from .mod_paths import effective_roots_for_path
+from .multi_tree import all_focuses, tree_ids
 from .types import FocusForgeProject, ValidationIssue
 
 # The mod every Focus Forge project targets; named in user-facing messages.
@@ -264,8 +265,10 @@ def find_collisions(project: FocusForgeProject, index) -> CollisionReport:
             report.replaces = base
             break
 
+    # The export writes the WHOLE file — every tree and shared focus of a
+    # multi-tree project — so all of them can collide, not just the active tree.
     dups: dict = {}
-    for focus in project.focuses:
+    for focus in all_focuses(project):
         fid = (focus.id or "").strip()
         if not fid:
             continue
@@ -275,11 +278,15 @@ def find_collisions(project: FocusForgeProject, index) -> CollisionReport:
             dups.setdefault(base, []).append(fid)
     report.duplicate_ids = dups
 
-    if report.tree_id:
-        for base in index.files_for_tree(report.tree_id):
-            if base.lower() != low:
-                report.tree_id_clash = base
-                break
+    for tid in tree_ids(project):
+        tid = (tid or "").strip()
+        if not tid:
+            continue
+        clash = next((base for base in index.files_for_tree(tid) if base.lower() != low), None)
+        if clash is not None:
+            report.tree_id_clash = clash
+            report.tree_id = tid      # name the tree that actually clashes
+            break
 
     if dups:
         report.suggested_basename = max(dups, key=lambda b: (len(dups[b]), b))

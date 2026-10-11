@@ -18,6 +18,7 @@ from core.exporters import (
 )
 from core.file_io import atomic_write_bytes
 from core.image_write import dds_bgra32, tga_bgra32
+from core.multi_tree import all_focuses
 
 
 def _qimage_from_b64(data: str):
@@ -102,9 +103,10 @@ def export_country_assets(project, mod_dir: str) -> int:
 def export_focus_icon_assets(project, mod_dir: str) -> int:
     """Write the .dds for each focus that uses a CUSTOM imported icon. Returns
     the number of files written. Always runs (the focus tree is always part of
-    the export)."""
+    the export). Covers every tree and shared focus of a multi-tree project —
+    the sprite .gfx lists all of them, so each needs its texture."""
     written = 0
-    for focus in project.focuses:
+    for focus in all_focuses(project):
         if not getattr(focus, "iconData", ""):
             continue
         img = _qimage_from_b64(focus.iconData)

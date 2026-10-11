@@ -272,6 +272,26 @@ HELP_TOPICS = [
          "Want MD's tree to stay and yours to sit beside it? Tick “Start a separate "
          "copy instead” when importing and every focus gets a prefix. The Export "
          "tab shows which case you're in, and Fix repairs a clash in one click."),
+        ("One file, several trees — the tree switcher and shared focuses",
+         "Some countries keep several focus trees in ONE file — Millennium Dawn's "
+         "Australia has a tree per government, eight in all. Importing one of them "
+         "imports the whole file, because your export replaces that file and must "
+         "not drop the other trees.\n\n"
+         "• The TREE box above the canvas shows which tree you are looking at. "
+         "Pick another to edit it; the Focuses list, Inspector and Stats follow. "
+         "It only appears when the project has more than one tree.\n"
+         "• Focuses tagged SHARED belong to the whole file, not to one tree — "
+         "the same focus shows up in every tree that uses its branch. Edit one "
+         "and it changes everywhere; delete one and it is gone from every tree.\n"
+         "• Focus ids are unique across all the trees, so a new id can't reuse "
+         "one from a tree you aren't looking at.\n"
+         "• Validation covers every tree. A problem in another tree is marked "
+         "with that tree's id in [brackets] — click it to jump there.\n"
+         "• Export to Mod always writes the whole file: every tree and every "
+         "shared focus, whichever tree is on screen.\n\n"
+         "Clear Focuses and Create Base Tree only touch the tree on screen. "
+         "“Start a separate copy” when importing takes just the one tree you "
+         "picked."),
     ]),
     ("Fixing common problems", [
         ("My tree doesn't show up in-game",

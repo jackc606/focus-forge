@@ -387,11 +387,13 @@ def structure_all_rewards(project):
     """Structure the raw reward script of every focus that fully parses.
     → ``(converted_focus_count, lifted_effect_count, skipped_focus_ids)``
     where skipped focuses had raw script that was only partially (or not at
-    all) recognized and were left untouched."""
+    all) recognized and were left untouched. Project-wide: every tree of a
+    multi-tree file and every shared focus."""
+    from .multi_tree import all_focuses
     converted = 0
     effects = 0
     skipped: list = []
-    for f in project.focuses:
+    for f in all_focuses(project):
         reward = f.completionReward
         if reward is None or not (reward.rawLines or []):
             continue

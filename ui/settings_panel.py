@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core import multi_tree
 from core.base_tree import apply_base_tree_to_project
 from core.md_edition import (
     EDITIONS,
@@ -79,6 +80,16 @@ class SettingsPanel(QWidget):
 
         self._tree_id = QLineEdit()
         project_form.addRow("Tree ID", self._tree_id)
+        self._project_form = project_form   # the Tree ID label follows the tree count
+
+        # Imported trees keep their country = { } block exactly as written, so
+        # the tag above is not what assigns the tree to a country (refresh()).
+        self._country_hint = hint(
+            "This tree's country = { } block was imported as written and is exported "
+            "unchanged — it, not the Country Tag, decides which country gets the tree. "
+            "The tag still names new focus ids and the localisation.")
+        self._country_hint.setVisible(False)
+        v.addWidget(self._country_hint)
 
         # ----- Export -----
         v.addWidget(section_header("Export"))
@@ -259,7 +270,8 @@ class SettingsPanel(QWidget):
             "app": version_label(),
             "project": f"{p.projectName or '(unnamed)'} [{p.countryTag}]",
             "path": str(self._model.path or "(unsaved)"),
-            "content": (f"{len(p.focuses)} focuses, {len(p.ideas)} ideas, "
+            "content": (f"{len(multi_tree.all_focuses(p))} focuses in "
+                        f"{multi_tree.tree_count(p)} tree(s), {len(p.ideas)} ideas, "
                         f"{len(p.events)} events, {len(p.decisions)} decisions"),
             "export dir": p.exportDir or "(not set)",
             "icon roots": "; ".join(icon_provider().roots()) or "(none)",
@@ -297,7 +309,26 @@ class SettingsPanel(QWidget):
         idx = self._md_edition.findData(md_edition(getattr(p, "mdEdition", "main")).key)
         self._md_edition.setCurrentIndex(idx if idx >= 0 else 0)
         self._suspend = False
+        self._refresh_tree_id_label()
         self._update_md_edition_status()
+
+    def _refresh_tree_id_label(self) -> None:
+        """In a multi-tree project the Tree ID field edits the ACTIVE tree's id
+        only — say so; a single-tree project keeps the plain label."""
+        p = self._model.project
+        n = multi_tree.tree_count(p)
+        label = self._project_form.labelForField(self._tree_id)
+        if n > 1:
+            label.setText("Active Tree ID")
+            tip = (f"The id of the tree you are viewing ({p.treeId}). This file has {n} "
+                   f"trees; the others keep their own ids — pick one in the tree "
+                   f"switcher above the canvas to rename it.")
+        else:
+            label.setText("Tree ID")
+            tip = ""
+        label.setToolTip(tip)
+        self._tree_id.setToolTip(tip)
+        self._country_hint.setVisible(bool(getattr(p, "countryRawLines", None)))
 
     # ----- Millennium Dawn edition -----
     def _on_md_edition_changed(self) -> None:
@@ -402,17 +433,29 @@ class SettingsPanel(QWidget):
         self._commit_icon_roots()
 
     def _on_create_base_tree(self) -> None:
-        if self._model.project.focuses:
+        project = self._model.project
+        multi = multi_tree.is_multi(project)
+        if project.focuses:
+            text = "This replaces all existing focuses with a generated placeholder tree. Continue?"
+            if multi:
+                text = (f"This replaces the focuses of the tree you are viewing "
+                        f"({project.treeId}) with a generated placeholder tree. Shared "
+                        f"focuses and the file's other trees are kept. Continue?")
             ans = QMessageBox.question(
                 self,
                 "Replace focuses?",
-                "This replaces all existing focuses with a generated placeholder tree. Continue?",
+                text,
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
             if ans != QMessageBox.Yes:
                 return
-        apply_base_tree_to_project(self._model.project, roots=provider().roots())
+        # The generator swaps project.focuses wholesale. Shared focuses sitting
+        # on the canvas belong to the whole file, so they step aside first and
+        # come back after (both are no-ops for an ordinary project).
+        multi_tree.park_shared(project)
+        apply_base_tree_to_project(project, roots=provider().roots())
+        multi_tree.pull_visible(project)
         if self._model.project.focuses:
             self._model.set_selection(self._model.project.focuses[0].id)
         self._model.notify_changed()

@@ -219,6 +219,22 @@ class FocusNodeData:
     aiWillDo: Optional[float] = None           # AI priority base; None = HOI4-default 10
     aiModifiers: Optional[list] = None         # list[AiModifier] — conditional ai_will_do tweaks
     notes: Optional[str] = None
+    # --- multi-tree / shared-focus support (all default-empty: a project that
+    # --- never uses them serializes and exports exactly as before) ---
+    # Defined as a top-level ``shared_focus = { }`` block, not inside a tree.
+    shared: bool = False
+    # Preserved ``relative_position_id`` (the importer keeps it for shared
+    # focuses only; ``position`` itself is always absolute in the editor).
+    relativePositionId: Optional[str] = None
+    # ``offset = { }`` blocks: each a list[str] of the block's inner raw lines,
+    # exported verbatim.
+    offsets: Optional[list] = None
+    # Editor bookkeeping: the offset delta currently baked into ``position``
+    # for the active tree (core.multi_tree). Base position = position - this.
+    appliedOffset: Optional[FocusPosition] = None
+    # Focus-level statements the editor doesn't model (allow_branch, cancel,
+    # select_effect, …), verbatim, re-emitted before completion_reward.
+    extraRawLines: Optional[list] = None
 
 
 @dataclass
@@ -362,6 +378,20 @@ class FocusShortcut:
 
 
 @dataclass
+class FocusTreeData:
+    """One INACTIVE ``focus_tree`` of a multi-tree file, parked while another
+    tree is being edited (see core.multi_tree). Holds only the tree's OWN
+    focuses — shared focuses live on the project (focuses / sharedPool)."""
+    treeId: str = ""
+    focuses: list = field(default_factory=list)
+    shortcuts: list = field(default_factory=list)
+    continuousFocusPosition: FocusPosition = field(default_factory=FocusPosition)
+    countryRawLines: list = field(default_factory=list)   # verbatim country = { } inner lines; empty = generated
+    sharedFocusRefs: list = field(default_factory=list)   # ids from `shared_focus = X` lines, in order
+    extraRawLines: list = field(default_factory=list)     # other tree-level statements, verbatim
+
+
+@dataclass
 class FocusForgeProject:
     projectName: str = ""
     countryTag: str = ""
@@ -390,6 +420,16 @@ class FocusForgeProject:
     # "mode": "replace" | "copy"}. Editor-only provenance (never exported) so
     # the UI can say "this replaces MD's nigeria.txt" instead of guessing.
     source: dict = field(default_factory=dict)
+    # --- multi-tree files (core.multi_tree). The project always presents ONE
+    # active tree through treeId / focuses / shortcuts / continuousFocusPosition;
+    # the file's other trees are parked here. All empty for ordinary projects.
+    otherTrees: list = field(default_factory=list)     # inactive FocusTreeData, file order (active removed)
+    activeTreeIndex: int = 0                           # the active tree's position among ALL trees
+    sharedPool: list = field(default_factory=list)     # shared FocusNodeData NOT visible in the active tree
+    # The ACTIVE tree's verbatim extras (the parked trees carry their own).
+    countryRawLines: list = field(default_factory=list)
+    sharedFocusRefs: list = field(default_factory=list)
+    treeRawLines: list = field(default_factory=list)
 
 
 @dataclass
@@ -398,6 +438,10 @@ class ValidationIssue:
     code: str = ""
     message: str = ""
     focusId: Optional[str] = None
+    # Set only for an issue raised on a PARKED tree of a multi-tree project
+    # (its message also carries the "[<treeId>] " prefix), so the UI can switch
+    # to that tree before selecting the focus. None = the active tree / project.
+    treeId: Optional[str] = None
 
 
 @dataclass

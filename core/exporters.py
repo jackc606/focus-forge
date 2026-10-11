@@ -7,6 +7,15 @@ from .availability_presets import build_availability_item_lines
 from .ideologies import canonical_sub_ideology, rename_legacy_ideology_tokens
 from .md_edition import edition_context
 from .md_parties import MD_PARTY_LABEL_BY_INDEX, MD_PARTY_SUBIDEOLOGY_BY_INDEX
+from .multi_tree import (
+    active_index,
+    all_focuses,
+    all_shared,
+    all_shortcut_lists,
+    base_position,
+    shared_sort_key,
+    tree_views,
+)
 from .reward_presets import build_reward_item_lines, tooltip_texts_by_owner
 from .types import (
     AvailabilityRule,
@@ -401,7 +410,7 @@ def export_focus_icon_sprites(project) -> "str | None":
     matching ``_shine`` sprite the game expects for every focus icon. None if no
     focus uses a custom icon (named icons reference existing sprites)."""
     entries = [(_focus_icon_sprite_name(f), _focus_icon_relpath(f))
-               for f in project.focuses if getattr(f, "iconData", "")]
+               for f in all_focuses(project) if getattr(f, "iconData", "")]
     if not entries:
         return None
     lines = ["spriteTypes = {"]
@@ -639,29 +648,41 @@ def export_country_localisation(project: FocusForgeProject) -> str:
     return "\n".join(lines) + "\n"
 
 
-def shortcut_loc_keys(project: FocusForgeProject) -> list:
-    """One UNIQUE localisation key per shortcut, aligned with ``project.shortcuts``
-    order.
+def shortcut_loc_keys_by_tree(project: FocusForgeProject) -> list:
+    """One list of UNIQUE localisation keys per tree (file order), each aligned
+    with that tree's shortcuts.
 
     Two shortcuts with the same label would slug to the same key and collide
     (the second ``name = <key>`` would show the wrong label), so — mirroring
     :func:`leader_asset_slugs` — an empty label falls back to ``shortcut_<index>``
-    and duplicates get a deterministic ``_2`` / ``_3`` suffix. Used by BOTH the
-    tree and loc exporters so ``name = <key>`` and ``<key>:0 "…"`` always agree."""
+    and duplicates get a deterministic ``_2`` / ``_3`` suffix. Keys are unique
+    across ALL trees of the file (they share one localisation file); a
+    single-tree project gets exactly the keys it always did."""
     settings = getattr(project, "exportSettings", None)
     prefix = (getattr(settings, "localisationPrefix", "") if settings else "") or ""
-    keys: list = []
     used: set = set()
-    for i, sc in enumerate(getattr(project, "shortcuts", None) or []):
-        slug = _SLUG_RE.sub("_", (getattr(sc, "label", "") or "").lower()).strip("_") or f"shortcut_{i}"
-        base = f"{prefix}_{slug}_shortcut"
-        key, n = base, 2
-        while key in used:
-            key = f"{base}_{n}"
-            n += 1
-        used.add(key)
-        keys.append(key)
-    return keys
+    out: list = []
+    for shortcuts in all_shortcut_lists(project):
+        keys: list = []
+        for i, sc in enumerate(shortcuts or []):
+            slug = _SLUG_RE.sub("_", (getattr(sc, "label", "") or "").lower()).strip("_") or f"shortcut_{i}"
+            base = f"{prefix}_{slug}_shortcut"
+            key, n = base, 2
+            while key in used:
+                key = f"{base}_{n}"
+                n += 1
+            used.add(key)
+            keys.append(key)
+        out.append(keys)
+    return out
+
+
+def shortcut_loc_keys(project: FocusForgeProject) -> list:
+    """The ACTIVE tree's shortcut localisation keys, aligned with
+    ``project.shortcuts`` order. Used by BOTH the tree and loc exporters (via
+    :func:`shortcut_loc_keys_by_tree`) so ``name = <key>`` and ``<key>:0 "…"``
+    always agree."""
+    return shortcut_loc_keys_by_tree(project)[active_index(project)]
 
 
 def _export_shortcut(shortcut, loc_key: str) -> list:
@@ -684,45 +705,122 @@ def _export_shortcut(shortcut, loc_key: str) -> list:
     return lines
 
 
-def export_focus_tree(project: FocusForgeProject) -> str:
+def _indent_script(lines, depth: int) -> list:
+    """Raw script lines (stored stripped) re-indented for output: ``depth``
+    tabs plus one per enclosing ``{`` inside the snippet itself. Blank lines
+    are dropped."""
+    out: list = []
+    level = 0
+    for raw in lines or []:
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        code = _QUOTED_RE.sub('""', s)      # braces inside strings don't nest
+        here = level - (1 if code.startswith("}") else 0)
+        out.append(f"{TAB * (depth + max(here, 0))}{s}")
+        level = max(level + code.count("{") - code.count("}"), 0)
+    return out
+
+
+_QUOTED_RE = re.compile(r'"[^"]*"')
+_INITIAL_SHOW = re.compile(r"^\s*initial_show_position\s*=")
+
+
+def _export_tree_block(tree: FocusForgeProject, shortcut_keys: list) -> list:
+    """One ``focus_tree = { }`` block: ``tree`` is a project (or a
+    ``multi_tree`` view) presenting that tree as the active one. Only the
+    tree's OWN focuses go inside — shared focuses are top-level blocks."""
     lines: list = [
         "focus_tree = {",
-        f"{TAB}id = {project.treeId}",
-        "",
-        f"{TAB}country = {{",
-        f"{TAB}{TAB}factor = 0",
-        f"{TAB}{TAB}modifier = {{",
-        f"{TAB}{TAB}{TAB}add = 100",
-        f"{TAB}{TAB}{TAB}tag = {project.countryTag}",
-        f"{TAB}{TAB}}}",
-        f"{TAB}}}",
-        "",
-        f"{TAB}continuous_focus_position = {{ x = {project.continuousFocusPosition.x} y = {project.continuousFocusPosition.y} }}",
-        f"{TAB}initial_show_position = {{ x = 0 y = 0 }}",
+        f"{TAB}id = {tree.treeId}",
         "",
     ]
+    country_raw = _indent_script(getattr(tree, "countryRawLines", None), 2)
+    if country_raw:
+        # An imported tree keeps its country block verbatim (trees switched to
+        # with load_focus_tree are `base = 0` and must stay that way).
+        lines.append(f"{TAB}country = {{")
+        lines.extend(country_raw)
+        lines.append(f"{TAB}}}")
+    else:
+        lines.extend([
+            f"{TAB}country = {{",
+            f"{TAB}{TAB}factor = 0",
+            f"{TAB}{TAB}modifier = {{",
+            f"{TAB}{TAB}{TAB}add = 100",
+            f"{TAB}{TAB}{TAB}tag = {tree.countryTag}",
+            f"{TAB}{TAB}}}",
+            f"{TAB}}}",
+        ])
+    for ref in (getattr(tree, "sharedFocusRefs", None) or []):
+        if (ref or "").strip():
+            lines.append(f"{TAB}shared_focus = {ref.strip()}")
+    lines.append("")
+    lines.append(f"{TAB}continuous_focus_position = {{ x = {tree.continuousFocusPosition.x} y = {tree.continuousFocusPosition.y} }}")
+    tree_raw = getattr(tree, "treeRawLines", None) or []
+    if not any(_INITIAL_SHOW.match(str(ln)) for ln in tree_raw):
+        lines.append(f"{TAB}initial_show_position = {{ x = 0 y = 0 }}")
+    lines.extend(_indent_script(tree_raw, 1))
+    lines.append("")
 
     # Branch-bookmark shortcut blocks sit at the top of the tree, before the
     # focuses. Skip any with an empty target; emit NOTHING (no blank lines) when
     # there are no shortcuts so the no-shortcuts export stays byte-identical.
-    keys = shortcut_loc_keys(project)
-    for shortcut, key in zip(getattr(project, "shortcuts", None) or [], keys):
+    for shortcut, key in zip(getattr(tree, "shortcuts", None) or [], shortcut_keys):
         if not (getattr(shortcut, "target", "") or "").strip():
             continue
         lines.extend(_export_shortcut(shortcut, key))
         lines.append("")
 
-    sorted_focuses = sorted(project.focuses, key=lambda f: (f.position.y, f.position.x, f.id))
-    for focus in sorted_focuses:
+    own = [f for f in tree.focuses if not getattr(f, "shared", False)]
+    for focus in sorted(own, key=lambda f: (f.position.y, f.position.x, f.id)):
         lines.extend(_export_focus(focus))
         lines.append("")
     lines.append("}")
+    return lines
+
+
+def export_focus_tree(project: FocusForgeProject) -> str:
+    """The whole national_focus file: every tree in file order (each with its
+    own focuses only), then every shared focus once as a top-level
+    ``shared_focus = { }`` block. A plain single-tree project produces exactly
+    the one ``focus_tree`` block it always did."""
+    keys = shortcut_loc_keys_by_tree(project)
+    lines: list = []
+    for i, view in enumerate(tree_views(project)):
+        if i:
+            lines.append("")
+        lines.extend(_export_tree_block(view, keys[i]))
+    shared = all_shared(project)
+    if shared:
+        by_id = {f.id: f for f in shared}
+        for focus in sorted(shared, key=shared_sort_key):
+            lines.append("")
+            lines.extend(_export_shared_focus(focus, by_id))
     return "\n".join(lines) + "\n"
 
 
-def _export_focus(focus: FocusNodeData) -> list:
+def _export_shared_focus(focus: FocusNodeData, shared_by_id: dict) -> list:
+    """A top-level ``shared_focus = { }`` block. x/y are the BASE position
+    (per-tree offsets live in the ``offset`` blocks, not in x/y), written
+    relative to ``relativePositionId`` when that names another shared focus."""
+    x, y = base_position(focus)
+    rel = (getattr(focus, "relativePositionId", None) or "").strip()
+    anchor = shared_by_id.get(rel) if rel and rel != focus.id else None
+    if anchor is not None:
+        ax, ay = base_position(anchor)
+        x, y = x - ax, y - ay
+    block = _export_focus(focus, key="shared_focus", xy=(x, y),
+                          relative_to=rel if anchor is not None else "")
+    # _export_focus indents for a focus inside a tree; a shared focus sits one
+    # level up, at the top of the file.
+    return [ln[1:] if ln.startswith(TAB) else ln for ln in block]
+
+
+def _export_focus(focus: FocusNodeData, key: str = "focus", xy=None,
+                  relative_to: str = "") -> list:
     lines: list = [
-        f"{TAB}focus = {{",
+        f"{TAB}{key} = {{",
         f"{TAB}{TAB}id = {focus.id}",
     ]
     icon = _focus_icon_value(focus)
@@ -730,11 +828,20 @@ def _export_focus(focus: FocusNodeData) -> list:
         # `icon = ` with NO value would make the Paradox parser consume the next
         # token ("x") as the value, corrupting the whole focus block.
         lines.append(f"{TAB}{TAB}icon = {icon}")
+    x, y = xy if xy is not None else (focus.position.x, focus.position.y)
     lines.extend([
-        f"{TAB}{TAB}x = {focus.position.x}",
-        f"{TAB}{TAB}y = {focus.position.y}",
-        f"{TAB}{TAB}cost = {focus.cost}",
+        f"{TAB}{TAB}x = {x}",
+        f"{TAB}{TAB}y = {y}",
     ])
+    if relative_to:
+        lines.append(f"{TAB}{TAB}relative_position_id = {relative_to}")
+    for block in (getattr(focus, "offsets", None) or []):
+        inner = _indent_script(block, 3)
+        if inner:
+            lines.append(f"{TAB}{TAB}offset = {{")
+            lines.extend(inner)
+            lines.append(f"{TAB}{TAB}}}")
+    lines.append(f"{TAB}{TAB}cost = {focus.cost}")
     # Each element of prerequisites is one prerequisite BLOCK. A plain id is a
     # single-focus block; a list is an OR group (several focus= in one block).
     # Separate blocks are AND-ed by HOI4; choices within a block are OR-ed.
@@ -762,6 +869,10 @@ def _export_focus(focus: FocusNodeData) -> list:
 
     if focus.filters:
         lines.append(f"{TAB}{TAB}search_filters = {{ {' '.join(focus.filters)} }}")
+
+    # Statements the editor doesn't model (allow_branch, cancel, select_effect,
+    # will_lead_to_war_with, …), exactly as imported.
+    lines.extend(_indent_script(getattr(focus, "extraRawLines", None), 2))
 
     lines.append("")
     lines.append(f"{TAB}{TAB}completion_reward = {{")
@@ -860,15 +971,17 @@ def _format_number(value) -> str:
 
 def export_focus_localisation(project: FocusForgeProject) -> str:
     lines = ["l_english:"]
-    for focus in project.focuses:
+    # Every focus of the file: the active tree's, the parked trees', and the
+    # shared focuses no matter which tree shows them.
+    for focus in all_focuses(project):
         lines.append(f' {focus.id}:0 "{_escape_loc(focus.title)}"')
         lines.append(f' {focus.id}_desc:0 "{_escape_loc(focus.description)}"')
     # Shortcut button labels — keyed identically to each tree ``name = <key>``.
-    keys = shortcut_loc_keys(project)
-    for shortcut, key in zip(getattr(project, "shortcuts", None) or [], keys):
-        if not (getattr(shortcut, "target", "") or "").strip():
-            continue
-        lines.append(f' {key}:0 "{_escape_loc(shortcut.label)}"')
+    for shortcuts, keys in zip(all_shortcut_lists(project), shortcut_loc_keys_by_tree(project)):
+        for shortcut, key in zip(shortcuts or [], keys):
+            if not (getattr(shortcut, "target", "") or "").strip():
+                continue
+            lines.append(f' {key}:0 "{_escape_loc(shortcut.label)}"')
     lines += _tooltip_loc_lines(project, "focus")
     return "\n".join(lines) + "\n"
 

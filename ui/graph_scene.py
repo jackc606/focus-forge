@@ -59,11 +59,13 @@ class GraphScene(QGraphicsScene):
             if existing:
                 existing.update_data(f.title, f.icon, int(f.position.x), int(f.position.y),
                                      cost=f.cost, prereq_count=prereq_count,
-                                     icon_data=getattr(f, "iconData", ""))
+                                     icon_data=getattr(f, "iconData", ""),
+                                     shared=getattr(f, "shared", False))
             else:
                 node = FocusNodeItem(f.id, f.title, f.icon, int(f.position.x), int(f.position.y),
                                      cost=f.cost, prereq_count=prereq_count,
-                                     icon_data=getattr(f, "iconData", ""))
+                                     icon_data=getattr(f, "iconData", ""),
+                                     shared=getattr(f, "shared", False))
                 node.position_committed.connect(self.node_moved.emit)
                 node.clicked.connect(self.node_clicked.emit)
                 node.connect_started.connect(self._on_connect_started)

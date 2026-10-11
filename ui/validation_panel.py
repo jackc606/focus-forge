@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
 from . import theme as T
 from .project_model import ProjectModel
-from .widgets import hint, issue_card, panel_header, pill
+from .widgets import activate_issue, hint, issue_card, panel_header, pill
 
 
 class ValidationPanel(QWidget):
@@ -69,9 +69,11 @@ class ValidationPanel(QWidget):
             if w:
                 w.deleteLater()
         for issue in issues:
+            # Clicking an issue that names a focus jumps to it — switching to
+            # its tree first when it belongs to a parked one.
             on_click = None
             if issue.focusId:
-                on_click = lambda fid=issue.focusId: self._model.set_selection(fid)
+                on_click = lambda i=issue: activate_issue(self._model, i)
             self._issues_box.addWidget(issue_card(
                 issue.severity, f"<b>{issue.code}</b>: {issue.message}",
                 on_click=on_click))

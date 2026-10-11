@@ -21,6 +21,7 @@ from .types import (
     FocusNodeData,
     FocusPosition,
     FocusShortcut,
+    FocusTreeData,
     IdeaData,
     LeaderData,
     PartyData,
@@ -55,6 +56,18 @@ _OPTIONAL_FIELDS = {
 }
 
 
+# Fields added after the format was established: omitted whenever they hold
+# their empty default (None / False / [] / 0), so a project that doesn't use
+# them — every single-tree project — serializes exactly as it always did.
+_OMIT_WHEN_EMPTY = {
+    FocusNodeData: {"shared", "relativePositionId", "offsets", "appliedOffset",
+                    "extraRawLines"},
+    FocusForgeProject: {"otherTrees", "activeTreeIndex", "sharedPool",
+                        "countryRawLines", "sharedFocusRefs", "treeRawLines"},
+    FocusTreeData: {"shortcuts", "countryRawLines", "sharedFocusRefs", "extraRawLines"},
+}
+
+
 def _to_plain(value: Any) -> Any:
     if value is None:
         return None
@@ -65,9 +78,12 @@ def _to_plain(value: Any) -> Any:
     if is_dataclass(value):
         out: dict = {}
         optional = _OPTIONAL_FIELDS.get(type(value), set())
+        omit_empty = _OMIT_WHEN_EMPTY.get(type(value))
         for f in fields(value):
             v = getattr(value, f.name)
             if (v is None or v == "") and f.name in optional:
+                continue
+            if omit_empty and f.name in omit_empty and not v:
                 continue
             out[f.name] = _to_plain(v)
         return out
@@ -250,6 +266,53 @@ def _focus_from_dict(d: dict) -> FocusNodeData:
         aiModifiers=([_ai_modifier_from_dict(m) for m in d["aiModifiers"] if isinstance(m, dict)]
                      if d.get("aiModifiers") else None),
         notes=d.get("notes"),
+        shared=bool(d.get("shared", False)),
+        relativePositionId=(str(d["relativePositionId"])
+                            if d.get("relativePositionId") else None),
+        offsets=_offsets_from(d.get("offsets")),
+        appliedOffset=_applied_offset_from(d.get("appliedOffset")),
+        extraRawLines=_str_list(d.get("extraRawLines")) or None,
+    )
+
+
+def _str_list(value) -> list:
+    """A list of strings from a possibly absent/corrupt value."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(v) for v in value if v is not None]
+
+
+def _offsets_from(value):
+    """``offsets``: a list of offset blocks, each a list of raw lines. A block
+    given as one string is accepted as a one-line block."""
+    if not isinstance(value, (list, tuple)):
+        return None
+    out = []
+    for block in value:
+        lines = [block] if isinstance(block, str) else _str_list(block)
+        if lines:
+            out.append(lines)
+    return out or None
+
+
+def _applied_offset_from(value):
+    if not isinstance(value, dict):
+        return None
+    x, y = _coerce_int(value.get("x", 0)), _coerce_int(value.get("y", 0))
+    return FocusPosition(x=x, y=y) if (x or y) else None
+
+
+def _tree_from_dict(d: dict) -> FocusTreeData:
+    cfp = d.get("continuousFocusPosition") or {}
+    return FocusTreeData(
+        treeId=str(d.get("treeId", "") or ""),
+        focuses=[_focus_from_dict(f) for f in (d.get("focuses") or [])],
+        shortcuts=[_shortcut_from_dict(s) for s in (d.get("shortcuts") or [])],
+        continuousFocusPosition=FocusPosition(x=_coerce_int(cfp.get("x", 0)),
+                                              y=_coerce_int(cfp.get("y", 0))),
+        countryRawLines=_str_list(d.get("countryRawLines")),
+        sharedFocusRefs=normalize_id_list(d.get("sharedFocusRefs")),
+        extraRawLines=_str_list(d.get("extraRawLines")),
     )
 
 
@@ -415,4 +478,12 @@ def project_from_dict(d: dict) -> FocusForgeProject:
         mode=str(d.get("mode", "millennium-dawn")),
         mdEdition=str(d.get("mdEdition", "main") or "main"),
         source=dict(d.get("source") or {}),
+        otherTrees=[_tree_from_dict(t) for t in (d.get("otherTrees") or [])
+                    if isinstance(t, dict)],
+        activeTreeIndex=max(0, _coerce_int(d.get("activeTreeIndex", 0))),
+        sharedPool=[_focus_from_dict(f) for f in (d.get("sharedPool") or [])
+                    if isinstance(f, dict)],
+        countryRawLines=_str_list(d.get("countryRawLines")),
+        sharedFocusRefs=normalize_id_list(d.get("sharedFocusRefs")),
+        treeRawLines=_str_list(d.get("treeRawLines")),
     )

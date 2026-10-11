@@ -8,7 +8,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
     QApplication,
     QFileDialog,
     QFrame,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core import multi_tree
 from core.base_tree import apply_base_tree_to_project
 from core.md_edition import edition as md_edition, retarget_mod_meta, set_active_edition
 from core.reward_script import structure_all_rewards
@@ -73,13 +73,41 @@ from .assistant_panel import AssistantPanel
 from .icon_jobs import IconJobRunner
 from .inspector_panel import InspectorPanel
 from .llm_panel import LlmPanel
+from .no_scroll import NoScrollComboBox
 from .project_model import ProjectModel
 from .settings_panel import SettingsPanel
 from .update_worker import UpdateCheckWorker, run_in_thread
 from .validation_panel import ValidationPanel
-from .widgets import ClickableLabel, pill
+from .widgets import ClickableLabel, flush_focused_editor, pill
 
 PROJECT_FILTER = "Focus Forge Project (*.focusforge.json);;JSON (*.json);;All files (*)"
+
+
+def _count(n: int, noun: str = "focus") -> str:
+    """``1 focus`` / ``88 focuses`` / ``7 trees``."""
+    return f"{n} {noun}{'' if n == 1 else ('es' if noun.endswith('s') else 's')}"
+
+
+def tree_label(summary: dict) -> str:
+    """One tree in the switcher: ``howardgov_focus — 88 focuses + 89 shared``
+    (``summary`` is a ``core.multi_tree.tree_summaries`` row)."""
+    text = f"{summary['treeId'] or '(no id)'} — {_count(summary['ownFocuses'])}"
+    if summary["sharedFocuses"]:
+        text += f" + {summary['sharedFocuses']} shared"
+    return text
+
+
+def import_summary(project) -> str:
+    """What an import just loaded, for the status bar / New Submod note. A
+    multi-tree file says so (the other trees are a click away, not missing);
+    a single tree keeps the short wording."""
+    n = multi_tree.tree_count(project)
+    if n <= 1:
+        return f"Imported {len(project.focuses)} focuses from {project.treeId}"
+    source = (project.source or {}).get("file") or "the focus file"
+    return (f"Imported {n} trees ({len(multi_tree.all_focuses(project))} focuses, "
+            f"{len(multi_tree.all_shared(project))} shared) from {source} — "
+            f"showing {project.treeId}")
 
 
 class MainWindow(QMainWindow):
@@ -104,7 +132,16 @@ class MainWindow(QMainWindow):
 
         self._scene = GraphScene(self)
         self._view = GraphView(self._scene)
-        splitter.addWidget(self._view)
+        # The canvas column: a slim "which tree am I looking at" bar (multi-tree
+        # files only — hidden otherwise, so the column is just the canvas) over
+        # the graph view.
+        canvas = QWidget()
+        canvas_col = QVBoxLayout(canvas)
+        canvas_col.setContentsMargins(0, 0, 0, 0)
+        canvas_col.setSpacing(0)
+        canvas_col.addWidget(self._build_tree_bar())
+        canvas_col.addWidget(self._view, 1)
+        splitter.addWidget(canvas)
         self._scene.node_clicked.connect(self._model.set_selection)
         self._scene.node_moved.connect(self._on_node_moved)
         self._scene.link_requested.connect(self._on_link_requested)
@@ -365,7 +402,9 @@ class MainWindow(QMainWindow):
             "off by default.")
         self._bridge_action.toggled.connect(self._toggle_bridge)
         clear_act = act("Clear Focuses", self._on_clear_focuses,
-                        tooltip="Remove every focus from this project (asks first).")
+                        tooltip="Remove every focus of the tree on the canvas (asks first). "
+                                "In a multi-tree file, shared focuses and the other trees "
+                                "are kept.")
         scan_log_act = act("Scan HOI4 error.log", self._scan_error_log,
                            tooltip="After launching the game with this mod: show the error.log "
                                    "lines about it, mapped back to your focuses.")
@@ -394,6 +433,79 @@ class MainWindow(QMainWindow):
 
         tb.addWidget(bar)
 
+    # ----- tree switcher (multi-tree files) -----
+    def _build_tree_bar(self) -> QFrame:
+        """The bar above the canvas naming the tree on screen, with a combo to
+        switch to the file's other trees. Hidden for single-tree projects."""
+        bar = QFrame()
+        bar.setObjectName("treeBar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(T.SPACE_MD, T.SPACE_XS, T.SPACE_MD, T.SPACE_XS)
+        row.setSpacing(T.SPACE_SM)
+        cap = QLabel("TREE")
+        cap.setObjectName("bankLabel")
+        row.addWidget(cap)
+        self._tree_combo = NoScrollComboBox()
+        self._tree_combo.setMinimumContentsLength(36)
+        self._tree_combo.setMaximumWidth(460)
+        self._tree_combo.setToolTip(
+            "The focus tree shown on the canvas. This project holds every tree of "
+            "one focus file — pick another to edit it. Export writes all of them.")
+        self._tree_combo.currentIndexChanged.connect(self._on_tree_chosen)
+        row.addWidget(self._tree_combo)
+        self._tree_bar_note = QLabel()
+        self._tree_bar_note.setObjectName("hint")
+        row.addWidget(self._tree_bar_note)
+        row.addStretch(1)
+        bar.setVisible(False)
+        self._tree_bar = bar
+        self._tree_labels: list = []       # what the combo currently lists
+        self._shown_tree_index = None      # active tree at the last refresh
+        return bar
+
+    def _refresh_tree_switcher(self) -> None:
+        """Bring the switcher in line with the project (runs on every
+        project_changed: a switch, its undo/redo, load, import, a tree-id
+        rename in Settings). Signals are blocked throughout, so syncing the
+        combo can never be mistaken for the user picking a tree."""
+        project = self._model.project
+        summaries = (multi_tree.tree_summaries(project)
+                     if multi_tree.tree_count(project) > 1 else [])
+        labels = [tree_label(s) for s in summaries]
+        combo = self._tree_combo
+        combo.blockSignals(True)
+        try:
+            # Rebuild only when the list really changed — project_changed fires
+            # per drag step, and clearing would close an open dropdown.
+            if labels != self._tree_labels:
+                combo.clear()
+                for s, label in zip(summaries, labels):
+                    combo.addItem(label, s["index"])
+                self._tree_labels = labels
+            if summaries:
+                combo.setCurrentIndex(multi_tree.active_index(project))
+        finally:
+            combo.blockSignals(False)
+        self._tree_bar.setVisible(bool(summaries))
+        if summaries:
+            shared = len(multi_tree.all_shared(project))
+            source = (project.source or {}).get("file") or "this file"
+            note = f"{len(summaries)} trees in {source}"
+            if shared:
+                note += f" · {_count(shared, 'shared focus')}, edited once for every tree"
+            self._tree_bar_note.setText(note)
+
+    def _on_tree_chosen(self, row: int) -> None:
+        index = self._tree_combo.itemData(row)
+        if index is None or index == multi_tree.active_index(self._model.project):
+            return
+        # A pending inspector edit belongs to a focus of the tree being left.
+        self._flush_focused_editor()
+        if self._model.switch_tree(int(index)):
+            # (_on_project_changed re-fits the view for the new tree.)
+            summary = multi_tree.tree_summaries(self._model.project)[int(index)]
+            self._model.status_message.emit(f"Showing {tree_label(summary)}.")
+
     # ----- pending-edit flush + unsaved-changes guard -----
     @staticmethod
     def _flush_focused_editor() -> None:
@@ -402,10 +514,7 @@ class MainWindow(QMainWindow):
         they lose focus — so Save/Export/autosave must flush them first or the
         snapshot misses the value still sitting in the widget. Focus is given
         back afterwards so an autosave mid-typing doesn't steal the caret."""
-        w = QApplication.focusWidget()
-        if isinstance(w, (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)):
-            w.clearFocus()  # fires editingFinished synchronously → model commit
-            w.setFocus()
+        flush_focused_editor()  # shared with the panels (ui.widgets)
 
     def _confirm_discard_changes(self) -> bool:
         """Guard for every action that replaces or closes the current project
@@ -700,7 +809,11 @@ class MainWindow(QMainWindow):
             if mod_target not in roots:
                 provider().set_roots(roots + [mod_target])
 
-        if imported:
+        if imported and multi_tree.tree_count(project) > 1:
+            tree_note = (f"{import_summary(project)}: {vals['country_tag']}'s whole "
+                         f"Millennium Dawn focus file. Switch trees above the canvas — "
+                         f"edit freely.")
+        elif imported:
             tree_note = (f"Imported {vals['country_tag']}'s Millennium Dawn focus tree "
                          f"({len(project.focuses)} focuses) — edit freely.")
         elif not vals.get("start_blank"):
@@ -730,7 +843,9 @@ class MainWindow(QMainWindow):
             refs = [r for r in find_focus_trees(roots) if r.tag == clean]
             if not refs:
                 return None
-            ref = max(refs, key=lambda r: r.focus_count)  # the country's main tree
+            # The country's main tree: one that names the tag itself (the start
+            # tree) beats siblings it only switches to later, then the biggest.
+            ref = max(refs, key=lambda r: (not r.inherited_tag, r.focus_count))
             return import_focus_tree(ref, roots)
         except Exception as exc:
             QMessageBox.warning(self, "Import failed",
@@ -886,9 +1001,12 @@ class MainWindow(QMainWindow):
             return
         self._model.replace_project(project, path=None)
         self._view.fit_to_content()
-        self._model.status_message.emit(
-            f"Imported {len(project.focuses)} focuses from {project.treeId} — "
-            f"Save to keep, or Export into a mod.")
+        if multi_tree.tree_count(project) > 1:
+            self._model.status_message.emit(
+                f"{import_summary(project)}. Save to keep, or Export into a mod.")
+        else:
+            self._model.status_message.emit(
+                f"{import_summary(project)} — Save to keep, or Export into a mod.")
 
     def _resolve_mod_dir(self):
         """The HOI4 mod folder to build into: the project's remembered exportDir,
@@ -993,11 +1111,13 @@ class MainWindow(QMainWindow):
         one by one in the editors."""
         from core.condition_script import structure_all_conditions
         self._flush_focused_editor()
+        # The conversion runs over every tree of the file, so count them all.
+        everything = multi_tree.all_focuses(self._model.project)
         reward_candidates = sum(
-            1 for f in self._model.project.focuses
+            1 for f in everything
             if f.completionReward and (f.completionReward.rawLines or []))
         trigger_candidates = sum(
-            1 for f in self._model.project.focuses
+            1 for f in everything
             for rule in (f.available, getattr(f, "bypass", None))
             if rule is not None and (rule.rawLines or []))
         if not reward_candidates and not trigger_candidates:
@@ -1120,7 +1240,9 @@ class MainWindow(QMainWindow):
             jump = box.addButton("Select first focus", QMessageBox.ActionRole)
             box.exec()
             if box.clickedButton() is jump:
-                self._model.set_selection(focus_hits[0].focusId)
+                # The log covers the whole file — the focus may sit in a tree
+                # other than the one on screen.
+                self._model.reveal_focus(focus_hits[0].focusId)
         else:
             box.exec()
 
@@ -1218,11 +1340,15 @@ class MainWindow(QMainWindow):
             shown = "\n".join(f"  • {i.message}" for i in blocking[:8])
             more = f"\n  …and {len(blocking) - 8} more" if len(blocking) > 8 else ""
             n = len(blocking)
+            where = ""
+            if any(getattr(i, "treeId", None) for i in blocking):
+                where = ("\n\nErrors marked [tree id] are in another tree of this file — "
+                         "click one in the Validation tab to jump to that tree and focus.")
             ans = QMessageBox.question(
                 self,
                 "Validation errors",
                 f"This project has {n} error{'s' if n != 1 else ''} that may produce a "
-                f"broken mod:\n\n{shown}{more}\n\nExport anyway?",
+                f"broken mod:\n\n{shown}{more}{where}\n\nExport anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -1258,20 +1384,41 @@ class MainWindow(QMainWindow):
         self._model.delete_focus(sel)
 
     def _on_clear_focuses(self) -> None:
-        n = len(self._model.project.focuses)
+        """Remove the ACTIVE tree's own focuses. Shared focuses belong to the
+        whole file (deleting one removes it from every tree), so they — and
+        the file's other trees — are never part of a clear."""
+        project = self._model.project
+        own = multi_tree.own_focuses(project)
+        n = len(own)
+        shared = len(project.focuses) - n
+        trees = multi_tree.tree_count(project)
         if n == 0:
-            self._model.status_message.emit("No focuses to clear.")
+            self._model.status_message.emit(
+                f"{project.treeId} has no focuses of its own to clear — its "
+                f"{_count(shared, 'shared focus')} belong to the whole file."
+                if shared else "No focuses to clear.")
             return
+        if trees > 1 or shared:
+            kept = []
+            if shared:
+                kept.append(f"the {_count(shared, 'shared focus')} shown here")
+            if trees > 1:
+                kept.append(f"the file's other {_count(trees - 1, 'tree')}")
+            kept.append("ideas, events and country data")
+            text = (f"This removes all {n} focus{'es' if n != 1 else ''} of the tree "
+                    f"{project.treeId}. Kept: {', '.join(kept)}.")
+        else:
+            text = (f"This removes all {n} focus{'es' if n != 1 else ''} from this "
+                    f"project (ideas, events and country data are kept).")
         ans = QMessageBox.warning(
             self, "Clear all focuses",
-            f"This removes all {n} focus{'es' if n != 1 else ''} from this "
-            f"project (ideas, events and country data are kept).\n\nYou can undo "
-            f"this with Ctrl+Z. Continue?",
+            f"{text}\n\nYou can undo this with Ctrl+Z. Continue?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ans != QMessageBox.Yes:
             return
-        self._model.delete_focuses([f.id for f in self._model.project.focuses])
-        self._model.status_message.emit(f"Cleared {n} focuses")
+        self._model.delete_focuses([f.id for f in own])
+        self._model.status_message.emit(
+            f"Cleared {n} focuses" + (f" from {project.treeId}" if trees > 1 else ""))
 
     def _on_delete_focuses(self, ids) -> None:
         ids = list(ids or [])
@@ -1362,6 +1509,15 @@ class MainWindow(QMainWindow):
     def _on_project_changed(self) -> None:
         self._sync_md_edition()
         self._scene.reconcile(self._model.project, self._model.selected_id)
+        # Multi-tree files: keep the switcher in step, and re-fit the view
+        # whenever a different tree lands on the canvas (the switcher, undo /
+        # redo of a switch, a validation-issue jump, the AI bridge) — the new
+        # tree's focuses can be anywhere relative to the old viewport.
+        self._refresh_tree_switcher()
+        shown = multi_tree.active_index(self._model.project)
+        if self._shown_tree_index is not None and shown != self._shown_tree_index:
+            self._view.fit_to_content()
+        self._shown_tree_index = shown
         self._delete_action.setEnabled(bool(self._model.selected_id))
         self._apply_search_highlight()  # re-apply after nodes are rebuilt
         # Pre-decode this project's focus icons off-thread so a big imported tree

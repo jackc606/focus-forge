@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.exporters import export_events
+from core.multi_tree import all_focuses
 from core.types import (
     AvailabilityRule,
     EventData,
@@ -205,7 +206,7 @@ class EventEditorDialog(QDialog):
         tag = model.project.countryTag
         self._idea_refs = [(i.id, f"{i.title or i.id} ({i.id})") for i in model.project.ideas]
         self._event_refs = [(e.id, f"{e.title or e.id} ({e.id})") for e in model.project.events]
-        self._focus_ids = [f.id for f in model.project.focuses]
+        self._focus_ids = [f.id for f in all_focuses(model.project)]   # every tree's
         self._country_tag = tag
         from .leader_options import build_leader_refs
         self._leader_refs = build_leader_refs(model.project)

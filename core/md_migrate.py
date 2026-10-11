@@ -32,6 +32,7 @@ from .md_edition import (
     LEGACY_TAG_RENAMES,
     active_edition,
 )
+from .multi_tree import all_focuses, all_shortcut_lists
 from .reward_presets import get_reward_preset
 
 
@@ -98,14 +99,16 @@ def _rule_raw(rule):
 
 def _raw_sites(project):
     """Every raw effect/trigger line list in the project (the list objects
-    themselves, so callers can rewrite them in place)."""
-    for f in project.focuses:
+    themselves, so callers can rewrite them in place). A migration is
+    project-wide: every tree of a multi-tree file and every shared focus."""
+    for f in all_focuses(project):
         if f.completionReward is not None:
             yield f.completionReward.rawLines
         yield _rule_raw(f.available)
         yield _rule_raw(getattr(f, "bypass", None))
         for mod in getattr(f, "aiModifiers", None) or []:
             yield _rule_raw(mod.trigger)
+        yield getattr(f, "extraRawLines", None)   # allow_branch, will_lead_to_war_with, …
     for ev in project.events:
         yield _rule_raw(ev.trigger)
         for opt in ev.options or []:
@@ -121,8 +124,9 @@ def _raw_sites(project):
     for c in getattr(project, "decisionCategories", None) or []:
         yield _rule_raw(c.visible)
         yield c.rawLines
-    for s in getattr(project, "shortcuts", None) or []:
-        yield s.triggerRawLines
+    for shortcuts in all_shortcut_lists(project):
+        for s in shortcuts or []:
+            yield s.triggerRawLines
 
 
 def _item_sites(project):
@@ -132,7 +136,7 @@ def _item_sites(project):
     def rule_items(rule):
         return (getattr(rule, "items", None) or []) if rule is not None else []
 
-    for f in project.focuses:
+    for f in all_focuses(project):
         if f.completionReward is not None:
             yield f.completionReward.items or [], reward
         yield rule_items(f.available), cond

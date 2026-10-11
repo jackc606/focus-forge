@@ -218,6 +218,14 @@ player SEES. Per branch:
 - Every write op above returns issues like focus writes do; fix them before moving on.
 Budget: for 10-15 focuses, 1-2 spirits, 2-3 events (one at the fork), 0-1 decisions.
 
+## Multi-tree projects & shared focuses
+A project imported from a Millennium Dawn file may hold SEVERAL focus trees plus shared
+focuses (`hello` then shows `project.trees`; `list_trees` lists them). Every focus op works
+on the ACTIVE tree only — `switch_tree` (index or treeId) changes it, and all trees are
+exported together into the one file. A focus with `shared: true` is a top-level
+shared_focus that appears in every tree referencing its branch: editing or deleting it
+changes all of those trees, and focus ids must be unique across every tree.
+
 ## Namespaces & tone
 Events: `<localisationPrefix>.<n>` (e.g. SYR.1). Ideas: `<TAG>_<slug>`.
 Write terse, dry, flavorful prose — TWO full sentences of description per focus, each

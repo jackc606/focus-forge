@@ -41,6 +41,16 @@ _GENERIC_TREE_ID = "generic_focus"
 _REF_ROLE = Qt.UserRole
 
 
+def focus_count_text(ref) -> str:
+    """The "Focuses" cell for a tree: its own focuses, plus the shared focuses
+    it pulls in when it has any — ``88 + 89 shared`` (``focus_count`` is the
+    total of the two)."""
+    shared = getattr(ref, "shared_count", 0) or 0
+    if not shared:
+        return str(ref.focus_count)
+    return f"{max(0, ref.focus_count - shared)} + {shared} shared"
+
+
 def _default_mod_dir(roots) -> str:
     """Best guess at the user's HOI4 `mod` folder for the folder picker.
 
@@ -178,8 +188,12 @@ class ImportTreeDialog(QDialog):
         self._tree.clear()
         for ref in self._refs:
             item = QTreeWidgetItem([
-                ref.tag, ref.tree_id, str(ref.focus_count), os.path.basename(ref.file)])
+                ref.tag, ref.tree_id, focus_count_text(ref), os.path.basename(ref.file)])
             item.setData(0, _REF_ROLE, ref)
+            if ref.shared_count:
+                item.setToolTip(2, f"{ref.own_count} focuses of its own, plus "
+                                   f"{ref.shared_count} shared focuses that other trees "
+                                   f"in the same file use too.")
             item.setToolTip(3, ref.file)
             self._tree.addTopLevelItem(item)
         for c in (0, 2, 3):
@@ -274,16 +288,49 @@ class ImportTreeDialog(QDialog):
         self._replace_panel.setVisible(show)
         if not show:
             return
-        self._replace_label.setText(
-            f"This is {BASE_MOD_NAME}'s {self._country_name(ref.tag)} tree "
-            f"({os.path.basename(ref.file)}). Your mod will REPLACE it in-game — that's "
-            f"the normal way to edit an existing tree.")
+        self._replace_label.setText(self.replace_text(ref))
         if not self._prefix_edit.text().strip() or self._prefix_edit.text().strip().endswith("_NEW"):
             self._prefix_edit.setText(f"{ref.tag.upper()}_NEW")
         self._update_copy_row()
 
+    def replace_text(self, ref) -> str:
+        """What a default (replace) import of ``ref`` does, in plain words."""
+        name = os.path.basename(ref.file)
+        n = getattr(ref, "trees_in_file", 1) or 1
+        if n > 1:
+            # The export overwrites the whole file, so the import has to carry
+            # all of it — say so, or the other trees look like they went missing.
+            shared = " and the shared focuses" if ref.shared_count else ""
+            return (f"{name} holds {n} of {BASE_MOD_NAME}'s {self._country_name(ref.tag)} "
+                    f"trees. The whole file is imported — all {n} trees{shared} — and "
+                    f"{ref.tree_id} is shown first; switch between them above the canvas. "
+                    f"Your mod will REPLACE the file in-game — that's the normal way to "
+                    f"edit existing trees.")
+        return (f"This is {BASE_MOD_NAME}'s {self._country_name(ref.tag)} tree "
+                f"({name}). Your mod will REPLACE it in-game — that's "
+                f"the normal way to edit an existing tree.")
+
+    def copy_texts(self, ref) -> tuple:
+        """``(checkbox label, note)`` for the separate-copy option. A copy takes
+        ONE tree, which matters when the file has several."""
+        n = getattr(ref, "trees_in_file", 1) or 1      # ref may be None (no row)
+        if n > 1:
+            shared = (" (with copies of the shared focuses it uses)"
+                      if ref.shared_count else "")
+            return (f"Start a separate copy of {ref.tree_id} only",
+                    f"Only {ref.tree_id} is copied{shared} — the file's other "
+                    f"{n - 1} tree{'s' if n != 2 else ''} are not imported. "
+                    f"{BASE_MOD_NAME}'s trees stay; your focuses get the prefix so the "
+                    f"two can't clash.")
+        return ("Start a separate copy instead",
+                f"{BASE_MOD_NAME}'s tree stays; your focuses get the prefix so "
+                f"the two can't clash.")
+
     def _update_copy_row(self) -> None:
         on = self._copy_check.isChecked()
+        label, note = self.copy_texts(self._current_ref())
+        self._copy_check.setText(label)
+        self._copy_note.setText(note)
         self._copy_row.setVisible(on)
         self._copy_note.setVisible(on)
 
@@ -326,6 +373,8 @@ class ImportTreeDialog(QDialog):
             focus_count=self._generic_ref.focus_count,
             file=self._generic_ref.file,
             prefix_ids=True,
+            shared_count=self._generic_ref.shared_count,
+            trees_in_file=self._generic_ref.trees_in_file,
         )
         self.accept()
 

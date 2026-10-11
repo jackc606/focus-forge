@@ -85,6 +85,13 @@ QFrame#bankDivider {{
     margin: 2px 0 12px 0;
 }}
 QToolBar QToolButton::menu-indicator {{ image: none; }}
+/* Tree switcher: the slim bar over the canvas (multi-tree files only). Panel
+   surface + a hairline, so it reads as part of the chrome, not the canvas. */
+QFrame#treeBar {{
+    background-color: {T.BG_PANEL};
+    border: 0;
+    border-bottom: 1px solid {T.BORDER_SUBTLE};
+}}
 
 /* ----- Primary (accent) button ----- */
 QPushButton#primary, QToolBar QToolButton#primary {{

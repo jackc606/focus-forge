@@ -14,6 +14,8 @@ from PySide6.QtCore import QCoreApplication, QObject, QTimer, Signal, Slot
 
 from core.exporters import export_project_files
 from core.file_io import atomic_write_bytes
+from core import multi_tree
+from core.multi_tree import all_focuses
 from core.sample_project import make_sample_project
 from core.serialization import project_from_dict, project_to_dict
 from core.types import (
@@ -674,11 +676,15 @@ class ProjectModel(QObject):
             return
         self._force_undo_boundary()
         self._project.focuses = [f for f in self._project.focuses if f.id not in ids]
-        # Strip references
-        for f in self._project.focuses:
+        # Strip references — across every tree and shared focus of the file
+        # (all_focuses is just project.focuses for an ordinary project).
+        for f in all_focuses(self._project):
             f.prerequisites = map_prereq_groups(f.prerequisites, lambda p: None if p in ids else p)
             f.mutuallyExclusive = [m for m in f.mutuallyExclusive if m not in ids]
             self._strip_focus_refs(f, ids)
+            if getattr(f, "relativePositionId", None) in ids:
+                f.relativePositionId = None   # position is absolute in the editor
+        self._rewrite_shared_refs({fid: None for fid in ids})
         if self._selected_id in ids:
             self._selected_id = self._project.focuses[0].id if self._project.focuses else ""
             self.selection_changed.emit(self._selected_id)
@@ -719,6 +725,13 @@ class ProjectModel(QObject):
             new_id = self._unique_id(f.id or "pasted_focus")
             id_map[f.id] = new_id
             f.id = new_id
+            # A copy of a shared focus is an ordinary focus of the tree it is
+            # pasted into: only the original is the file's shared_focus block,
+            # and its per-tree offset bookkeeping must not follow the copy.
+            f.shared = False
+            f.appliedOffset = None
+            f.relativePositionId = None
+            f.offsets = None
             f.position = FocusPosition(x=int(f.position.x) + dx, y=int(f.position.y) + dy)
             self._project.focuses.append(f)
         present = {f.id for f in self._project.focuses}
@@ -748,7 +761,8 @@ class ProjectModel(QObject):
 
     def rename_focus(self, old_id: str, new_id: str) -> str:
         """Rename a focus (de-duping the new id) and rewrite every reference —
-        prerequisites, mutual exclusions, and availability completed-focus checks.
+        prerequisites, mutual exclusions, availability completed-focus checks
+        and tree-shortcut targets, in every tree of the file.
         Returns the final id. Shared by the inspector and the AI bridge."""
         focus = self.find_focus(old_id)
         new_id = (new_id or "").strip()
@@ -758,15 +772,105 @@ class ProjectModel(QObject):
         new_id = self._unique_id(new_id)
         focus.id = new_id
         mapping = {old_id: new_id}
-        for other in self._project.focuses:
+        for other in all_focuses(self._project):
             other.prerequisites = map_prereq_groups(
                 other.prerequisites, lambda p: new_id if p == old_id else p)
             other.mutuallyExclusive = [new_id if m == old_id else m for m in other.mutuallyExclusive]
             self._rewrite_focus_refs(other, mapping)
+            if getattr(other, "relativePositionId", None) == old_id:
+                other.relativePositionId = new_id
+        self._rewrite_shared_refs(mapping)
+        # Branch bookmarks point at focuses by id too — every tree's, since a
+        # shared focus can be the target of a shortcut in any of them.
+        for shortcuts in multi_tree.all_shortcut_lists(self._project):
+            for sc in shortcuts or []:
+                if sc.target == old_id:
+                    sc.target = new_id
         if self._selected_id == old_id:
             self.set_selection(new_id)
         self._emit_all()
         return new_id
+
+    def _rewrite_shared_refs(self, mapping: dict) -> None:
+        """Keep every tree's ``shared_focus = X`` reference list in step with a
+        rename (``{old: new}``) or delete (``{old: None}``) of a shared focus."""
+        project = self._project
+        if not (project.sharedFocusRefs or project.otherTrees):
+            return
+
+        def remap(refs):
+            out = []
+            for r in refs or []:
+                new = mapping.get(r, r)
+                if new and new not in out:
+                    out.append(new)
+            return out
+
+        project.sharedFocusRefs = remap(project.sharedFocusRefs)
+        for tree in project.otherTrees:
+            tree.sharedFocusRefs = remap(tree.sharedFocusRefs)
+
+    # ----- multi-tree projects -----
+    def switch_tree(self, index: int) -> bool:
+        """Make another tree of a multi-tree project the active one (see
+        ``core.multi_tree``). One undo step; the selection is cleared because
+        it named a focus of the tree being left. False when ``index`` is out
+        of range or already active."""
+        self._force_undo_boundary()
+        if not multi_tree.switch_tree(self._project, index):
+            return False
+        self._selected_id = ""
+        self.selection_changed.emit("")
+        self._emit_all()
+        return True
+
+    def tree_index_of_focus(self, focus_id: str) -> int:
+        """File index of a PARKED tree that shows ``focus_id`` (its own focus,
+        or a shared one visible there), or -1 when the focus is already on the
+        canvas or exists nowhere."""
+        if (not focus_id or self.find_focus(focus_id) is not None
+                or not multi_tree.is_multi(self._project)):
+            return -1
+        for index, view in enumerate(multi_tree.tree_views(self._project)):
+            if any(f.id == focus_id for f in view.focuses):
+                return index
+        return -1
+
+    def issue_tree_index(self, issue) -> int:
+        """File index of the PARKED tree a validation issue belongs to, or -1
+        when it is about the active tree / the project as a whole. An issue
+        that names its tree (``treeId``) goes there; one that only names a
+        focus goes to a tree showing that focus."""
+        tree_id = getattr(issue, "treeId", None)
+        if tree_id:
+            if tree_id == self._project.treeId:
+                return -1
+            index = multi_tree.index_of_tree(self._project, tree_id)
+            if index >= 0:
+                return index
+        return self.tree_index_of_focus(getattr(issue, "focusId", None) or "")
+
+    def reveal_issue(self, issue) -> bool:
+        """Go to what a validation issue is about: switch to its tree when it
+        was raised on a parked one, then select its focus. True when the active
+        tree changed."""
+        index = self.issue_tree_index(issue)
+        switched = index >= 0 and self.switch_tree(index)
+        focus_id = getattr(issue, "focusId", None)
+        if focus_id and self.find_focus(focus_id):
+            self.set_selection(focus_id)
+        return bool(switched)
+
+    def reveal_focus(self, focus_id: str) -> bool:
+        """Select ``focus_id``, switching to a tree that shows it when it is not
+        on the canvas. False when no tree of the project has it."""
+        index = self.tree_index_of_focus(focus_id)
+        if index >= 0:
+            self.switch_tree(index)
+        if self.find_focus(focus_id) is None:
+            return False
+        self.set_selection(focus_id)
+        return True
 
     def set_mutually_exclusive(self, a_id: str, b_id: str) -> str:
         """Make two focuses mutually exclusive (symmetric). Returns a status message."""
@@ -865,7 +969,7 @@ class ProjectModel(QObject):
     def _iter_idea_refs(self):
         """Yield (focus, reward_item, value) for every idea_ref reward param."""
         from core.reward_presets import get_reward_preset
-        for f in self._project.focuses:
+        for f in all_focuses(self._project):
             reward = f.completionReward
             for item in (reward.items or []) if reward else []:
                 preset = get_reward_preset(item.kind)
@@ -877,7 +981,7 @@ class ProjectModel(QObject):
 
     def _rename_idea_references(self, old_id: str, new_id: str) -> None:
         from core.reward_presets import get_reward_preset
-        for f in self._project.focuses:
+        for f in all_focuses(self._project):
             reward = f.completionReward
             for item in (reward.items or []) if reward else []:
                 preset = get_reward_preset(item.kind)
@@ -954,7 +1058,7 @@ class ProjectModel(QObject):
         ``country_event`` reward-item params (type ``event_ref``) and the
         structured ``EventReward`` entries in ``reward.events``."""
         from core.reward_presets import get_reward_preset
-        for f in self._project.focuses:
+        for f in all_focuses(self._project):
             reward = f.completionReward
             if not reward:
                 continue
@@ -970,7 +1074,7 @@ class ProjectModel(QObject):
 
     def _rename_event_references(self, old_id: str, new_id: str) -> None:
         from core.reward_presets import get_reward_preset
-        for f in self._project.focuses:
+        for f in all_focuses(self._project):
             reward = f.completionReward
             if not reward:
                 continue
@@ -1066,7 +1170,9 @@ class ProjectModel(QObject):
         return sum(1 for d in self._project.decisions if d.category == category_id)
 
     def _unique_id(self, base: str) -> str:
-        existing = {f.id for f in self._project.focuses}
+        # Focus ids are global in HOI4: unique across every tree and shared
+        # focus of the file, not just the tree on screen.
+        existing = {f.id for f in all_focuses(self._project)}
         if base not in existing:
             return base
         n = 2

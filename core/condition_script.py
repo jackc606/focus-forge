@@ -126,10 +126,11 @@ def structure_availability_rule(rule) -> int:
 def structure_all_conditions(project):
     """Structure raw availability AND bypass triggers across the project.
     → ``(converted_rule_count, lifted_condition_count, skipped_focus_ids)``."""
+    from .multi_tree import all_focuses
     converted = 0
     conditions = 0
     skipped: list = []
-    for f in project.focuses:
+    for f in all_focuses(project):
         touched_skip = False
         for rule in (f.available, getattr(f, "bypass", None)):
             if rule is None or not (rule.rawLines or []):

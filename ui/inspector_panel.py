@@ -27,6 +27,7 @@ from .no_scroll import NoScrollComboBox as QComboBox
 from .no_scroll import NoScrollDoubleSpinBox as QDoubleSpinBox
 from .no_scroll import NoScrollSpinBox as QSpinBox
 
+from core.multi_tree import all_focuses
 from core.presets import MD_FOCUS_FILTERS, MD_ICON_PRESETS
 from core.types import CompletionReward, FocusPosition, normalize_prereq_groups
 
@@ -40,10 +41,12 @@ from .icon_picker import IconPickerDialog
 from .icon_provider import provider
 from .project_model import ProjectModel
 from .reward_editor import RewardEditor
-from .widgets import BracketFrame, divider, panel_header, section_header
+from .widgets import BracketFrame, divider, hint, panel_header, section_header
 
 # In-game focus icon size (all base/MD focus icons are 100×88).
 _FOCUS_ICON_W, _FOCUS_ICON_H = 100, 88
+
+SHARED_NOTE = ("Shared focus — edits here apply in every tree that references it.")
 
 
 class InspectorPanel(QWidget):
@@ -111,7 +114,8 @@ class InspectorPanel(QWidget):
         self._id_edit.setPlaceholderText("focus_id")
         self._id_edit.setToolTip(
             "Focus id — renames rewrite every reference (prerequisites, mutex, "
-            "availability) project-wide.")
+            "availability, tree shortcuts) project-wide. Ids are unique across "
+            "every tree of the file.")
         ident.addWidget(self._id_edit)
         meta = QHBoxLayout()
         meta.setSpacing(T.SPACE_XS)
@@ -138,6 +142,11 @@ class InspectorPanel(QWidget):
         self._status_dot.setObjectName("statusDotOk")
         ch.addWidget(self._status_dot, 0, Qt.AlignTop)
         fg.addWidget(card)
+
+        # Multi-tree files only: shown while the selected focus is a shared one.
+        self._shared_note = hint(SHARED_NOTE)
+        self._shared_note.setVisible(False)
+        fg.addWidget(self._shared_note)
 
         def _section(title: str) -> QFormLayout:
             fg.addWidget(divider())
@@ -408,6 +417,7 @@ class InspectorPanel(QWidget):
         self._prereqs.update_suggestions(others)
         self._mutex.update_suggestions(others)
         self._suspend = False
+        self._shared_note.setVisible(bool(getattr(focus, "shared", False)))
         self._reward_editor.set_focus_id(focus.id)
         self._avail_editor.set_focus_id(focus.id)
         self._refresh_icon_preview()
@@ -450,7 +460,8 @@ class InspectorPanel(QWidget):
             return
         dlg = AiWeightDialog(
             focus, country_tag=self._model.project.countryTag,
-            focus_ids=[f.id for f in self._model.project.focuses if f.id != focus.id],
+            # AI triggers may check a focus of any tree of the file.
+            focus_ids=[f.id for f in all_focuses(self._model.project) if f.id != focus.id],
             parent=self)
         if not dlg.exec():
             return
@@ -684,7 +695,9 @@ class InspectorPanel(QWidget):
         return bool(re.match(r"^(?:[A-Za-z0-9]+_)?new_focus_\d+$", focus_id or ""))
 
     def _unique_focus_id(self, base: str, ignore: str = "") -> str:
-        existing = {f.id for f in self._model.project.focuses if f.id != ignore}
+        # Focus ids are global: unique across every tree and shared focus of
+        # the file, not just the tree on screen.
+        existing = {f.id for f in all_focuses(self._model.project) if f.id != ignore}
         if base and base not in existing:
             return base
         n = 2

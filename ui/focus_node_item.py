@@ -36,6 +36,14 @@ PORT_HIT = 12                     # grab radius around the bottom port
 PORT_PAD = 12                     # boundingRect padding so ports paint/hit fully
 GLOW_PAD = 5                      # horizontal padding so the selection glow paints fully
 
+# Shared-focus chip (multi-tree files): a small tag on the icon's top-left
+# corner. Same wording as the Focuses list and the Inspector note.
+SHARED_LABEL = "SHARED"
+SHARED_TOOLTIP = ("Shared focus — defined once for the whole file. Edits apply in "
+                  "every tree that references it.")
+SHARED_CHIP_H = 13
+SHARED_FONT_PX = 9
+
 
 # Paint-time colors and pens, built once at import — paint() runs per node per
 # frame, and per-call QColor/QPen construction adds up on dense trees. (QColor/
@@ -54,6 +62,7 @@ _C_BG_BASE = QColor(T.BG_BASE)
 _C_BG_INSET = QColor(T.BG_INSET)
 _C_BG_ELEVATED = QColor(T.BG_ELEVATED)
 _C_SEARCH_HL = QColor(T.SEARCH_HL)
+_C_SHARED = QColor(T.PREREQ_LINE)   # steel blue: reads as "linked", not as a state
 
 
 def _glow_pens():
@@ -105,7 +114,8 @@ class FocusNodeItem(QGraphicsObject):
     connect_ended = Signal(str, str, QPointF)   # source_id, target_id ("" if none), drop pos
 
     def __init__(self, focus_id: str, title: str, icon: str, grid_x: int, grid_y: int,
-                 cost=5, prereq_count: int = 0, icon_data: str = "") -> None:
+                 cost=5, prereq_count: int = 0, icon_data: str = "",
+                 shared: bool = False) -> None:
         super().__init__()
         self._focus_id = focus_id
         self._title = title or focus_id
@@ -121,6 +131,8 @@ class FocusNodeItem(QGraphicsObject):
         self._hover = False
         self._connecting = False
         self._search_match = None  # None=no search, True=match, False=non-match
+        self._shared = False       # a top-level shared_focus shown in this tree
+        self._set_shared(shared)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
@@ -138,9 +150,23 @@ class FocusNodeItem(QGraphicsObject):
     def grid_position(self) -> tuple:
         return (self._grid_x, self._grid_y)
 
+    @property
+    def is_shared(self) -> bool:
+        return self._shared
+
+    def _set_shared(self, shared: bool) -> bool:
+        """Set the shared marker (+ tooltip). True when it changed."""
+        shared = bool(shared)
+        if shared == self._shared:
+            return False
+        self._shared = shared
+        self.setToolTip(SHARED_TOOLTIP if shared else "")
+        return True
+
     def update_data(self, title: str, icon: str, grid_x: int, grid_y: int,
-                    cost=None, prereq_count: int = None, icon_data: str = "") -> None:
-        changed = False
+                    cost=None, prereq_count: int = None, icon_data: str = "",
+                    shared: bool = False) -> None:
+        changed = self._set_shared(shared)
         if title != self._title:
             self._title = title or self._focus_id
             changed = True
@@ -262,12 +288,29 @@ class FocusNodeItem(QGraphicsObject):
         eid = fm.elidedText(self._focus_id, Qt.ElideMiddle, int(NODE_W - 8))
         painter.drawText(id_rect, Qt.AlignHCenter | Qt.AlignVCenter, eid)
 
+        if self._shared:
+            self._paint_shared_chip(painter)
+
         if self._search_match is True:
             painter.setPen(QPen(_C_SEARCH_HL, 3))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(QRectF(1, 1, NODE_W - 2, NODE_H - 2), 6, 6)
 
         self._draw_ports(painter)
+
+    def _paint_shared_chip(self, painter: QPainter) -> None:
+        """The SHARED tag over the icon's top-left corner. Drawn last over the
+        icon art so it stays legible on any sprite; never drawn for an
+        ordinary focus."""
+        font = _mono_font(SHARED_FONT_PX, T.WEIGHT_BOLD)
+        painter.setFont(font)
+        width = painter.fontMetrics().horizontalAdvance(SHARED_LABEL) + 8
+        chip = QRectF(3, ICON_Y - 2, width, SHARED_CHIP_H)
+        painter.setPen(QPen(_C_SHARED, 1))
+        painter.setBrush(_C_FOCUS_PLATE)
+        painter.drawRoundedRect(chip, 3, 3)
+        painter.setPen(_C_SHARED)
+        painter.drawText(chip, Qt.AlignCenter, SHARED_LABEL)
 
     def set_search_match(self, state) -> None:
         if state != self._search_match:
